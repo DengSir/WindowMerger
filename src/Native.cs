@@ -48,25 +48,17 @@ internal static partial class Native
     public const uint SWP_NOACTIVATE = 0x0010;
 
     // GetWindowLong / GetWindow
-    public const int GWL_STYLE = -16;
     public const int GWL_EXSTYLE = -20;
-    public const int WS_CAPTION = 0x00C00000;
-    public const int WS_THICKFRAME = 0x00040000;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int GW_OWNER = 4;
     public const int GW_HWNDPREV = 3;
-    public const int GW_HWNDNEXT = 2;
-
-    // SetWindowPos
-    public const uint SWP_FRAMECHANGED = 0x0020;
 
     // ShowWindow
     public const int SW_HIDE = 0;
-    public const int SW_SHOWMINIMIZED = 2;
     public const int SW_MAXIMIZE = 3;
     public const int SW_MINIMIZE = 6;
-    public const int SW_RESTORE = 9;
     public const int SW_SHOWNA = 8;
+    public const int SW_RESTORE = 9;
 
     // 图标
     public const uint WM_GETICON = 0x007F;
@@ -78,6 +70,9 @@ internal static partial class Native
     // DWM
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public const int DWMWCP_DEFAULT = 0;
+    public const int DWMWCP_DONOTROUND = 1;
 
     // WinEvent
     public const uint EVENT_SYSTEM_MOVESIZE = 0x000A;
@@ -158,6 +153,9 @@ internal static partial class Native
 
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+    [LibraryImport("dwmapi.dll")]
+    public static partial int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
     [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
     public static partial int DwmGetWindowAttributeRect(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);

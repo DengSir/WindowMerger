@@ -57,4 +57,7 @@ $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
 $g.Dispose()
 $bmp.Save($ShotPath, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
-Write-Output "SHOT_OK $ShotPath"
+
+# 截完立即还原普通层级，不污染用户正在跑的实例
+[WinAtomic]::SetWindowPos($h, [IntPtr](-2), 0, 0, 0, 0, 0x0003) | Out-Null   # HWND_NOTOPMOST
+Write-Output "SHOT_OK $ShotPath (topmost restored)"

@@ -12,8 +12,8 @@ namespace WindowMerger;
 
 public sealed class HostWindow : Window
 {
-    private const double BorderW = 2;      // 可见边框宽度
-    private const double TopBarH = 28;     // 顶条高度（可拖动 + 右键菜单）
+    private const double BorderW = 2;      // 可见边框宽度（最大化时隐藏为 0）
+    private const double TopBarH = 28;     // 顶条高度
     private const double DividerW = 8;     // 中间分隔条宽度
     private const double ChromeResizeBorder = 8;
     private const double MinRatio = 0.2;
@@ -21,7 +21,6 @@ public sealed class HostWindow : Window
 
     private const int WM_GETMINMAXINFO = 0x0024;
 
-    private readonly AppConfig _config;
     private double _ratio;
 
     private Border _outer = null!;
@@ -38,19 +37,26 @@ public sealed class HostWindow : Window
     private IntPtr _rightHwnd;
     private readonly Dictionary<IntPtr, Native.RECT> _preAttachRects = new();
     private readonly Dictionary<IntPtr, (int L, int T, int R, int B)> _frameMargins = new();
-    private readonly Dictionary<IntPtr, int> _minimizedShowCmd = new();
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
     private int _highlightSlot = -1;
     private Panel _captionButtons = null!;
+    private Button _maxButton = null!;
+    private Button _pickLeftButton = null!;
+    private Button _pickRightButton = null!;
+    private string? _notice;
+    private DateTime _noticeUntil;
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
+    /// <summary>当前生效的边框宽度：最大化时边框隐藏，格子铺满窗口。</summary>
+    private double CurBorderW => WindowState == WindowState.Maximized ? 0 : BorderW;
+
     public HostWindow(AppConfig config)
     {
-        _config = config;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
+
 
         Title = "窗口合并 WindowMerger";
         WindowStyle = WindowStyle.None;
@@ -89,7 +95,8 @@ public sealed class HostWindow : Window
         StateChanged += (_, _) => OnStateChanged();
         Activated += (_, _) =>
         {
-            // 宿主激活自动升到子窗口上方，低优先级再把子窗口插回宿主下方加固相邻关系
+            ShowAttachedChildren();
+            // 宿主激活升到子窗口上方后，低优先级把子窗口插回宿主正下方加固相邻关系
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
@@ -116,10 +123,14 @@ public sealed class HostWindow : Window
         _leftGlow = MakeGlow(accent);
         _rightGlow = MakeGlow(accent);
 
-        var leftPane = new Grid { Background = null }; // 保持透明：空格看桌面，吸附后透出子窗口
-        leftPane.Children.Add(_leftGlow);
-        var rightPane = new Grid { Background = null };
-        rightPane.Children.Add(_rightGlow);
+        // 格子四周 1px 框线（与外边框同色）：子窗口可见边缘与格子齐平，
+        // 外扩/取整带来的最后一像素缝透出的是框线色而非桌面壁纸；内部保持透明
+        var leftInner = new Grid { Background = null };
+        leftInner.Children.Add(_leftGlow);
+        var rightInner = new Grid { Background = null };
+        rightInner.Children.Add(_rightGlow);
+        var leftPane = new Border { Background = null, BorderBrush = borderBrush, BorderThickness = new Thickness(2), Child = leftInner };
+        var rightPane = new Border { Background = null, BorderBrush = borderBrush, BorderThickness = new Thickness(2), Child = rightInner };
 
         _divider = new Border
         {
@@ -132,6 +143,20 @@ public sealed class HostWindow : Window
         _divider.MouseLeftButtonDown += DividerOnMouseDown;
         _divider.MouseMove += DividerOnMouseMove;
         _divider.MouseLeftButtonUp += DividerOnMouseUp;
+
+        if (Icons.Grip is string gripGlyph && Icons.Family is not null)
+        {
+            _divider.Child = new TextBlock
+            {
+                Text = gripGlyph,
+                FontFamily = Icons.Family,
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+            };
+        }
 
         _leftCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
         _content = new Grid { Background = null };
@@ -158,13 +183,32 @@ public sealed class HostWindow : Window
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 6, 6, 0),
+            VerticalAlignment = VerticalAlignment.Stretch, // 按钮占满顶条整行
+            Margin = new Thickness(0),                     // 顶到最右边
             Background = null,
         };
-        _captionButtons.Children.Add(CaptionButton("\u2500", (_, _) => WindowState = WindowState.Minimized));
-        _captionButtons.Children.Add(CaptionButton("\u25A1", (_, _) => ToggleMaximize()));
-        _captionButtons.Children.Add(CaptionButton("\u2715", (_, _) => Close(), danger: true));
+        // 右键菜单功能也铺到顶条：[左][右][交换][释放] | [─][□][✕]
+        // 左/右按钮状态翻转：空格时吸附选择，有吸附窗口时变为释放该侧
+        _pickLeftButton = CaptionButton(Icons.PickLeft, (_, _) =>
+        {
+            if (_leftHwnd == IntPtr.Zero) Pick(AttachSide.Left);
+            else ReleaseSide(0);
+        }, width: 30, tooltip: "选择左窗…");
+        _captionButtons.Children.Add(_pickLeftButton);
+        _pickRightButton = CaptionButton(Icons.PickRight, (_, _) =>
+        {
+            if (_rightHwnd == IntPtr.Zero) Pick(AttachSide.Right);
+            else ReleaseSide(1);
+        }, width: 30, tooltip: "选择右窗…");
+        _captionButtons.Children.Add(_pickRightButton);
+        _captionButtons.Children.Add(CaptionButton(Icons.Swap, (_, _) => SwapSides(), width: 30, tooltip: "交换左右"));
+        _captionButtons.Children.Add(CaptionButton(Icons.Release, (_, _) => ReleaseAll(), width: 30, tooltip: "全部释放（窗口回到原位）"));
+        _captionButtons.Children.Add(CaptionSeparator());
+        _captionButtons.Children.Add(CaptionButton(Icons.Minimize, (_, _) => WindowState = WindowState.Minimized, tooltip: "最小化"));
+        _maxButton = CaptionButton(Icons.Maximize, (_, _) => ToggleMaximize(), font: Icons.MaximizeFont, tooltip: "最大化");
+        _captionButtons.Children.Add(_maxButton);
+        _captionButtons.Children.Add(CaptionButton(Icons.Close, (_, _) => Close(), danger: true, fontSize: 16, tooltip: "关闭"));
+        UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
 
         var topBarGrid = new Grid();
         topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -182,10 +226,6 @@ public sealed class HostWindow : Window
         };
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
 
-        var menu = BuildMenu();
-        _topBar.ContextMenu = menu;
-        _divider.ContextMenu = menu;
-
         var root = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(_topBar, Dock.Top);
         root.Children.Add(_topBar);
@@ -200,44 +240,45 @@ public sealed class HostWindow : Window
         Content = _outer;
     }
 
-    private ContextMenu BuildMenu()
+    private static Border CaptionSeparator() => new()
     {
-        var m = new ContextMenu();
-        m.Items.Add(MakeItem("选择左窗…", (_, _) => Pick(AttachSide.Left)));
-        m.Items.Add(MakeItem("选择右窗…", (_, _) => Pick(AttachSide.Right)));
-        m.Items.Add(new Separator());
-        m.Items.Add(MakeItem("交换左右", (_, _) => SwapSides()));
-        m.Items.Add(MakeItem("全部释放（窗口回到原位）", (_, _) => ReleaseAll()));
-        m.Items.Add(new Separator());
-        m.Items.Add(MakeItem("退出", (_, _) => Close()));
-        return m;
-    }
+        Width = 1,
+        Margin = new Thickness(4, 6, 4, 6),
+        Background = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x4A)),
+        VerticalAlignment = VerticalAlignment.Stretch,
+    };
 
-    private static MenuItem MakeItem(string header, RoutedEventHandler onRun)
-    {
-        var item = new MenuItem { Header = header };
-        item.Click += onRun;
-        return item;
-    }
-
-    private static Button CaptionButton(string glyph, RoutedEventHandler onClick, bool danger = false)
+    private static Button CaptionButton(string glyph, RoutedEventHandler onClick, bool danger = false,
+        double fontSize = 13, double width = 36, string? tooltip = null, FontFamily? font = null)
     {
         var normal = Brushes.Transparent;
         var hover = danger
             ? new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C))
-            : new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
+            : new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C));
+
+        // 默认 WPF 按钮模板会在 IsMouseOver 时覆盖亮蓝色 chrome，这里用极简模板只呈现 Background
+        var template = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+
         var b = new Button
         {
             Content = glyph,
-            Width = 36,
-            Height = 20,
+            Width = width,
             Focusable = false,
             Background = normal,
             Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xD8, 0xD8)),
             BorderThickness = new Thickness(0),
-            FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 11,
+            FontFamily = font ?? Icons.Family ?? new FontFamily("Segoe UI"),
+            FontSize = Icons.Family != null || font != null ? fontSize : 11,
             Margin = new Thickness(2, 0, 0, 0),
+            ToolTip = tooltip,
+            Template = template,
         };
         b.MouseEnter += (_, _) => b.Background = hover;
         b.MouseLeave += (_, _) => b.Background = normal;
@@ -245,12 +286,28 @@ public sealed class HostWindow : Window
         return b;
     }
 
+    private void UpdateMaxGlyph()
+    {
+        if (_maxButton is null) return;
+        if (WindowState == WindowState.Maximized)
+        {
+            _maxButton.Content = Icons.Restore;
+            _maxButton.FontFamily = Icons.RestoreFont ?? _maxButton.FontFamily;
+        }
+        else
+        {
+            _maxButton.Content = Icons.Maximize;
+            _maxButton.FontFamily = Icons.MaximizeFont ?? _maxButton.FontFamily;
+        }
+    }
+
     private void ToggleMaximize()
         => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
-    private static Border MakeGlow(Color accent) => new()    {
+    private static Border MakeGlow(Color accent) => new()
+    {
         BorderBrush = new SolidColorBrush(accent),
-        BorderThickness = new Thickness(3),
+        BorderThickness = new Thickness(5),
         CornerRadius = new CornerRadius(4),
         Margin = new Thickness(1),
         IsHitTestVisible = false,
@@ -358,10 +415,10 @@ public sealed class HostWindow : Window
         ApplyLayoutTo(_rightHwnd, 1);
     }
 
-    private void ApplyLayoutTo(IntPtr hwnd, int slot)
+    private bool ApplyLayoutTo(IntPtr hwnd, int slot)
     {
-        if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd) || Native.IsIconic(hwnd) || Native.IsZoomed(hwnd)) return;
-        if (ActualWidth < 50 || ActualHeight < 50) return;
+        if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd) || Native.IsIconic(hwnd) || Native.IsZoomed(hwnd)) return false;
+        if (ActualWidth < 50 || ActualHeight < 50) return false;
 
         var (x, y, w, h) = PaneRectDevice(slot);
 
@@ -376,22 +433,23 @@ public sealed class HostWindow : Window
             && Math.Abs(r.Left - x) <= 1 && Math.Abs(r.Top - y) <= 1
             && Math.Abs(r.Width - w) <= 1 && Math.Abs(r.Height - h) <= 1)
         {
-            return; // 已就位，避免无谓的 SetWindowPos
+            return true; // 已就位，避免无谓的 SetWindowPos
         }
         // 插到宿主正下方：可见内容与格子齐平，分隔条/边框盖在隐形边上（宿主在上可点击）
-        Native.SetWindowPos(hwnd, _handle, x, y, w, h, Native.SWP_NOACTIVATE);
+        return Native.SetWindowPos(hwnd, _handle, x, y, w, h, Native.SWP_NOACTIVATE);
     }
 
     private (int X, int Y, int W, int H) PaneRectDevice(int slot)
     {
-        double availDip = Math.Max(0, ActualWidth - 2 * BorderW - DividerW);
-        double contentHDip = Math.Max(0, ActualHeight - 2 * BorderW - TopBarH);
+        double bw = CurBorderW;
+        double availDip = Math.Max(0, ActualWidth - 2 * bw - DividerW);
+        double contentHDip = Math.Max(0, ActualHeight - 2 * bw - TopBarH);
         double leftWDip = availDip * _ratio;
-        double xDip = slot == 0 ? BorderW : BorderW + leftWDip + DividerW;
+        double xDip = slot == 0 ? bw : bw + leftWDip + DividerW;
         double wDip = slot == 0 ? leftWDip : availDip - leftWDip;
 
-        var tl = PointToScreen(new Point(xDip, BorderW + TopBarH));
-        var br = PointToScreen(new Point(xDip + wDip, BorderW + TopBarH + contentHDip));
+        var tl = PointToScreen(new Point(xDip, bw + TopBarH));
+        var br = PointToScreen(new Point(xDip + wDip, bw + TopBarH + contentHDip));
         return ((int)Math.Round(tl.X), (int)Math.Round(tl.Y),
                 (int)Math.Round(br.X - tl.X), (int)Math.Round(br.Y - tl.Y));
     }
@@ -445,7 +503,7 @@ public sealed class HostWindow : Window
         UpdateStatus();
         if (childLost) UpdateHostIcon();
 
-        if (WindowState != WindowState.Normal) return;
+        if (WindowState == WindowState.Minimized) return; // 最小化时不布局；最大化也要自愈
         bool dragging = _drag is { IsBusy: true };
         if (!dragging && _highlightSlot != -1) SetDragHighlight(-1); // 拖动事件丢失时兜底熄灭高亮
         if (dragging) return; // 有窗口正在被拖动，不对抗
@@ -458,6 +516,14 @@ public sealed class HostWindow : Window
             {
                 SetToolWindowStyle(h, tool: true);
             }
+        }
+
+        // 吸附子窗口没有任务栏按钮，最小化后无从手动还原；独立最大化则摧毁合并布局——
+        // 宿主可见期间两种状态一律拉回格子自愈（子窗口自身没有"最大化"概念）
+        foreach (var h in new[] { _leftHwnd, _rightHwnd })
+        {
+            if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
+            if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
         }
 
         ApplyLayout();
@@ -474,29 +540,34 @@ public sealed class HostWindow : Window
                 foreach (var h in new[] { _leftHwnd, _rightHwnd })
                 {
                     if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-                    var pl = new Native.WINDOWPLACEMENT { length = Marshal.SizeOf<Native.WINDOWPLACEMENT>() };
-                    if (Native.GetWindowPlacement(h, ref pl)) _minimizedShowCmd[h] = pl.showCmd;
                     Native.ShowWindow(h, Native.SW_MINIMIZE);
                 }
                 break;
 
             case WindowState.Maximized:
-                // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化
-                ApplyLayout();
-                break;
-
             case WindowState.Normal:
-                foreach (var h in new[] { _leftHwnd, _rightHwnd })
-                {
-                    if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-                    if (_minimizedShowCmd.TryGetValue(h, out int cmd) && cmd != Native.SW_SHOWMINIMIZED)
-                    {
-                        Native.ShowWindow(h, cmd == Native.SW_MAXIMIZE ? Native.SW_MAXIMIZE : Native.SW_RESTORE);
-                    }
-                }
-                _minimizedShowCmd.Clear();
+                // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化；边框同步隐藏/恢复
+                ShowAttachedChildren();
+                if (_outer is not null) _outer.BorderThickness = new Thickness(CurBorderW);
+                UpdatePaneWidths();
                 ApplyLayout();
                 break;
+        }
+
+        UpdateMaxGlyph();
+    }
+
+    /// <summary>
+    /// 宿主回到可见状态时把所有非正常态（最小化/独立最大化）的子窗口拉回格子。
+    /// 子窗口是 tool window 没有任务栏按钮，不在这里还原就永远回不来；
+    /// 最大化路径尤其必要：从最大化最小化后点任务栏还原直接进 Maximized，不经过 Normal。
+    /// </summary>
+    private void ShowAttachedChildren()
+    {
+        foreach (var h in new[] { _leftHwnd, _rightHwnd })
+        {
+            if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
+            if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
         }
     }
 
@@ -512,14 +583,26 @@ public sealed class HostWindow : Window
         return Native.GetPid(hwnd) != (uint)Environment.ProcessId;
     }
 
+    internal bool IsAttachedChild(IntPtr hwnd)
+        => hwnd != IntPtr.Zero && (hwnd == _leftHwnd || hwnd == _rightHwnd);
+
+    /// <summary>拖放是否被允许：空格、拖回自己、或按住 Ctrl 替换。不允许则不显示高亮。</summary>
+    internal bool IsDropAllowed(IntPtr hwnd, int slot)
+    {
+        IntPtr cur = slot == 0 ? _leftHwnd : _rightHwnd;
+        if (cur == IntPtr.Zero || cur == hwnd) return true;
+        return IsCtrlHeld();
+    }
+
     internal int HitTestPaneAt(int deviceX, int deviceY)
     {
-        if (_handle == IntPtr.Zero || !IsLoaded || WindowState != WindowState.Normal) return -1;
+        if (_handle == IntPtr.Zero || !IsLoaded || WindowState == WindowState.Minimized) return -1;
         var p = PointFromScreen(new Point(deviceX, deviceY));
-        double x0 = BorderW;
-        double x1 = ActualWidth - BorderW;
-        double y0 = BorderW + TopBarH;
-        double y1 = ActualHeight - BorderW;
+        double bw = CurBorderW;
+        double x0 = bw;
+        double x1 = ActualWidth - bw;
+        double y0 = bw + TopBarH;
+        double y1 = ActualHeight - bw;
         if (p.X < x0 || p.X > x1 || p.Y < y0 || p.Y > y1) return -1;
         double avail = Math.Max(1, _content.ActualWidth - DividerW);
         double split = x0 + avail * _ratio + DividerW / 2;
@@ -531,6 +614,16 @@ public sealed class HostWindow : Window
         _highlightSlot = slot;
         _leftGlow.Visibility = slot == 0 ? Visibility.Visible : Visibility.Collapsed;
         _rightGlow.Visibility = slot == 1 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// 直角化子窗口（Win11 DWM 圆角是"圆角缝"的根源）：吸附时 DONOTROUND，
+    /// 释放时还原 DEFAULT。Win10 无此属性，调用失败无副作用。
+    /// </summary>
+    private static void SetSquareCorners(IntPtr hwnd, bool square)
+    {
+        int pref = square ? Native.DWMWCP_DONOTROUND : Native.DWMWCP_DEFAULT;
+        Native.DwmSetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
     }
 
     // ---------- 任务栏隐藏与图标叠加 ----------
@@ -609,6 +702,12 @@ public sealed class HostWindow : Window
             ApplyLayoutTo(hwnd, slot); // 拖走又拖回来：吸附回原格
             return;
         }
+        if (cur != IntPtr.Zero && !IsCtrlHeld())
+        {
+            // 占用侧默认不替换；按住 Ctrl 才允许新窗口顶掉旧的
+            ShowNotice("该侧已吸附窗口：按住 Ctrl 拖入可替换");
+            return;
+        }
         if (hwnd == other)
         {
             // 拖到另一侧 = 换到另一侧
@@ -623,10 +722,31 @@ public sealed class HostWindow : Window
         if (slot == 0) _leftHwnd = hwnd; else _rightHwnd = hwnd;
         SavePreAttachRect(hwnd);
         _frameMargins[hwnd] = Native.GetInvisibleFrameMargins(hwnd);
+        SetSquareCorners(hwnd, square: true);
         if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
         SetToolWindowStyle(hwnd, tool: true);
-        ApplyLayoutTo(hwnd, slot);
+        if (!ApplyLayoutTo(hwnd, slot))
+        {
+            // SetWindowPos 被拒：最常见是目标窗口以更高权限运行（UIPI 拦截跨完整性级别操作）
+            DetachStateOnly(hwnd);
+            ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
+            return;
+        }
         RaiseChildrenBelow();
+        UpdateStatus();
+        UpdateHostIcon();
+    }
+
+    /// <summary>吸附失败时只清理状态，不尝试恢复窗口几何（窗口从未被移动过）。</summary>
+    private void DetachStateOnly(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        if (_leftHwnd == hwnd) _leftHwnd = IntPtr.Zero;
+        if (_rightHwnd == hwnd) _rightHwnd = IntPtr.Zero;
+        _frameMargins.Remove(hwnd);
+        _preAttachRects.Remove(hwnd);
+        SetSquareCorners(hwnd, square: false);
+        SetToolWindowStyle(hwnd, tool: false);
         UpdateStatus();
         UpdateHostIcon();
     }
@@ -649,6 +769,7 @@ public sealed class HostWindow : Window
     {
         if (hwnd == IntPtr.Zero) return;
         _frameMargins.Remove(hwnd);
+        SetSquareCorners(hwnd, square: false); // 圆角还原
         SetToolWindowStyle(hwnd, tool: false); // 任务栏/Alt+Tab 恢复
         if (!_preAttachRects.Remove(hwnd, out var r)) return;
         if (!Native.IsWindow(hwnd)) return;
@@ -666,7 +787,6 @@ public sealed class HostWindow : Window
         DetachRestore(_rightHwnd);
         _leftHwnd = IntPtr.Zero;
         _rightHwnd = IntPtr.Zero;
-        _minimizedShowCmd.Clear();
         UpdateStatus();
         UpdateHostIcon();
     }
@@ -698,7 +818,7 @@ public sealed class HostWindow : Window
         if (e.OriginalSource is DependencyObject src && _captionButtons.IsAncestorOf(src)) return;
         if (e.ClickCount >= 2)
         {
-            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+            ToggleMaximize();
             e.Handled = true;
             return;
         }
@@ -749,12 +869,59 @@ public sealed class HostWindow : Window
     private void UpdateStatus()
     {
         if (_status is null) return;
-        if (_leftHwnd == IntPtr.Zero && _rightHwnd == IntPtr.Zero)
+        if (_notice is not null && DateTime.UtcNow < _noticeUntil)
         {
-            _status.Text = "把任意窗口拖进来吸附，或右键打开菜单选择左/右窗";
-            return;
+            _status.Text = _notice; // 临时通知 3 秒内驻留，不被维护定时器刷掉
         }
-        _status.Text = $"左: {PaneTitle(_leftHwnd)}    右: {PaneTitle(_rightHwnd)}";
+        else
+        {
+            _notice = null;
+            if (_leftHwnd == IntPtr.Zero && _rightHwnd == IntPtr.Zero)
+            {
+                _status.Text = "把任意窗口拖进来吸附，或点顶条 ← / → 选择左/右窗";
+            }
+            else
+            {
+                _status.Text = $"左: {PaneTitle(_leftHwnd)}    右: {PaneTitle(_rightHwnd)}";
+            }
+        }
+        UpdateSideButtons();
+    }
+
+    private void ShowNotice(string text)
+    {
+        _notice = text;
+        _noticeUntil = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        UpdateStatus();
+    }
+
+    private static bool IsCtrlHeld()
+        => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
+
+    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择，已吸附=释放该侧。</summary>
+    private void UpdateSideButtons()
+    {
+        if (_pickLeftButton is not null)
+        {
+            bool leftUsed = _leftHwnd != IntPtr.Zero;
+            _pickLeftButton.Content = leftUsed ? Icons.ReleasePane : Icons.PickLeft;
+            _pickLeftButton.ToolTip = leftUsed ? "释放左窗（回到原位）" : "选择左窗…";
+        }
+        if (_pickRightButton is not null)
+        {
+            bool rightUsed = _rightHwnd != IntPtr.Zero;
+            _pickRightButton.Content = rightUsed ? Icons.ReleasePane : Icons.PickRight;
+            _pickRightButton.ToolTip = rightUsed ? "释放右窗（回到原位）" : "选择右窗…";
+        }
+    }
+
+    /// <summary>释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）。</summary>
+    private void ReleaseSide(int slot)
+    {
+        if (slot == 0) { DetachRestore(_leftHwnd); _leftHwnd = IntPtr.Zero; }
+        else { DetachRestore(_rightHwnd); _rightHwnd = IntPtr.Zero; }
+        UpdateStatus();
+        UpdateHostIcon();
     }
 
     private static string PaneTitle(IntPtr hwnd)

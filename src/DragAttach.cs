@@ -66,9 +66,12 @@ internal sealed class DragAttach : IDisposable
 
     private int HitTestSlot(IntPtr hwnd)
     {
-        if (!_host.IsAttachable(hwnd)) return -1;
+        // 已吸附子窗口拖动也亮框（归位语义），其余窗口走常规吸附判定
+        if (!_host.IsAttachable(hwnd) && !_host.IsAttachedChild(hwnd)) return -1;
         if (!Native.GetWindowRect(hwnd, out var r)) return -1;
-        return _host.HitTestPaneAt((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+        int slot = _host.HitTestPaneAt((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+        if (slot < 0) return -1;
+        return _host.IsDropAllowed(hwnd, slot) ? slot : -1; // 不允许就不显示高亮
     }
 
     public void Dispose()
