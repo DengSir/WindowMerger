@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ApplicationDefinition Include="src\App.xaml" />
+    <Page Remove="src\App.xaml" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>WindowMerger</RootNamespace>
+    <AssemblyName>WindowMerger</AssemblyName>
+    <ApplicationManifest>src\app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <Product>WindowMerger</Product>
+    <AssemblyTitle>WindowMerger</AssemblyTitle>
+  </PropertyGroup>
+
+</Project>

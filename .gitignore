@@ -1,0 +1,13 @@
+# 构建产物
+bin/
+obj/
+
+# IDE / 编辑器 / 会话工具
+.vs/
+.vscode/
+.zcode/
+*.user
+*.suo
+
+# 运行期杂项
+*.log
