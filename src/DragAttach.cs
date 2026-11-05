@@ -4,7 +4,8 @@ namespace WindowMerger;
 
 /// <summary>
 /// 拖入吸附：全局监听任意窗口的移动（EVENT_SYSTEM_MOVESIZE / MOVESIZEEND），
-/// 被拖窗口中心点落在宿主左/右洞内时高亮目标格，松手后吸附进该格。
+/// 光标落在宿主左/右洞内时高亮目标格，松手后吸附进该格——以光标为准，
+/// 窗口中心在洞内但光标在洞外不吸附（拖标题条时窗口体悬在洞上不算抓取）。
 /// </summary>
 internal sealed class DragAttach : IDisposable
 {
@@ -68,8 +69,9 @@ internal sealed class DragAttach : IDisposable
     {
         // 已吸附子窗口拖动也亮框（归位语义），其余窗口走常规吸附判定
         if (!_host.IsAttachable(hwnd) && !_host.IsAttachedChild(hwnd)) return -1;
-        if (!Native.GetWindowRect(hwnd, out var r)) return -1;
-        int slot = _host.HitTestPaneAt((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+        // 光标位置为准（MOVESIZEEND 时即松手点），物理设备像素与窗口矩形同坐标系
+        if (!Native.GetCursorPos(out var p)) return -1;
+        int slot = _host.HitTestPaneAt(p.X, p.Y);
         if (slot < 0) return -1;
         return _host.IsDropAllowed(hwnd, slot) ? slot : -1; // 不允许就不显示高亮
     }
