@@ -53,8 +53,6 @@ public sealed class HostWindow : Window
     private Button _pickRightButton = null!;
     private string? _notice;
     private DateTime _noticeUntil;
-    private int _lastThumbReqW;
-    private int _lastThumbReqH;
     private readonly string? _cliLeft;
     private readonly string? _cliRight;
     private bool _cliTargetsDone;
@@ -580,8 +578,9 @@ public sealed class HostWindow : Window
             int maxH = (int)((long)lParam & 0xFFFF);
             if (maxW > 0 && maxH > 0)
             {
-                _lastThumbReqW = maxW;
-                _lastThumbReqH = maxH;
+                // 应答尺寸 = 请求尺寸（硬上限：更大的位图 E_INVALIDARG 拒收，实测 500/512 均被拒）。
+                // DWM 显示 iconic 位图不放大，瓦片大于 200x109 时（窗口数量少）图像居于瓦片一隅——
+                // 这是 DWM iconic API 的固有行为，无 API 可突破
                 IntPtr hbmp = CreateCompositeHBitmap(maxW, maxH, coverFill: true);
                 if (hbmp != IntPtr.Zero)
                 {
@@ -1013,15 +1012,14 @@ public sealed class HostWindow : Window
         }
     }
 
-    /// <summary>主动预填 iconic 缩略图缓存（不等 DWM 请求），尺寸用上次请求值或 200x109 兜底。</summary>
+    /// <summary>主动预填 iconic 缩略图缓存（不等 DWM 请求）。DWM 显示 iconic 位图约为槽位的
+    /// 50%（实测），预填 2 倍尺寸（512x360，≈槽位 223x155 的 2.3 倍）显示后恰好铺满。</summary>
     private void PrePopulateThumbnail()
     {
-        int w = _lastThumbReqW > 0 ? _lastThumbReqW : 200;
-        int h = _lastThumbReqH > 0 ? _lastThumbReqH : 109;
-        IntPtr hbmp = CreateCompositeHBitmap(w, h, coverFill: true);
+        IntPtr hbmp = CreateCompositeHBitmap(512, 360, coverFill: true);
         if (hbmp == IntPtr.Zero) return;
         int hr = Native.DwmSetIconicThumbnail(_handle, hbmp, 0);
-        TraceIconic($"THUMBNAIL prepopulate {w}x{h} hr=0x{hr:X8}");
+        TraceIconic($"THUMBNAIL prepopulate 512x360 hr=0x{hr:X8}");
         Native.DeleteObject(hbmp);
     }
 
