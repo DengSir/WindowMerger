@@ -68,6 +68,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 ## 已知边界（不要试图"修复"）
 
 - **永远不要把子窗口的截图绘制进宿主窗口**（用户明确的永久规则，违反 = 预览假修复 + 点击被宿主拦截）。任务栏/Alt+Tab 预览的正确实现是 iconic 位图应答：`DWMWA_FORCE_ICONIC_REPRESENTATION` + `DWMWA_HAS_ICONIC_BITMAP` **成对**设置（缺 HAS 时 DWM 悬停不发请求），悬停/Alt+Tab 时 DWM 发 `WM_DWMSENDICONIC*` 消息，用 PrintWindow 现场抓子窗口画面合成后经 `DwmSetIconicThumbnail/LivePreviewBitmap` 应答（见 HostWindow `UpdateIconicAttributes`/`CreateCompositeHBitmap`）；内容变化时调 `DwmInvalidateIconicBitmaps` 刷新
+- **iconic 缩略图首显黑/小深坑（.NET 10 WPF 实测）**：DWM 渲染瓦片**不等应答**——先用缓存渲染槽位，`WM_DWMSENDICONICTHUMBNAIL` 请求只是异步刷新缓存供下次显示。不预填缓存则每次启动后的首次 Alt-Tab 必然黑/小。修复 = 吸附状态变化时主动调 `DwmSetIconicThumbnail` 预填（`PrePopulateThumbnail`，尺寸用上次请求值或 200x109 兜底）。超尺寸位图被 E_INVALIDARG 拒收（请求尺寸即硬上限）；不要在 Deactivated 时失效化缓存（叠加层打开后 DWM 不重新请求，只会把好图变黑占位）
+- 子窗口被其他不透明窗口完全遮挡时 `PrintWindow(PW_RENDERFULLCONTENT)` 返回全黑图——按 9 点采样检测，回退到最后一次成功抓图（`_lastGoodCaptures`，宁旧勿黑）
 - 任务栏/Alt+Tab 预览显示的是应答时抓取的快照，非逐帧直播
 - Alt+Tab/任务栏只显示宿主一项（子窗口 tool window 是吸附架构的一部分）
 - 最大化时外边框隐藏（`CurBorderW`=0）、子窗口铺满格子，属设计
