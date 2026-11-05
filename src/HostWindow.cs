@@ -658,10 +658,13 @@ public sealed class HostWindow : Window
         switch (WindowState)
         {
             case WindowState.Minimized:
+                // 子窗口是 tool window，最小化会缩成标题条留在桌面左下——直接移出屏幕外
+                // （对所有窗口类型有效，还原时 ApplyLayout 按格子矩形拉回）
                 foreach (var h in new[] { _leftHwnd, _rightHwnd })
                 {
                     if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-                    Native.ShowWindow(h, Native.SW_MINIMIZE);
+                    Native.SetWindowPos(h, IntPtr.Zero, -32000, -32000, 0, 0,
+                        Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
                 }
                 break;
 
@@ -682,7 +685,8 @@ public sealed class HostWindow : Window
     }
 
     /// <summary>
-    /// 宿主回到可见状态时把所有非正常态（最小化/独立最大化）的子窗口拉回格子。
+    /// 宿主回到可见状态时恢复所有子窗口的可见性（隐藏的最小化联动子窗口、
+    /// 被独立最小化/最大化的子窗口一律拉回格子）。
     /// 子窗口是 tool window 没有任务栏按钮，不在这里还原就永远回不来；
     /// 最大化路径尤其必要：从最大化最小化后点任务栏还原直接进 Maximized，不经过 Normal。
     /// </summary>
@@ -691,7 +695,14 @@ public sealed class HostWindow : Window
         foreach (var h in new[] { _leftHwnd, _rightHwnd })
         {
             if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-            if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
+            if (Native.IsIconic(h) || Native.IsZoomed(h))
+            {
+                Native.ShowWindow(h, Native.SW_RESTORE);
+            }
+            else if (!Native.IsWindowVisible(h))
+            {
+                Native.ShowWindow(h, Native.SW_SHOWNA);
+            }
         }
     }
 
