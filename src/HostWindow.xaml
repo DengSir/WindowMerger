@@ -9,6 +9,38 @@
         MinWidth="400"
         MinHeight="300">
 
+    <Window.Resources>
+        <!-- 主题刷色：ApplyTheme 在启动/切主题时替换这些资源值，DynamicResource 自动传播 -->
+        <SolidColorBrush x:Key="ThemeBarBrush" Color="#202020" />
+        <SolidColorBrush x:Key="ThemeBorderBrush" Color="#3A3A3A" />
+        <SolidColorBrush x:Key="ThemeDividerBrush" Color="#3C3C3C" />
+        <SolidColorBrush x:Key="ThemeDividerHoverBrush" Color="#2B5B8F" />
+        <SolidColorBrush x:Key="ThemeTextBrush" Color="#D8D8D8" />
+        <SolidColorBrush x:Key="ThemeButtonHoverBrush" Color="#3C3C3C" />
+        <SolidColorBrush x:Key="ThemeDangerHoverBrush" Color="#C42B1C" />
+
+        <!-- 顶条按钮共用外观（极简模板：Border + Content）；字形内容/悬停由 code-behind 补齐 -->
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Width" Value="36" />
+            <Setter Property="FontFamily" Value="{StaticResource FaSolid}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <!-- CaptionHeight=0：顶条走 DragMove，右键才能弹自定义菜单；缩放交给 WindowChrome 的 resize 边 -->
     <WindowChrome.WindowChrome>
         <WindowChrome ResizeBorderThickness="8"
@@ -18,10 +50,11 @@
                       UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
 
-    <!-- 顶条/格子配色由 ApplyTheme 按当前主题刷（XAML 值仅深色主题初值） -->
-    <Border x:Name="_outer" BorderBrush="#3A3A3A" BorderThickness="2">
+    <!-- 主题刷色由 ApplyTheme 换上面的资源完成（XAML 值仅深色主题初值） -->
+    <Border x:Name="_outer" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
         <DockPanel LastChildFill="True">
-            <Border x:Name="_topBar" DockPanel.Dock="Top" Height="28" Background="#202020">
+            <Border x:Name="_topBar" DockPanel.Dock="Top" Height="28"
+                    Background="{DynamicResource ThemeBarBrush}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -33,14 +66,28 @@
                            Margin="8,0,5,0" VerticalAlignment="Center" />
                     <TextBlock x:Name="_appLabel" Grid.Column="1" Text="WindowMerger"
                                FontSize="12" FontWeight="SemiBold" Margin="0,0,6,0"
-                               VerticalAlignment="Center" Foreground="#D8D8D8" />
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource ThemeTextBrush}" />
                     <TextBlock x:Name="_status" Grid.Column="2" FontSize="12" Margin="0,0,10,0"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                               Foreground="#D8D8D8" />
-                    <!-- 顶条功能组按钮由 code-behind 的 CaptionButton 工厂填充 -->
+                               Foreground="{DynamicResource ThemeTextBrush}" />
+                    <!-- 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
+                         字形内容/点击/悬停刷色由 code-behind 补齐 -->
                     <StackPanel x:Name="_captionButtons" Grid.Column="3"
                                 Orientation="Horizontal" HorizontalAlignment="Right"
-                                VerticalAlignment="Stretch" Background="{x:Null}" />
+                                VerticalAlignment="Stretch" Background="{x:Null}">
+                        <Button x:Name="_pickLeftButton" Width="30" ToolTip="选择左窗…" />
+                        <Button x:Name="_pickRightButton" Width="30" ToolTip="选择右窗…" />
+                        <Button x:Name="_swapButton" Width="30" ToolTip="交换左右" />
+                        <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）" />
+                        <Button x:Name="_themeButton" Width="30" />
+                        <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
+                                VerticalAlignment="Stretch" />
+                        <Button x:Name="_minimizeButton" ToolTip="最小化" />
+                        <Button x:Name="_maxButton" ToolTip="最大化"
+                                FontFamily="{StaticResource FaRegular}" />
+                        <Button x:Name="_closeButton" Tag="danger" FontSize="16" ToolTip="关闭" />
+                    </StackPanel>
                 </Grid>
             </Border>
             <Grid x:Name="_content" Background="{x:Null}">
@@ -50,7 +97,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Border x:Name="_leftPaneBorder" Grid.Column="0" Background="{x:Null}"
-                        BorderBrush="#3A3A3A" BorderThickness="2">
+                        BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
                     <Grid Background="{x:Null}">
                         <!-- 拖放目标高亮（拖动中亮起） -->
                         <Border x:Name="_leftGlow" BorderBrush="#0A84FF" BorderThickness="5"
@@ -59,9 +106,14 @@
                     </Grid>
                 </Border>
                 <Border x:Name="_divider" Grid.Column="1" Width="8" Cursor="SizeWE"
-                        Background="#3C3C3C" />
+                        Background="{DynamicResource ThemeDividerBrush}">
+                    <TextBlock x:Name="_gripText" Text="&#xF338;"
+                               FontFamily="{StaticResource FaSolid}" FontSize="9"
+                               Foreground="#70FFFFFF" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" IsHitTestVisible="False" />
+                </Border>
                 <Border x:Name="_rightPaneBorder" Grid.Column="2" Background="{x:Null}"
-                        BorderBrush="#3A3A3A" BorderThickness="2">
+                        BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
                     <Grid Background="{x:Null}">
                         <Border x:Name="_rightGlow" BorderBrush="#0A84FF" BorderThickness="5"
                                 CornerRadius="4" Margin="1" IsHitTestVisible="False"

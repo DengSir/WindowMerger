@@ -35,16 +35,11 @@ public sealed partial class HostWindow : Window
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
     private int _highlightSlot = -1;
-    private Button _maxButton = null!;
-    private Button _pickLeftButton = null!;
-    private Button _pickRightButton = null!;
     private string? _notice;
     private DateTime _noticeUntil;
     private readonly string? _cliLeft;
     private readonly string? _cliRight;
     private bool _cliTargetsDone;
-    private Button _themeButton = null!;
-    private readonly List<(Button Button, bool Danger)> _captionButtonList = new();
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
@@ -112,56 +107,61 @@ public sealed partial class HostWindow : Window
 
     // ---------- UI ----------
 
-    /// <summary>视觉树在 HostWindow.xaml；这里只挂接事件、填充代码生成的按钮与条件内容。</summary>
+    /// <summary>视觉树在 HostWindow.xaml；这里只补齐动态部分：字形内容、点击、悬停刷色、条件可见性。</summary>
     private void WireUi()
     {
         _divider.MouseEnter += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().DividerHover);
-        _divider.MouseLeave += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().Divider);
+        _divider.MouseLeave += (_, _) => _divider.ClearValue(Border.BackgroundProperty); // 回落主题资源
         _divider.MouseLeftButtonDown += DividerOnMouseDown;
         _divider.MouseMove += DividerOnMouseMove;
         _divider.MouseLeftButtonUp += DividerOnMouseUp;
 
-        if (Icons.Grip is string gripGlyph && Icons.Family is not null)
-        {
-            _divider.Child = new TextBlock
-            {
-                Text = gripGlyph,
-                FontFamily = Icons.Family,
-                FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                IsHitTestVisible = false,
-            };
-        }
+        if (Icons.Family is null) _gripText.Visibility = Visibility.Collapsed; // 字体不可用时不留缺字框
 
         // 顶条左端应用图标
         _appIcon.Source = LoadAppIconFrame();
 
         // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
-        // 左/右按钮状态翻转：空格时吸附选择，有吸附窗口时变为释放该侧
-        _pickLeftButton = CaptionButton(Icons.PickLeft!, (_, _) =>
-        {
-            if (_leftHwnd == IntPtr.Zero) Pick(AttachSide.Left);
-            else ReleaseSide(0);
-        }, width: 30, tooltip: "选择左窗…");
-        _captionButtons.Children.Add(_pickLeftButton);
-        _pickRightButton = CaptionButton(Icons.PickRight!, (_, _) =>
-        {
-            if (_rightHwnd == IntPtr.Zero) Pick(AttachSide.Right);
-            else ReleaseSide(1);
-        }, width: 30, tooltip: "选择右窗…");
-        _captionButtons.Children.Add(_pickRightButton);
-        _captionButtons.Children.Add(CaptionButton(Icons.Swap!, (_, _) => SwapSides(), width: 30, tooltip: "交换左右"));
-        _captionButtons.Children.Add(CaptionButton(Icons.Release!, (_, _) => ReleaseAll(), width: 30, tooltip: "全部释放（窗口回到原位）"));
-        _themeButton = CaptionButton(ThemeGlyph(), (_, _) => OpenThemeMenu(), width: 30, tooltip: ThemeTooltip());
-        _captionButtons.Children.Add(_themeButton);
-        _captionButtons.Children.Add(CaptionSeparator());
-        _captionButtons.Children.Add(CaptionButton(Icons.Minimize, (_, _) => WindowState = WindowState.Minimized, tooltip: "最小化"));
-        _maxButton = CaptionButton(Icons.Maximize, (_, _) => ToggleMaximize(), font: Icons.MaximizeFont, tooltip: "最大化");
-        _captionButtons.Children.Add(_maxButton);
-        _captionButtons.Children.Add(CaptionButton(Icons.Close, (_, _) => Close(), danger: true, fontSize: 16, tooltip: "关闭"));
+        // 字形来自 Icons（字体不可用时回退 Unicode 字形）；左/右按钮状态翻转见 UpdateSideButtons
+        _pickLeftButton.Content = Icons.PickLeft;
+        _pickLeftButton.Click += (_, _) => { if (_leftHwnd == IntPtr.Zero) Pick(AttachSide.Left); else ReleaseSide(0); };
+        _pickRightButton.Content = Icons.PickRight;
+        _pickRightButton.Click += (_, _) => { if (_rightHwnd == IntPtr.Zero) Pick(AttachSide.Right); else ReleaseSide(1); };
+        _swapButton.Content = Icons.Swap;
+        _swapButton.Click += (_, _) => SwapSides();
+        _releaseButton.Content = Icons.Release;
+        _releaseButton.Click += (_, _) => ReleaseAll();
+        _themeButton.Content = ThemeGlyph();
+        _themeButton.Click += (_, _) => OpenThemeMenu();
+        _minimizeButton.Content = Icons.Minimize;
+        _minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
+        _maxButton.Content = Icons.Maximize;
+        _maxButton.Click += (_, _) => ToggleMaximize();
+        _closeButton.Content = Icons.Close;
+        _closeButton.Click += (_, _) => Close();
         UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
+
+        // 悬停刷色：进入时局部覆盖（危险按钮红色系），离开 ClearValue 回退样式/主题资源
+        foreach (var (b, danger) in new (Button, bool)[]
+        {
+            (_pickLeftButton, false), (_pickRightButton, false), (_swapButton, false),
+            (_releaseButton, false), (_themeButton, false), (_minimizeButton, false),
+            (_maxButton, false), (_closeButton, true),
+        })
+        {
+            b.MouseEnter += (_, _) => b.Background = AppTheme.Brush(danger ? AppTheme.Current().DangerHover : AppTheme.Current().ButtonHover);
+            b.MouseLeave += (_, _) => b.ClearValue(Button.BackgroundProperty);
+        }
+
+        if (Icons.Family is null)
+        {
+            // 字体不可用：回退 Segoe UI + 缩小字号（内容已在上面赋过 Unicode 回退值）
+            foreach (var b in new[] { _pickLeftButton, _pickRightButton, _swapButton, _releaseButton, _themeButton, _minimizeButton, _maxButton, _closeButton })
+            {
+                b.FontFamily = new FontFamily("Segoe UI");
+                b.FontSize = 11;
+            }
+        }
 
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
         _topBar.MouseMove += TopBarOnMouseMove;
@@ -256,19 +256,17 @@ public sealed partial class HostWindow : Window
     private void ApplyTheme()
     {
         var p = AppTheme.Current();
-        _outer.BorderBrush = AppTheme.Brush(p.Border);
-        _leftPaneBorder.BorderBrush = AppTheme.Brush(p.Border);
-        _rightPaneBorder.BorderBrush = AppTheme.Brush(p.Border);
-        _topBar.Background = AppTheme.Brush(p.Bar);
-        _status.Foreground = AppTheme.Brush(p.Text);
-        _appLabel.Foreground = AppTheme.Brush(p.Text);
-        _divider.Background = AppTheme.Brush(p.Divider);
-        foreach (var (b, _) in _captionButtonList) b.Foreground = AppTheme.Brush(p.Text);
-        if (_themeButton is not null)
-        {
-            _themeButton.Content = ThemeGlyph();
-            _themeButton.ToolTip = ThemeTooltip();
-        }
+        // 主题刷色 = 换资源：所有 DynamicResource 引用（顶条/格子/分隔条/文字/边框）自动跟随，
+        // 无需逐元素赋值；按钮悬停色仍由 MouseEnter 现场从 AppTheme 取
+        Resources["ThemeBarBrush"] = AppTheme.Brush(p.Bar);
+        Resources["ThemeBorderBrush"] = AppTheme.Brush(p.Border);
+        Resources["ThemeDividerBrush"] = AppTheme.Brush(p.Divider);
+        Resources["ThemeDividerHoverBrush"] = AppTheme.Brush(p.DividerHover);
+        Resources["ThemeTextBrush"] = AppTheme.Brush(p.Text);
+        Resources["ThemeButtonHoverBrush"] = AppTheme.Brush(p.ButtonHover);
+        Resources["ThemeDangerHoverBrush"] = AppTheme.Brush(p.DangerHover);
+        _themeButton.Content = ThemeGlyph();
+        _themeButton.ToolTip = ThemeTooltip();
     }
 
     private void SaveConfig()
@@ -295,50 +293,6 @@ public sealed partial class HostWindow : Window
             cfg.Height = r.Height;
         }
         ConfigStore.Save(cfg);
-    }
-
-    private static Border CaptionSeparator() => new()
-    {
-        Width = 1,
-        Margin = new Thickness(4, 6, 4, 6),
-        Background = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x4A)),
-        VerticalAlignment = VerticalAlignment.Stretch,
-    };
-
-    private Button CaptionButton(string glyph, RoutedEventHandler onClick, bool danger = false,
-        double fontSize = 13, double width = 36, string? tooltip = null, FontFamily? font = null)
-    {
-        // 默认 WPF 按钮模板会在 IsMouseOver 时覆盖亮蓝色 chrome，这里用极简模板只呈现 Background；
-        // 悬停色在事件时从当前主题取，切主题无需重建按钮
-        var template = new ControlTemplate(typeof(Button));
-        var border = new FrameworkElementFactory(typeof(Border));
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(presenter);
-        template.VisualTree = border;
-
-        var b = new Button
-        {
-            Content = glyph,
-            Width = width,
-            Focusable = false,
-            Background = Brushes.Transparent,
-            Foreground = AppTheme.Brush(AppTheme.Current().Text),
-            BorderThickness = new Thickness(0),
-            FontFamily = font ?? Icons.Family ?? new FontFamily("Segoe UI"),
-            FontSize = Icons.Family != null || font != null ? fontSize : 11,
-            Margin = new Thickness(2, 0, 0, 0),
-            ToolTip = tooltip,
-            Template = template,
-        };
-        b.MouseEnter += (_, _) => b.Background = AppTheme.Brush(
-            danger ? AppTheme.Current().DangerHover : AppTheme.Current().ButtonHover);
-        b.MouseLeave += (_, _) => b.Background = Brushes.Transparent;
-        b.Click += onClick;
-        _captionButtonList.Add((b, danger));
-        return b;
     }
 
     private void UpdateMaxGlyph()
