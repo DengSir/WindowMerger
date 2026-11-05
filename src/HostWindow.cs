@@ -535,13 +535,27 @@ public sealed class HostWindow : Window
         }
         else if (msg == Native.WM_DWMSENDICONICLIVEPREVIEWBITMAP)
         {
-            if (Native.GetWindowRect(_handle, out var lr) && lr.Width > 0 && lr.Height > 0)
+            // 最小化时 GetWindowRect 是 -32000 处 ~160x99 的幽灵矩形，用它当位图尺寸
+            // 预览会缩成任务栏缩略图那么点大——最小化时改用还原尺寸（rcNormalPosition）
+            int w = 0, h = 0;
+            var pl = new Native.WINDOWPLACEMENT { length = Marshal.SizeOf<Native.WINDOWPLACEMENT>() };
+            if (Native.IsIconic(_handle) && Native.GetWindowPlacement(_handle, ref pl))
             {
-                IntPtr hbmp = CreateCompositeHBitmap(lr.Width, lr.Height, coverFill: true);
+                w = pl.rcNormalPosition.Width;
+                h = pl.rcNormalPosition.Height;
+            }
+            else if (Native.GetWindowRect(_handle, out var lr))
+            {
+                w = lr.Width;
+                h = lr.Height;
+            }
+            if (w > 0 && h > 0)
+            {
+                IntPtr hbmp = CreateCompositeHBitmap(w, h, coverFill: true);
                 if (hbmp != IntPtr.Zero)
                 {
                     int hr = Native.DwmSetIconicLivePreviewBitmap(_handle, hbmp, IntPtr.Zero, Native.DWM_SIT_DISPLAYFRAME);
-                    TraceIconic($"LIVEPREVIEW {lr.Width}x{lr.Height} hr=0x{hr:X8}");
+                    TraceIconic($"LIVEPREVIEW {w}x{h} iconic={Native.IsIconic(_handle)} hr=0x{hr:X8}");
                     Native.DeleteObject(hbmp);
                 }
             }
