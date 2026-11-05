@@ -3,10 +3,10 @@
   <ItemGroup>
     <ApplicationDefinition Include="src\App.xaml" />
     <Page Remove="src\App.xaml" />
-    <None Remove="Resources\fa-*.ttf" />
-    <Content Include="Resources\fa-solid-900.ttf" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Resources\fa-regular-400.ttf" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="assets\WindowMerger.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="assets\fa-*.ttf" />
+    <Resource Include="assets\fa-solid-900.ttf" />
+    <Resource Include="assets\fa-regular-400.ttf" />
+    <Resource Include="assets\WindowMerger.ico" />
   </ItemGroup>
 
   <PropertyGroup>

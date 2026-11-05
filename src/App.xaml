@@ -3,4 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnMainWindowClose"
              Startup="OnStartup">
+    <Application.Resources>
+        <!-- 内嵌字体必须以 XAML 资源声明（类型转换器路径），代码 new FontFamily(pack 字符串) 渲染不解析 -->
+        <FontFamily x:Key="FaSolid">pack://application:,,,/assets/fa-solid-900.ttf#Font Awesome 6 Free Solid</FontFamily>
+        <FontFamily x:Key="FaRegular">pack://application:,,,/assets/fa-regular-400.ttf#Font Awesome 6 Free Regular</FontFamily>
+    </Application.Resources>
 </Application>

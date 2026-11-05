@@ -485,16 +485,18 @@ public sealed class HostWindow : Window
     }
 
     /// <summary>
-    /// 应用图标（assets\WindowMerger.ico）作为窗口基础图标：未吸附子窗口时
+    /// 应用图标（内嵌 assets\WindowMerger.ico）作为窗口基础图标：未吸附子窗口时
     /// 任务栏/Alt+Tab 显示它，吸附后由 UpdateHostIcon 换成双子窗口合成图标。
-    /// 字体同款纪律：按文件路径加载（pack:// 在本应用内静默失败）。
+    /// 直接从资源流解码，不落盘。
     /// </summary>
     private void SetFallbackIcon()
     {
         try
         {
-            var uri = new Uri(Path.Combine(AppContext.BaseDirectory, "assets", "WindowMerger.ico"));
-            var decoder = BitmapDecoder.Create(uri, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            var rs = System.Windows.Application.GetResourceStream(
+                new Uri("pack://application:,,,/assets/WindowMerger.ico"));
+            if (rs == null) return;
+            var decoder = BitmapDecoder.Create(rs.Stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
             BitmapSource? best = null;
             foreach (var frame in decoder.Frames)
             {

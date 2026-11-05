@@ -31,10 +31,14 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）
 - **强杀宿主 = 孤儿**：吸附子窗口残留 `WS_EX_TOOLWINDOW`（任务栏消失，宿主最小化期间被强杀还会停在屏幕外 -32000）。孤儿清理必须**按配置记录的 HWND 精确匹配**（PID 仅作句柄复用校验），**绝不能按 PID 枚举该进程全部窗口**——进程的隐藏辅助窗口（`CiceroUIWndFrame` 等，实测 opera/Listary/RepositoryTree 都带 TOOLWINDOW）会被误显示成"点不出来的任务栏幽灵按钮"。吸附成功立即 SaveConfig 落盘（强杀时才有记录可循）。救援 `tools\OrphanRescue.ps1`，回归 `tools\OrphanE2ETest.ps1`
 
-### 字体（Font Awesome Free，SIL OFL）
-- 字体用 `Content + CopyToOutputDirectory` 随 exe 分发，**文件路径**加载——本应用内 pack:// 资源流静默失败（`GetResourceStream` 返回 null）
-- `GlyphTypeface` 不支持 pack:// URI；`FontFamily` 解析要用完整名 `Font Awesome 6 Free Solid` / `Font Awesome 6 Free Regular`（name 表 ID-1 名反而解析不到）
-- 加载后必须字形自验证（`TryGetGlyphTypeface` + 探针码位存在）才算成功，失败回退 Unicode 字形
+### 字体与资源（Font Awesome Free，SIL OFL；全部内嵌进程序集）
+- 字体/图标在 `assets\`，以 `<Resource>` 内嵌（csproj），输出目录不落散资源文件
+- **pack 字体必须经 XAML 声明**：`App.xaml` 里 `<FontFamily x:Key="FaSolid">pack://application:,,,/assets/<文件>#<完整家族名></FontFamily>`，代码用 `TryFindResource` 取用——这是唯一渲染正常的路径。**代码里 `new FontFamily(同样的 pack 字符串)` 能构造、GetResourceStream/GetFontFamilies 都正常，但 DWrite 渲染不解析（全部回退缺字）**——.NET 10 WPF 实测，别再试
+- 校验用**渲染宽度对比**（探针码位 vs 确定缺失的私用区码位 U+F8FF，宽度不同 = 字形真实）——`GlyphTypeface`/`TryGetGlyphTypeface`/`GetTypefaces` 对 pack 字体均不可用
+- `Fonts.GetFontFamilies` 对同目录 pack 字体有家族名串扰（regular 文件会列出 solid 的家族名）——不能用它做家族名精确校验
+- `FontFamily` 解析要用完整名 `Font Awesome 6 Free Solid` / `Font Awesome 6 Free Regular`（name 表 ID-1 名反而解析不到）
+- 校验失败结果要一并缓存（`??=` 模式不会缓存 null，会每 250ms 重试解析）
+- ico 内嵌后用 `BitmapDecoder.Create(资源流)` 解码取最大帧
 
 ### .NET 10 WPF 特有
 - **Window 基类自带实验性 `ThemeMode` 属性**——自定义类名避开 `Theme`/`ThemeMode`（本项目用 `AppTheme`/`AppThemeMode`）

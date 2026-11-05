@@ -1,5 +1,6 @@
-using System.IO;
+using System.Globalization;
 using System.Linq;
+using System.Windows;
 using System.Windows.Media;
 
 namespace WindowMerger;
@@ -8,8 +9,14 @@ namespace WindowMerger;
 /// Font Awesome Free 双字体加载与图标码位。
 /// Solid（fa-solid-900.ttf）：菜单图标、分隔条把手、关闭 ✕；
 /// Regular（fa-regular-400.ttf）：最大化/还原按钮的空心方块与空心 clone。
-/// 字体以 Content 随 exe 分发；pack:// 资源流在本应用内会静默解析失败
-/// （GetResourceStream 返回 null），因此直接用文件路径加载并用字形自验证兜底。
+/// 字体以 WPF Resource 内嵌进程序集，FontFamily 必须在 App.xaml 里以
+/// "pack://application:,,,/assets/<文件>#<完整家族名>" 声明（XAML 类型转换器路径）。
+/// 实测坑（.NET 10 WPF）：代码里 new FontFamily(同样的 pack 字符串) 能构造、
+/// GetResourceStream/Fonts.GetFontFamilies 也正常，但 DWrite 渲染不解析——
+/// 全部回退缺字；只有 XAML 声明的实例渲染正常。
+/// 校验用渲染宽度对比（探针码位 vs 确定缺失的私用区码位）——GlyphTypeface/
+/// TryGetGlyphTypeface/GetTypefaces 对 pack 字体均不可用。失败回退 Unicode 字形，
+/// 失败结果一并缓存，避免每次访问重复解析。
 /// </summary>
 internal static class Icons
 {
@@ -18,13 +25,27 @@ internal static class Icons
     private const string FamilyNameRegular = "Font Awesome 6 Free Regular";
 
     private static FontFamily? _solid;
+    private static bool _solidTried;
     private static FontFamily? _regular;
+    private static bool _regularTried;
 
     /// <summary>Solid 字体（主字体）。</summary>
-    public static FontFamily? Family => _solid ??= TryLoad("fa-solid-900.ttf", FamilyNameSolid, 0xF00D);
+    public static FontFamily? Family
+        => Ensure(ref _solid, ref _solidTried, "FaSolid", FamilyNameSolid, 0xF00D);
 
     /// <summary>Regular 字体（空心风格）。</summary>
-    public static FontFamily? FamilyRegular => _regular ??= TryLoad("fa-regular-400.ttf", FamilyNameRegular, 0xF096);
+    public static FontFamily? FamilyRegular
+        => Ensure(ref _regular, ref _regularTried, "FaRegular", FamilyNameRegular, 0xF096);
+
+    private static FontFamily? Ensure(ref FontFamily? cache, ref bool tried, string resourceKey, string familyName, int probeCodepoint)
+    {
+        if (!tried)
+        {
+            cache = TryLoad(resourceKey, familyName, probeCodepoint);
+            tried = true;
+        }
+        return cache;
+    }
 
     // 窗口控制按钮（字体不可用时回退原 Unicode 字形）
     public static string Minimize => Family != null ? "\uF068" : "\u2500"; // minus（Solid）
@@ -48,25 +69,40 @@ internal static class Icons
     // 分隔条把手
     public static string? Grip => Family != null ? "\uF338" : null; // grip-lines-vertical
 
-    private static FontFamily? TryLoad(string fileName, string familyName, int probeCodepoint)
+    private static FontFamily? TryLoad(string resourceKey, string familyName, int probeCodepoint)
     {
         try
         {
-            string path = Path.Combine(AppContext.BaseDirectory, "Resources", fileName);
-            if (!File.Exists(path)) return null;
+            var f = Application.Current?.TryFindResource(resourceKey) as FontFamily;
+            if (f == null) return null;
 
-            var f = new FontFamily(path + "#" + familyName);
-            // 必须真解析出 FA 字形才算可用
-            if (f.GetTypefaces().FirstOrDefault()?.TryGetGlyphTypeface(out var gtf) != true
-                || !gtf.CharacterToGlyphMap.ContainsKey(probeCodepoint))
+            // 渲染宽度对比：家族真实包含探针码位时，与确定缺失的私用区码位宽度不同
+            double wp = MeasureGlyph(f, probeCodepoint);
+            double wm = MeasureGlyph(f, 0xF8FF); // FA 不包含的私用区码位（必为缺字回退）
+            if (wp > 0 && Math.Abs(wp - wm) > 0.01)
             {
-                return null;
+                return f;
             }
-            return f;
         }
-        catch (Exception e) when (e is IOException or FileNotFoundException or FileFormatException)
+        catch (Exception e) when (e is System.IO.FileFormatException or UriFormatException)
         {
-            return null;
+            // 资源缺失/损坏按设计降级为 Unicode 字形
         }
+        return null;
+    }
+
+    private static double MeasureGlyph(FontFamily f, int codepoint)
+    {
+        var ft = new FormattedText(
+            ((char)codepoint).ToString(),
+            CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface(f, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+            16,
+            Brushes.Black,
+            null,
+            TextFormattingMode.Ideal,
+            1.0);
+        return ft.Width;
     }
 }
