@@ -73,6 +73,62 @@ internal static partial class Native
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_DEFAULT = 0;
     public const int DWMWCP_DONOTROUND = 1;
+    public const int DWMWA_FORCE_ICONIC_REPRESENTATION = 7;
+    public const int DWMWA_ICONIC_BITMAP = 9;
+    public const int WM_DWMSENDICONICTHUMBNAIL = 0x0323;
+    public const int WM_DWMSENDICONICLIVEPREVIEWBITMAP = 0x0326;
+
+    // GDI 位图
+    public const uint PW_RENDERFULLCONTENT = 0x00000002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight; // 负值 = 自上而下
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression; // 0 = BI_RGB
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+
+    [LibraryImport("gdi32.dll")]
+    public static partial IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bmi, uint usage, out IntPtr bits, IntPtr hSection, uint offset);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DeleteObject(IntPtr hObject);
+
+    [LibraryImport("gdi32.dll")]
+    public static partial IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DeleteDC(IntPtr hdc);
+
+    [LibraryImport("gdi32.dll")]
+    public static partial IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
+
+    [LibraryImport("user32.dll")]
+    public static partial IntPtr GetDC(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    public static partial int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+
+    [LibraryImport("dwmapi.dll")]
+    public static partial int DwmSetIconicThumbnail(IntPtr hwnd, IntPtr hbitmap, uint flags);
+
+    [LibraryImport("dwmapi.dll")]
+    public static partial int DwmSetIconicLivePreviewBitmap(IntPtr hwnd, IntPtr hbitmap, IntPtr ptClient, uint flags);
 
     // WinEvent
     public const uint EVENT_SYSTEM_MOVESIZE = 0x000A;
@@ -156,6 +212,9 @@ internal static partial class Native
 
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [LibraryImport("dwmapi.dll", EntryPoint = "DwmSetWindowAttribute")]
+    public static partial int DwmSetWindowAttributePointer(IntPtr hwnd, int dwAttribute, ref IntPtr pvAttribute, int cbAttribute);
 
     [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
     public static partial int DwmGetWindowAttributeRect(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);

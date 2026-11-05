@@ -1,3 +1,4 @@
+﻿using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,6 +21,7 @@ public sealed class HostWindow : Window
     private const double MaxRatio = 0.8;
 
     private const int WM_GETMINMAXINFO = 0x0024;
+    private const int WM_SETTINGCHANGE = 0x001A;
 
     private double _ratio;
 
@@ -47,16 +49,29 @@ public sealed class HostWindow : Window
     private Button _pickRightButton = null!;
     private string? _notice;
     private DateTime _noticeUntil;
+    private readonly string? _cliLeft;
+    private readonly string? _cliRight;
+    private bool _cliTargetsDone;
+    private Button _themeButton = null!;
+    private Border _leftPaneBorder = null!;
+    private Border _rightPaneBorder = null!;
+    private readonly List<(Button Button, bool Danger)> _captionButtonList = new();
+    private Image _leftThumb = null!;
+    private Image _rightThumb = null!;
+    private BitmapSource? _capLeft;
+    private BitmapSource? _capRight;
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
     /// <summary>当前生效的边框宽度：最大化时边框隐藏，格子铺满窗口。</summary>
     private double CurBorderW => WindowState == WindowState.Maximized ? 0 : BorderW;
 
-    public HostWindow(AppConfig config)
+    public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null)
     {
+        _cliLeft = string.IsNullOrWhiteSpace(cliLeft) ? null : cliLeft;
+        _cliRight = string.IsNullOrWhiteSpace(cliRight) ? null : cliRight;
+        if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
-
 
         Title = "窗口合并 WindowMerger";
         WindowStyle = WindowStyle.None;
@@ -100,7 +115,7 @@ public sealed class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); AttachStartupTargets(); };
         Closing += (_, _) => OnClosingCleanup();
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -115,31 +130,33 @@ public sealed class HostWindow : Window
     private void BuildUi()
     {
         var accent = Color.FromRgb(0x0A, 0x84, 0xFF);
-        var borderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
-        var barBrush = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20));
-        var dividerBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C));
-        var dividerHover = new SolidColorBrush(Color.FromRgb(0x2B, 0x5B, 0x8F));
 
         _leftGlow = MakeGlow(accent);
         _rightGlow = MakeGlow(accent);
 
-        // 格子四周 1px 框线（与外边框同色）：子窗口可见边缘与格子齐平，
-        // 外扩/取整带来的最后一像素缝透出的是框线色而非桌面壁纸；内部保持透明
+        // 格子四周 2px 框线（与外边框同色）：子窗口可见边缘与格子齐平，
+        // 外扩/取整带来的最后一像素缝透出的是框线色而非桌面壁纸；内部保持透明。
+        // 缩略图 Image 放在格子底层：DWM 实时预览截取宿主表面时会带上子窗口画面，
+        // 任务栏悬停预览因此能看到两个吸附窗口（真子窗口浮在宿主上方遮住实图）
+        _leftThumb = new Image { Stretch = Stretch.Fill, IsHitTestVisible = false };
+        _rightThumb = new Image { Stretch = Stretch.Fill, IsHitTestVisible = false };
         var leftInner = new Grid { Background = null };
+        leftInner.Children.Add(_leftThumb);
         leftInner.Children.Add(_leftGlow);
         var rightInner = new Grid { Background = null };
+        rightInner.Children.Add(_rightThumb);
         rightInner.Children.Add(_rightGlow);
-        var leftPane = new Border { Background = null, BorderBrush = borderBrush, BorderThickness = new Thickness(2), Child = leftInner };
-        var rightPane = new Border { Background = null, BorderBrush = borderBrush, BorderThickness = new Thickness(2), Child = rightInner };
+        _leftPaneBorder = new Border { Background = null, BorderBrush = AppTheme.Brush(AppTheme.Current().Border), BorderThickness = new Thickness(2), Child = leftInner };
+        _rightPaneBorder = new Border { Background = null, BorderBrush = AppTheme.Brush(AppTheme.Current().Border), BorderThickness = new Thickness(2), Child = rightInner };
 
         _divider = new Border
         {
-            Background = dividerBrush,
+            Background = AppTheme.Brush(AppTheme.Current().Divider),
             Width = DividerW,
             Cursor = Cursors.SizeWE,
         };
-        _divider.MouseEnter += (_, _) => _divider.Background = dividerHover;
-        _divider.MouseLeave += (_, _) => _divider.Background = dividerBrush;
+        _divider.MouseEnter += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().DividerHover);
+        _divider.MouseLeave += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().Divider);
         _divider.MouseLeftButtonDown += DividerOnMouseDown;
         _divider.MouseMove += DividerOnMouseMove;
         _divider.MouseLeftButtonUp += DividerOnMouseUp;
@@ -163,16 +180,16 @@ public sealed class HostWindow : Window
         _content.ColumnDefinitions.Add(_leftCol);
         _content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(DividerW) });
         _content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(leftPane, 0);
+        Grid.SetColumn(_leftPaneBorder, 0);
         Grid.SetColumn(_divider, 1);
-        Grid.SetColumn(rightPane, 2);
-        _content.Children.Add(leftPane);
+        Grid.SetColumn(_rightPaneBorder, 2);
+        _content.Children.Add(_leftPaneBorder);
         _content.Children.Add(_divider);
-        _content.Children.Add(rightPane);
+        _content.Children.Add(_rightPaneBorder);
 
         _status = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xD8, 0xD8)),
+            Foreground = AppTheme.Brush(AppTheme.Current().Text),
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 10, 0),
@@ -187,22 +204,24 @@ public sealed class HostWindow : Window
             Margin = new Thickness(0),                     // 顶到最右边
             Background = null,
         };
-        // 右键菜单功能也铺到顶条：[左][右][交换][释放] | [─][□][✕]
+        // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
         // 左/右按钮状态翻转：空格时吸附选择，有吸附窗口时变为释放该侧
-        _pickLeftButton = CaptionButton(Icons.PickLeft, (_, _) =>
+        _pickLeftButton = CaptionButton(Icons.PickLeft!, (_, _) =>
         {
             if (_leftHwnd == IntPtr.Zero) Pick(AttachSide.Left);
             else ReleaseSide(0);
         }, width: 30, tooltip: "选择左窗…");
         _captionButtons.Children.Add(_pickLeftButton);
-        _pickRightButton = CaptionButton(Icons.PickRight, (_, _) =>
+        _pickRightButton = CaptionButton(Icons.PickRight!, (_, _) =>
         {
             if (_rightHwnd == IntPtr.Zero) Pick(AttachSide.Right);
             else ReleaseSide(1);
         }, width: 30, tooltip: "选择右窗…");
         _captionButtons.Children.Add(_pickRightButton);
-        _captionButtons.Children.Add(CaptionButton(Icons.Swap, (_, _) => SwapSides(), width: 30, tooltip: "交换左右"));
-        _captionButtons.Children.Add(CaptionButton(Icons.Release, (_, _) => ReleaseAll(), width: 30, tooltip: "全部释放（窗口回到原位）"));
+        _captionButtons.Children.Add(CaptionButton(Icons.Swap!, (_, _) => SwapSides(), width: 30, tooltip: "交换左右"));
+        _captionButtons.Children.Add(CaptionButton(Icons.Release!, (_, _) => ReleaseAll(), width: 30, tooltip: "全部释放（窗口回到原位）"));
+        _themeButton = CaptionButton(ThemeGlyph(), (_, _) => CycleTheme(), width: 30, tooltip: ThemeTooltip());
+        _captionButtons.Children.Add(_themeButton);
         _captionButtons.Children.Add(CaptionSeparator());
         _captionButtons.Children.Add(CaptionButton(Icons.Minimize, (_, _) => WindowState = WindowState.Minimized, tooltip: "最小化"));
         _maxButton = CaptionButton(Icons.Maximize, (_, _) => ToggleMaximize(), font: Icons.MaximizeFont, tooltip: "最大化");
@@ -220,7 +239,7 @@ public sealed class HostWindow : Window
 
         _topBar = new Border
         {
-            Background = barBrush,
+            Background = AppTheme.Brush(AppTheme.Current().Bar),
             Height = TopBarH,
             Child = topBarGrid,
         };
@@ -233,11 +252,81 @@ public sealed class HostWindow : Window
 
         _outer = new Border
         {
-            BorderBrush = borderBrush,
+            BorderBrush = AppTheme.Brush(AppTheme.Current().Border),
             BorderThickness = new Thickness(BorderW),
             Child = root,
         };
         Content = _outer;
+    }
+
+    // ---------- 主题 ----------
+
+    private string ThemeGlyph() => AppTheme.Mode switch
+    {
+        AppThemeMode.Dark => "\uF186",   // moon
+        AppThemeMode.Light => "\uF185",  // sun
+        _ => "\uF042",                   // circle-half-stroke（跟随系统）
+    };
+
+    private string ThemeTooltip()
+    {
+        string state = AppTheme.Mode switch
+        {
+            AppThemeMode.Dark => "深色",
+            AppThemeMode.Light => "浅色",
+            _ => AppTheme.IsDarkNow ? "跟随系统（当前深色）" : "跟随系统（当前浅色）",
+        };
+        return $"主题：{state}，点击切换";
+    }
+
+    private void CycleTheme()
+    {
+        AppTheme.Mode = AppTheme.Mode switch
+        {
+            AppThemeMode.Auto => AppThemeMode.Dark,
+            AppThemeMode.Dark => AppThemeMode.Light,
+            _ => AppThemeMode.Auto,
+        };
+        ApplyTheme();
+        SaveConfig();
+    }
+
+    private void ApplyTheme()
+    {
+        var p = AppTheme.Current();
+        _outer.BorderBrush = AppTheme.Brush(p.Border);
+        _leftPaneBorder.BorderBrush = AppTheme.Brush(p.Border);
+        _rightPaneBorder.BorderBrush = AppTheme.Brush(p.Border);
+        _topBar.Background = AppTheme.Brush(p.Bar);
+        _status.Foreground = AppTheme.Brush(p.Text);
+        _divider.Background = AppTheme.Brush(p.Divider);
+        foreach (var (b, _) in _captionButtonList) b.Foreground = AppTheme.Brush(p.Text);
+        if (_themeButton is not null)
+        {
+            _themeButton.Content = ThemeGlyph();
+            _themeButton.ToolTip = ThemeTooltip();
+        }
+    }
+
+    private void SaveConfig()
+    {
+        var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
+        if (WindowState == WindowState.Normal)
+        {
+            cfg.Left = Left;
+            cfg.Top = Top;
+            cfg.Width = ActualWidth;
+            cfg.Height = ActualHeight;
+        }
+        else
+        {
+            var r = RestoreBounds;
+            cfg.Left = r.Left;
+            cfg.Top = r.Top;
+            cfg.Width = r.Width;
+            cfg.Height = r.Height;
+        }
+        ConfigStore.Save(cfg);
     }
 
     private static Border CaptionSeparator() => new()
@@ -248,15 +337,11 @@ public sealed class HostWindow : Window
         VerticalAlignment = VerticalAlignment.Stretch,
     };
 
-    private static Button CaptionButton(string glyph, RoutedEventHandler onClick, bool danger = false,
+    private Button CaptionButton(string glyph, RoutedEventHandler onClick, bool danger = false,
         double fontSize = 13, double width = 36, string? tooltip = null, FontFamily? font = null)
     {
-        var normal = Brushes.Transparent;
-        var hover = danger
-            ? new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C))
-            : new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C));
-
-        // 默认 WPF 按钮模板会在 IsMouseOver 时覆盖亮蓝色 chrome，这里用极简模板只呈现 Background
+        // 默认 WPF 按钮模板会在 IsMouseOver 时覆盖亮蓝色 chrome，这里用极简模板只呈现 Background；
+        // 悬停色在事件时从当前主题取，切主题无需重建按钮
         var template = new ControlTemplate(typeof(Button));
         var border = new FrameworkElementFactory(typeof(Border));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
@@ -271,8 +356,8 @@ public sealed class HostWindow : Window
             Content = glyph,
             Width = width,
             Focusable = false,
-            Background = normal,
-            Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xD8, 0xD8)),
+            Background = Brushes.Transparent,
+            Foreground = AppTheme.Brush(AppTheme.Current().Text),
             BorderThickness = new Thickness(0),
             FontFamily = font ?? Icons.Family ?? new FontFamily("Segoe UI"),
             FontSize = Icons.Family != null || font != null ? fontSize : 11,
@@ -280,9 +365,11 @@ public sealed class HostWindow : Window
             ToolTip = tooltip,
             Template = template,
         };
-        b.MouseEnter += (_, _) => b.Background = hover;
-        b.MouseLeave += (_, _) => b.Background = normal;
+        b.MouseEnter += (_, _) => b.Background = AppTheme.Brush(
+            danger ? AppTheme.Current().DangerHover : AppTheme.Current().ButtonHover);
+        b.MouseLeave += (_, _) => b.Background = Brushes.Transparent;
         b.Click += onClick;
+        _captionButtonList.Add((b, danger));
         return b;
     }
 
@@ -349,6 +436,14 @@ public sealed class HostWindow : Window
             Marshal.StructureToPtr(mmi, lParam, true);
             handled = true;
         }
+        else if (msg == WM_SETTINGCHANGE)
+        {
+            // Windows 主题切换（深浅色）：Auto 模式下实时跟随
+            if (AppTheme.Mode == AppThemeMode.Auto && Marshal.PtrToStringAuto(lParam) == "ImmersiveColorSet")
+            {
+                Dispatcher.BeginInvoke(ApplyTheme, DispatcherPriority.Background);
+            }
+        }
         return IntPtr.Zero;
     }
 
@@ -368,24 +463,7 @@ public sealed class HostWindow : Window
         _drag?.Dispose();
         _drag = null;
         ReleaseAll();
-
-        var cfg = new AppConfig { Ratio = _ratio };
-        if (WindowState == WindowState.Normal)
-        {
-            cfg.Left = Left;
-            cfg.Top = Top;
-            cfg.Width = ActualWidth;
-            cfg.Height = ActualHeight;
-        }
-        else
-        {
-            var r = RestoreBounds;
-            cfg.Left = r.Left;
-            cfg.Top = r.Top;
-            cfg.Width = r.Width;
-            cfg.Height = r.Height;
-        }
-        ConfigStore.Save(cfg);
+        SaveConfig();
     }
 
     // ---------- 布局同步 ----------
@@ -456,7 +534,9 @@ public sealed class HostWindow : Window
 
     private void UpdatePaneWidths()
     {
-        double avail = Math.Max(0, _content.ActualWidth - DividerW);
+        // 用窗口 ActualWidth 直算（与 PaneRectDevice 同一公式），不能用 _content.ActualWidth——
+        // 最大化还原时 StateChanged 早于尺寸回缩完成，读到的旧值会把分隔条顶到错误位置
+        double avail = Math.Max(0, ActualWidth - 2 * CurBorderW - DividerW);
         _leftCol.Width = new GridLength(avail * _ratio);
     }
 
@@ -526,6 +606,9 @@ public sealed class HostWindow : Window
             if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
         }
 
+        RefreshChildCaptures(); // 缓存子窗口截图供任务栏合成预览使用
+
+        UpdatePaneWidths(); // 分隔条视觉位置与 _ratio 的持续对账（自愈任何布局漂移）
         ApplyLayout();
         FixZOrder();
     }
@@ -546,11 +629,14 @@ public sealed class HostWindow : Window
 
             case WindowState.Maximized:
             case WindowState.Normal:
-                // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化；边框同步隐藏/恢复
+                // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化；边框同步隐藏/恢复。
+                // 立即按当前窗口宽校一次；WPF 尺寸回缩/边框变化完成后再校一次（Loaded 优先级），
+                // 消除事件时序导致的分隔条位置漂移
                 ShowAttachedChildren();
                 if (_outer is not null) _outer.BorderThickness = new Thickness(CurBorderW);
                 UpdatePaneWidths();
                 ApplyLayout();
+                Dispatcher.BeginInvoke(() => { UpdatePaneWidths(); ApplyLayout(); }, DispatcherPriority.Loaded);
                 break;
         }
 
@@ -572,6 +658,57 @@ public sealed class HostWindow : Window
     }
 
     // ---------- 吸附 ----------
+
+    /// <summary>
+    /// 命令行吸附：WindowMerger.exe [左进程名] [右进程名]，Loaded 后执行一次。
+    /// 进程名可带可不带 .exe（大小写不敏感）；同名多窗口取面积最大的；
+    /// 未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
+    /// </summary>
+    private void AttachStartupTargets()
+    {
+        if (_cliTargetsDone || _cliLeft is null && _cliRight is null) return;
+        _cliTargetsDone = true;
+
+        var targets = new[]
+        {
+            (Side: AttachSide.Left, Raw: _cliLeft),
+            (Side: AttachSide.Right, Raw: _cliRight),
+        };
+        foreach (var (side, raw) in targets)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            string name = raw.Trim();
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
+
+            IntPtr hwnd = FindWindowByProcessName(name);
+            if (hwnd == IntPtr.Zero)
+            {
+                ShowNotice($"未找到 {name} 的窗口，已跳过");
+                continue;
+            }
+            if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
+            TryAttach(side, hwnd);
+        }
+    }
+
+    private IntPtr FindWindowByProcessName(string name)
+    {
+        IntPtr best = IntPtr.Zero;
+        long bestArea = -1;
+        foreach (var c in WindowLocator.GetCandidates(_handle))
+        {
+            if (!c.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (c.Hwnd == _leftHwnd || c.Hwnd == _rightHwnd) continue; // 已吸附的跳过
+            if (!Native.GetWindowRect(c.Hwnd, out var r)) continue;
+            long area = (long)r.Width * r.Height;
+            if (area > bestArea)
+            {
+                bestArea = area;
+                best = c.Hwnd;
+            }
+        }
+        return best;
+    }
 
     internal bool IsAttachable(IntPtr hwnd)
     {
@@ -624,6 +761,69 @@ public sealed class HostWindow : Window
     {
         int pref = square ? Native.DWMWCP_DONOTROUND : Native.DWMWCP_DEFAULT;
         Native.DwmSetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
+    }
+
+    /// <summary>持续缓存两个子窗口的 PrintWindow 截图：刷新格子缩略图（任务栏预览用）。</summary>
+    private void RefreshChildCaptures()
+    {
+        _capLeft = CaptureChildSource(_leftHwnd);
+        _capRight = CaptureChildSource(_rightHwnd);
+        UpdatePaneThumbs();
+    }
+
+    /// <summary>把缓存的子窗口截图（裁掉隐形边）填进对应格子的底层 Image。</summary>
+    private void UpdatePaneThumbs()
+    {
+        if (_leftThumb is null) return;
+        _leftThumb.Source = PaneThumb(_leftHwnd, _capLeft);
+        _rightThumb.Source = PaneThumb(_rightHwnd, _capRight);
+    }
+
+    private ImageSource? PaneThumb(IntPtr hwnd, BitmapSource? capture)
+    {
+        if (hwnd == IntPtr.Zero || capture is null) return null;
+        if (!_frameMargins.TryGetValue(hwnd, out var m)) return null;
+        int sw = Math.Max(1, capture.PixelWidth - m.L - m.R);
+        int sh = Math.Max(1, capture.PixelHeight - m.T - m.B);
+        var cropped = new CroppedBitmap(capture, new Int32Rect(m.L, m.T, sw, sh));
+        cropped.Freeze();
+        return cropped;
+    }
+
+    /// <summary>PrintWindow(PW_RENDERFULLCONTENT) 抓取子窗口完整内容（含 Chromium 直合成内容），冻结返回。</summary>
+    private BitmapSource? CaptureChildSource(IntPtr hwnd)
+    {
+        if (!Native.GetWindowRect(hwnd, out var r)) return null;
+        int w = r.Width, h = r.Height;
+        if (w <= 0 || h <= 0) return null;
+
+        var hdr = new Native.BITMAPINFOHEADER
+        {
+            biSize = (uint)Marshal.SizeOf<Native.BITMAPINFOHEADER>(),
+            biWidth = w,
+            biHeight = -h,
+            biPlanes = 1,
+            biBitCount = 32,
+        };
+        IntPtr bits;
+        IntPtr hbmp = Native.CreateDIBSection(IntPtr.Zero, ref hdr, 0, out bits, IntPtr.Zero, 0);
+        if (hbmp == IntPtr.Zero) return null;
+
+        IntPtr hdcMem = Native.CreateCompatibleDC(IntPtr.Zero);
+        IntPtr old = Native.SelectObject(hdcMem, hbmp);
+        bool ok = Native.PrintWindow(hwnd, hdcMem, Native.PW_RENDERFULLCONTENT);
+        Native.SelectObject(hdcMem, old);
+        Native.DeleteDC(hdcMem);
+        if (!ok)
+        {
+            Native.DeleteObject(hbmp);
+            return null;
+        }
+
+        var src = Imaging.CreateBitmapSourceFromHBitmap(hbmp, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+        Native.DeleteObject(hbmp);
+        src.Freeze();
+        return src;
     }
 
     // ---------- 任务栏隐藏与图标叠加 ----------
@@ -851,8 +1051,8 @@ public sealed class HostWindow : Window
     {
         if (!_divider.IsMouseCaptured) return;
         var p = e.GetPosition(_content);
-        double avail = Math.Max(1, _content.ActualWidth - DividerW);
-        _ratio = Math.Clamp(p.X / avail, MinRatio, MaxRatio);
+        double avail = Math.Max(1, ActualWidth - 2 * CurBorderW - DividerW);
+        _ratio = Math.Clamp((p.X + 2 * CurBorderW) / avail, MinRatio, MaxRatio);
         UpdatePaneWidths();
         ApplyLayout();
         e.Handled = true;
