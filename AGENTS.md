@@ -1,7 +1,7 @@
 # AGENTS.md — WindowMerger 项目约定
 
 把任意两个独立窗口合并进同一个带边框宿主窗口（透明格子 + 子窗口吸附，**不用 SetParent**）。
-技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，无 XAML 窗口——UI 全部代码构建）。
+技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，宿主视觉树在 `src/HostWindow.xaml`——`x:Name` 生成字段供 code-behind 引用，动态逻辑全在 `HostWindow.xaml.cs`；构造顺序 = InitializeComponent → WireUi（事件/按钮填充）→ ApplyTheme（按配置主题重刷，XAML 只带深色初值）→ 配置尺寸覆盖）。
 
 ## 构建 / 运行 / 提交
 
@@ -72,3 +72,4 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - **不做自定义缩略图/预览接管（iconic 位图方案已于 2026-11 移除）**：DWM 对 `FORCE_ICONIC` 窗口的缩略图请求尺寸恒为 200x109（不随 Alt-Tab 瓦片大小变化）、超尺寸位图 `E_INVALIDARG` 拒收、显示不放大——吸附态 Alt-Tab 瓦片无法铺满，无 API 可突破；而取消 FORCE 后宿主实时渲染只有顶条+透明格子（空面板），信息量更差。当前行为：任务栏/Alt+Tab 显示宿主实时画面（顶条 + 深色空格子），属已知取舍
 - Alt+Tab/任务栏只显示宿主一项（子窗口 tool window 是吸附架构的一部分）
 - 最大化时外边框隐藏（`CurBorderW`=0）、子窗口铺满格子，属设计
+- 分隔条拖到极端比例时，右格可能窄于目标应用的最小宽度（如 mspaint ≈704px）——OS 钳制缩放，子窗口会探出宿主右缘约数十像素，非 bug

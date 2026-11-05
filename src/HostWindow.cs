@@ -11,7 +11,7 @@ using System.Windows.Threading;
 
 namespace WindowMerger;
 
-public sealed class HostWindow : Window
+public sealed partial class HostWindow : Window
 {
     private const double BorderW = 2;      // 可见边框宽度（最大化时隐藏为 0）
     private const double TopBarH = 28;     // 顶条高度
@@ -25,17 +25,6 @@ public sealed class HostWindow : Window
 
     private double _ratio;
 
-    private Border _outer = null!;
-    private Border _topBar = null!;
-    private Border _divider = null!;
-    private TextBlock _status = null!;
-    private TextBlock _appLabel = null!;
-    private Image _appIcon = null!;
-    private Border _leftGlow = null!;
-    private Border _rightGlow = null!;
-    private ColumnDefinition _leftCol = null!;
-    private Grid _content = null!;
-
     private IntPtr _handle;
     private IntPtr _leftHwnd;
     private IntPtr _rightHwnd;
@@ -46,7 +35,6 @@ public sealed class HostWindow : Window
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
     private int _highlightSlot = -1;
-    private Panel _captionButtons = null!;
     private Button _maxButton = null!;
     private Button _pickLeftButton = null!;
     private Button _pickRightButton = null!;
@@ -56,8 +44,6 @@ public sealed class HostWindow : Window
     private readonly string? _cliRight;
     private bool _cliTargetsDone;
     private Button _themeButton = null!;
-    private Border _leftPaneBorder = null!;
-    private Border _rightPaneBorder = null!;
     private readonly List<(Button Button, bool Danger)> _captionButtonList = new();
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
@@ -74,13 +60,9 @@ public sealed class HostWindow : Window
         var orphanPids = config.AttachedPids;
         var orphanHwnds = config.AttachedHwnds;
 
-        Title = "窗口合并 WindowMerger";
-        WindowStyle = WindowStyle.None;
-        AllowsTransparency = true;
-        Background = Brushes.Transparent;
-        ResizeMode = ResizeMode.CanResize;
-        MinWidth = 400;
-        MinHeight = 300;
+        InitializeComponent();
+
+        // 尺寸/位置是配置驱动的，必须在 InitializeComponent 之后覆盖
         Width = config.Width is double w and >= 300 ? w : 1280;
         Height = config.Height is double h and >= 300 ? h : 800;
         if (config.Left is double l && config.Top is double t && Math.Abs(l) < 20000 && Math.Abs(t) < 20000)
@@ -94,7 +76,8 @@ public sealed class HostWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
         }
 
-        BuildUi();
+        WireUi();
+        ApplyTheme(); // XAML 只带深色初值，按配置主题重刷一遍（含按钮前景）
 
         // CaptionHeight=0：顶条走 DragMove，右键才能弹自定义菜单；缩放交给 WindowChrome 的 resize 边
         WindowChrome.SetWindowChrome(this, new WindowChrome
@@ -129,28 +112,9 @@ public sealed class HostWindow : Window
 
     // ---------- UI ----------
 
-    private void BuildUi()
+    /// <summary>视觉树在 HostWindow.xaml；这里只挂接事件、填充代码生成的按钮与条件内容。</summary>
+    private void WireUi()
     {
-        var accent = Color.FromRgb(0x0A, 0x84, 0xFF);
-
-        _leftGlow = MakeGlow(accent);
-        _rightGlow = MakeGlow(accent);
-
-        // 格子四周 2px 框线（与外边框同色）：子窗口可见边缘与格子齐平，
-        // 外扩/取整带来的最后一像素缝透出的是框线色而非桌面壁纸；内部保持透明
-        var leftInner = new Grid { Background = null };
-        leftInner.Children.Add(_leftGlow);
-        var rightInner = new Grid { Background = null };
-        rightInner.Children.Add(_rightGlow);
-        _leftPaneBorder = new Border { Background = null, BorderBrush = AppTheme.Brush(AppTheme.Current().Border), BorderThickness = new Thickness(2), Child = leftInner };
-        _rightPaneBorder = new Border { Background = null, BorderBrush = AppTheme.Brush(AppTheme.Current().Border), BorderThickness = new Thickness(2), Child = rightInner };
-
-        _divider = new Border
-        {
-            Background = AppTheme.Brush(AppTheme.Current().Divider),
-            Width = DividerW,
-            Cursor = Cursors.SizeWE,
-        };
         _divider.MouseEnter += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().DividerHover);
         _divider.MouseLeave += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().Divider);
         _divider.MouseLeftButtonDown += DividerOnMouseDown;
@@ -171,54 +135,9 @@ public sealed class HostWindow : Window
             };
         }
 
-        _leftCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
-        _content = new Grid { Background = null };
-        _content.ColumnDefinitions.Add(_leftCol);
-        _content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(DividerW) });
-        _content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(_leftPaneBorder, 0);
-        Grid.SetColumn(_divider, 1);
-        Grid.SetColumn(_rightPaneBorder, 2);
-        _content.Children.Add(_leftPaneBorder);
-        _content.Children.Add(_divider);
-        _content.Children.Add(_rightPaneBorder);
+        // 顶条左端应用图标
+        _appIcon.Source = LoadAppIconFrame();
 
-        _status = new TextBlock
-        {
-            Foreground = AppTheme.Brush(AppTheme.Current().Text),
-            FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-
-        // 顶条左端应用图标 + 程序名标识
-        _appIcon = new Image
-        {
-            Width = 16,
-            Height = 16,
-            Source = LoadAppIconFrame(),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 5, 0),
-        };
-        _appLabel = new TextBlock
-        {
-            Text = "WindowMerger",
-            Foreground = AppTheme.Brush(AppTheme.Current().Text),
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 6, 0),
-        };
-
-        _captionButtons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Stretch, // 按钮占满顶条整行
-            Margin = new Thickness(0),                     // 顶到最右边
-            Background = null,
-        };
         // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
         // 左/右按钮状态翻转：空格时吸附选择，有吸附窗口时变为释放该侧
         _pickLeftButton = CaptionButton(Icons.PickLeft!, (_, _) =>
@@ -244,42 +163,9 @@ public sealed class HostWindow : Window
         _captionButtons.Children.Add(CaptionButton(Icons.Close, (_, _) => Close(), danger: true, fontSize: 16, tooltip: "关闭"));
         UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
 
-        var topBarGrid = new Grid();
-        topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(_appIcon, 0);
-        Grid.SetColumn(_appLabel, 1);
-        Grid.SetColumn(_status, 2);
-        Grid.SetColumn(_captionButtons, 3);
-        topBarGrid.Children.Add(_appIcon);
-        topBarGrid.Children.Add(_appLabel);
-        topBarGrid.Children.Add(_status);
-        topBarGrid.Children.Add(_captionButtons);
-
-        _topBar = new Border
-        {
-            Background = AppTheme.Brush(AppTheme.Current().Bar),
-            Height = TopBarH,
-            Child = topBarGrid,
-        };
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
         _topBar.MouseMove += TopBarOnMouseMove;
         _topBar.MouseLeftButtonUp += TopBarOnMouseUp;
-
-        var root = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(_topBar, Dock.Top);
-        root.Children.Add(_topBar);
-        root.Children.Add(_content);
-
-        _outer = new Border
-        {
-            BorderBrush = AppTheme.Brush(AppTheme.Current().Border),
-            BorderThickness = new Thickness(BorderW),
-            Child = root,
-        };
-        Content = _outer;
     }
 
     // ---------- 主题 ----------
@@ -472,16 +358,6 @@ public sealed class HostWindow : Window
 
     private void ToggleMaximize()
         => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-
-    private static Border MakeGlow(Color accent) => new()
-    {
-        BorderBrush = new SolidColorBrush(accent),
-        BorderThickness = new Thickness(5),
-        CornerRadius = new CornerRadius(4),
-        Margin = new Thickness(1),
-        IsHitTestVisible = false,
-        Visibility = Visibility.Collapsed,
-    };
 
     // ---------- 生命周期 ----------
 
