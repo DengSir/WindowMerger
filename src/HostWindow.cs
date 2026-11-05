@@ -70,6 +70,7 @@ public sealed class HostWindow : Window
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
         var orphanPids = config.AttachedPids;
+        var orphanHwnds = config.AttachedHwnds;
 
         Title = "窗口合并 WindowMerger";
         WindowStyle = WindowStyle.None;
@@ -114,7 +115,7 @@ public sealed class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids); AttachStartupTargets(); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(); };
         Closing += (_, _) => OnClosingCleanup();
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -360,6 +361,10 @@ public sealed class HostWindow : Window
     {
         var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
         cfg.AttachedPids = _attachedPids.ToList();
+        cfg.AttachedHwnds = new[] { _leftHwnd, _rightHwnd }
+            .Where(h => h != IntPtr.Zero)
+            .Select(h => h.ToInt64())
+            .ToList();
         if (WindowState == WindowState.Normal)
         {
             cfg.Left = Left;
@@ -763,24 +768,30 @@ public sealed class HostWindow : Window
 
     /// <summary>
     /// 启动时清理上一会话的孤儿：宿主被强杀时已吸附子窗口会残留
-    /// WS_EX_TOOLWINDOW（任务栏消失、无法交互操作区域），按记录的 PID 摘除样式。
+    /// WS_EX_TOOLWINDOW（任务栏消失、可能停在屏幕外），按记录的 HWND 精确摘除样式。
+    /// 不能按 PID 枚举：进程的隐藏辅助窗口（CiceroUIWndFrame 等）同样带 TOOLWINDOW，
+    /// 误显示会产生"点不出来的任务栏幽灵按钮"（实测踩坑）。PID 仅用于句柄复用校验。
     /// </summary>
-    private static void CleanupOrphanedToolWindows(List<long>? pids)
+    private static void CleanupOrphanedToolWindows(List<long>? pids, List<long>? hwnds)
     {
-        if (pids is not { Count: > 0 }) return;
-        var set = pids.ToHashSet();
-        Native.EnumWindows((h, _) =>
+        if (hwnds is not { Count: > 0 } || pids is not { Count: > 0 }) return;
+        var pidSet = pids.ToHashSet();
+        foreach (var raw in hwnds)
         {
+            var h = new IntPtr(raw);
+            if (!Native.IsWindow(h)) continue;
             Native.GetWindowThreadProcessId(h, out uint pid);
-            if (!set.Contains(pid)) return true;
+            if (!pidSet.Contains(pid)) continue; // 句柄已被复用给其他进程，跳过
             int ex = Native.GetWindowLong(h, Native.GWL_EXSTYLE);
-            if ((ex & Native.WS_EX_TOOLWINDOW) != 0)
+            if ((ex & Native.WS_EX_TOOLWINDOW) == 0) continue; // 已还原（正常释放过）
+            Native.SetWindowLong(h, Native.GWL_EXSTYLE, ex & ~Native.WS_EX_TOOLWINDOW);
+            Native.ShowWindow(h, Native.SW_SHOWNA); // 任务栏重新收录
+            if (Native.GetWindowRect(h, out var r) && (r.Left <= -30000 || r.Top <= -30000))
             {
-                Native.SetWindowLong(h, Native.GWL_EXSTYLE, ex & ~Native.WS_EX_TOOLWINDOW);
-                Native.ShowWindow(h, Native.SW_SHOWNA); // 任务栏重新收录
+                // 宿主最小化联动时被强杀：窗口还停在移出屏幕外的位置，拉回工作区
+                Native.SetWindowPos(h, IntPtr.Zero, 60, 60, 1200, 800, Native.SWP_NOZORDER);
             }
-            return true;
-        }, IntPtr.Zero);
+        }
     }
 
     // ---------- 吸附 ----------
@@ -1145,6 +1156,7 @@ public sealed class HostWindow : Window
         UpdateStatus();
         UpdateHostIcon();
         UpdateIconicAttributes();
+        SaveConfig(); // 吸附即落盘：宿主被强杀时孤儿清理才有 HWND 可循
     }
 
     /// <summary>吸附失败时只清理状态，不尝试恢复窗口几何（窗口从未被移动过）。</summary>
@@ -1200,6 +1212,7 @@ public sealed class HostWindow : Window
         _rightHwnd = IntPtr.Zero;
         UpdateStatus();
         UpdateHostIcon();
+        UpdateIconicAttributes(); // 与 ReleaseSide 一致：无吸附窗口时还原实时预览
     }
 
     private void SwapSides()

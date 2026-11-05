@@ -29,6 +29,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
 - UIPI：管理员权限窗口（如任务管理器）**无法**被普通权限程序吸附，`SetWindowPos` 静默失败——失败时必须状态回滚 + 状态栏报因
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）
+- **强杀宿主 = 孤儿**：吸附子窗口残留 `WS_EX_TOOLWINDOW`（任务栏消失，宿主最小化期间被强杀还会停在屏幕外 -32000）。孤儿清理必须**按配置记录的 HWND 精确匹配**（PID 仅作句柄复用校验），**绝不能按 PID 枚举该进程全部窗口**——进程的隐藏辅助窗口（`CiceroUIWndFrame` 等，实测 opera/Listary/RepositoryTree 都带 TOOLWINDOW）会被误显示成"点不出来的任务栏幽灵按钮"。吸附成功立即 SaveConfig 落盘（强杀时才有记录可循）。救援 `tools\OrphanRescue.ps1`，回归 `tools\OrphanE2ETest.ps1`
 
 ### 字体（Font Awesome Free，SIL OFL）
 - 字体用 `Content + CopyToOutputDirectory` 随 exe 分发，**文件路径**加载——本应用内 pack:// 资源流静默失败（`GetResourceStream` 返回 null）
