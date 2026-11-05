@@ -30,6 +30,7 @@ public sealed class HostWindow : Window
     private Border _divider = null!;
     private TextBlock _status = null!;
     private TextBlock _appLabel = null!;
+    private Image _appIcon = null!;
     private Border _leftGlow = null!;
     private Border _rightGlow = null!;
     private ColumnDefinition _leftCol = null!;
@@ -191,7 +192,15 @@ public sealed class HostWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
-        // 顶条左端固定程序名标识
+        // 顶条左端应用图标 + 程序名标识
+        _appIcon = new Image
+        {
+            Width = 16,
+            Height = 16,
+            Source = LoadAppIconFrame(),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 5, 0),
+        };
         _appLabel = new TextBlock
         {
             Text = "WindowMerger",
@@ -199,7 +208,7 @@ public sealed class HostWindow : Window
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 6, 0),
+            Margin = new Thickness(0, 0, 6, 0),
         };
 
         _captionButtons = new StackPanel
@@ -237,11 +246,14 @@ public sealed class HostWindow : Window
 
         var topBarGrid = new Grid();
         topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(_appLabel, 0);
-        Grid.SetColumn(_status, 1);
-        Grid.SetColumn(_captionButtons, 2);
+        Grid.SetColumn(_appIcon, 0);
+        Grid.SetColumn(_appLabel, 1);
+        Grid.SetColumn(_status, 2);
+        Grid.SetColumn(_captionButtons, 3);
+        topBarGrid.Children.Add(_appIcon);
         topBarGrid.Children.Add(_appLabel);
         topBarGrid.Children.Add(_status);
         topBarGrid.Children.Add(_captionButtons);
@@ -484,18 +496,14 @@ public sealed class HostWindow : Window
         SetFallbackIcon();
     }
 
-    /// <summary>
-    /// 应用图标（内嵌 assets\WindowMerger.ico）作为窗口基础图标：未吸附子窗口时
-    /// 任务栏/Alt+Tab 显示它，吸附后由 UpdateHostIcon 换成双子窗口合成图标。
-    /// 直接从资源流解码，不落盘。
-    /// </summary>
-    private void SetFallbackIcon()
+    /// <summary>从内嵌 ico 资源流解码最大帧（窗口图标与顶条图标共用）。</summary>
+    private static BitmapSource? LoadAppIconFrame()
     {
         try
         {
             var rs = System.Windows.Application.GetResourceStream(
                 new Uri("pack://application:,,,/assets/WindowMerger.ico"));
-            if (rs == null) return;
+            if (rs == null) return null;
             var decoder = BitmapDecoder.Create(rs.Stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
             BitmapSource? best = null;
             foreach (var frame in decoder.Frames)
@@ -505,15 +513,25 @@ public sealed class HostWindow : Window
                     best = frame;
                 }
             }
-            if (best != null)
-            {
-                best.Freeze();
-                Icon = best;
-            }
+            best?.Freeze();
+            return best;
         }
         catch (Exception)
         {
-            // 图标资源缺失/损坏只影响外观，按设计降级为默认图标
+            // 图标资源缺失/损坏只影响外观，按设计降级
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 应用图标作为窗口基础图标：未吸附子窗口时任务栏/Alt+Tab 显示它，
+    /// 吸附后由 UpdateHostIcon 换成双子窗口合成图标。
+    /// </summary>
+    private void SetFallbackIcon()
+    {
+        if (LoadAppIconFrame() is { } icon)
+        {
+            Icon = icon;
         }
     }
 
