@@ -6,6 +6,7 @@
     <None Remove="Resources\fa-*.ttf" />
     <Content Include="Resources\fa-solid-900.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Resources\fa-regular-400.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\WindowMerger.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -17,6 +18,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>WindowMerger</RootNamespace>
     <AssemblyName>WindowMerger</AssemblyName>
+    <ApplicationIcon>assets\WindowMerger.ico</ApplicationIcon>
     <ApplicationManifest>src\app.manifest</ApplicationManifest>
     <Version>1.0.0</Version>
     <Product>WindowMerger</Product>

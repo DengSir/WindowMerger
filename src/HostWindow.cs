@@ -481,6 +481,38 @@ public sealed class HostWindow : Window
         _lastOrigin = PointToScreen(new Point(0, 0));
         _drag = new DragAttach(this);
         _timer.Start();
+        SetFallbackIcon();
+    }
+
+    /// <summary>
+    /// 应用图标（assets\WindowMerger.ico）作为窗口基础图标：未吸附子窗口时
+    /// 任务栏/Alt+Tab 显示它，吸附后由 UpdateHostIcon 换成双子窗口合成图标。
+    /// 字体同款纪律：按文件路径加载（pack:// 在本应用内静默失败）。
+    /// </summary>
+    private void SetFallbackIcon()
+    {
+        try
+        {
+            var uri = new Uri(Path.Combine(AppContext.BaseDirectory, "assets", "WindowMerger.ico"));
+            var decoder = BitmapDecoder.Create(uri, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            BitmapSource? best = null;
+            foreach (var frame in decoder.Frames)
+            {
+                if (best == null || frame.PixelWidth * frame.PixelHeight > best.PixelWidth * best.PixelHeight)
+                {
+                    best = frame;
+                }
+            }
+            if (best != null)
+            {
+                best.Freeze();
+                Icon = best;
+            }
+        }
+        catch (Exception)
+        {
+            // 图标资源缺失/损坏只影响外观，按设计降级为默认图标
+        }
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -1112,7 +1144,7 @@ public sealed class HostWindow : Window
         var r = TryGetIconSource(_rightHwnd);
         if (l == null && r == null)
         {
-            Icon = null;
+            SetFallbackIcon(); // 无吸附窗口时回到应用图标（而非默认 WPF 图标）
             return;
         }
         if (l == null)
