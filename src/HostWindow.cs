@@ -213,7 +213,7 @@ public sealed class HostWindow : Window
         _captionButtons.Children.Add(_pickRightButton);
         _captionButtons.Children.Add(CaptionButton(Icons.Swap!, (_, _) => SwapSides(), width: 30, tooltip: "交换左右"));
         _captionButtons.Children.Add(CaptionButton(Icons.Release!, (_, _) => ReleaseAll(), width: 30, tooltip: "全部释放（窗口回到原位）"));
-        _themeButton = CaptionButton(ThemeGlyph(), (_, _) => CycleTheme(), width: 30, tooltip: ThemeTooltip());
+        _themeButton = CaptionButton(ThemeGlyph(), (_, _) => OpenThemeMenu(), width: 30, tooltip: ThemeTooltip());
         _captionButtons.Children.Add(_themeButton);
         _captionButtons.Children.Add(CaptionSeparator());
         _captionButtons.Children.Add(CaptionButton(Icons.Minimize, (_, _) => WindowState = WindowState.Minimized, tooltip: "最小化"));
@@ -269,19 +269,60 @@ public sealed class HostWindow : Window
             AppThemeMode.Light => "浅色",
             _ => AppTheme.IsDarkNow ? "跟随系统（当前深色）" : "跟随系统（当前浅色）",
         };
-        return $"主题：{state}，点击切换";
+        return $"主题：{state}，点击选择";
     }
 
-    private void CycleTheme()
+    /// <summary>主题按钮下拉菜单：直接选择 跟随系统/深色/浅色（替代循环切换）。</summary>
+    private void OpenThemeMenu()
     {
-        AppTheme.Mode = AppTheme.Mode switch
+        var p = AppTheme.Current();
+        var menu = new ContextMenu
         {
-            AppThemeMode.Auto => AppThemeMode.Dark,
-            AppThemeMode.Dark => AppThemeMode.Light,
-            _ => AppThemeMode.Auto,
+            Background = AppTheme.Brush(p.Bar),
+            BorderBrush = AppTheme.Brush(p.Border),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(4),
+            PlacementTarget = _themeButton,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
         };
-        ApplyTheme();
-        SaveConfig();
+        menu.Items.Add(ThemeMenuItem("跟随系统", AppThemeMode.Auto, p));
+        menu.Items.Add(ThemeMenuItem("深色", AppThemeMode.Dark, p));
+        menu.Items.Add(ThemeMenuItem("浅色", AppThemeMode.Light, p));
+        menu.IsOpen = true;
+    }
+
+    private MenuItem ThemeMenuItem(string label, AppThemeMode mode, AppTheme.Palette p)
+    {
+        // 极简模板只呈现 Background（默认模板的浅灰高亮会破坏深色主题），悬停色事件时从当前主题取
+        var template = new ControlTemplate(typeof(MenuItem));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(MenuItem.BackgroundProperty));
+        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(MenuItem.PaddingProperty));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.ContentSourceProperty, "Header"); // MenuItem 无 Content 属性，必须显式指到 Header
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+
+        var item = new MenuItem
+        {
+            Header = (AppTheme.Mode == mode ? "✓ " : "　 ") + label,
+            Background = Brushes.Transparent,
+            Foreground = AppTheme.Brush(p.Text),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(12, 6, 20, 6),
+            FontSize = 12,
+            Template = template,
+        };
+        item.MouseEnter += (_, _) => item.Background = AppTheme.Brush(AppTheme.Current().ButtonHover);
+        item.MouseLeave += (_, _) => item.Background = Brushes.Transparent;
+        item.Click += (_, _) =>
+        {
+            AppTheme.Mode = mode;
+            ApplyTheme();
+            SaveConfig();
+        };
+        return item;
     }
 
     private void ApplyTheme()

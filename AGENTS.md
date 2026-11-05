@@ -48,6 +48,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 
 - 无 POSIX 命令（`ls`/`grep`/`timeout` 均不可用）；延时用 `ping -n N 127.0.0.1 >nul`
 - PowerShell 内联单行命令经 CMD 双层转义极易损坏（`$null` 转义、嵌套表达式不展开、中文参数变乱码）——**复杂逻辑一律写 `tools\*.ps1` 脚本文件**再执行，参数传数字/ASCII
+- **锁屏会话（前台 = LockApp）时注入点击/键盘全部落在锁屏上，GDI 全屏截图报"句柄无效"**——远程交互验证会静默失败。此时 UIA `InvokePattern` 仍可用（进程内直调 Click，不走输入注入），可作为替代验证路径（见 `tools\ThemeMenuTest.ps1`）
 - 验证脚本截图后**必须还原层级**（`HWND_NOTOPMOST`），不得给用户正在运行的实例残留置顶
 
 ## 验证流程
