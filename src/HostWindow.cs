@@ -13,7 +13,7 @@ namespace WindowMerger;
 
 public sealed class HostWindow : Window
 {
-    private const double BorderW = 1;      // 可见边框宽度（最大化时隐藏为 0）
+    private const double BorderW = 2;      // 可见边框宽度（最大化时隐藏为 0）
     private const double TopBarH = 28;     // 顶条高度
     private const double DividerW = 8;     // 中间分隔条宽度
     private const double ChromeResizeBorder = 8;
