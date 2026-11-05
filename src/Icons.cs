@@ -39,12 +39,11 @@ internal static class Icons
     public static FontFamily? MaximizeFont => FamilyRegular ?? Family;
     public static FontFamily? RestoreFont => FamilyRegular ?? Family;
 
-    // 菜单项图标（Solid 集）
+    // 顶条功能按钮图标（Solid 集）
     public static string? PickLeft  => Family != null ? "\uF060" : null; // arrow-left
     public static string? PickRight => Family != null ? "\uF061" : null; // arrow-right
     public static string? Swap      => Family != null ? "\uF0EC" : null; // right-left
     public static string? Release   => Family != null ? "\uF127" : null; // unlink
-    public static string? Exit      => Family != null ? "\uF011" : null; // power-off
 
     // 分隔条把手
     public static string? Grip => Family != null ? "\uF338" : null; // grip-lines-vertical

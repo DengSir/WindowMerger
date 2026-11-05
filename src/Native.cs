@@ -73,10 +73,6 @@ internal static partial class Native
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_DEFAULT = 0;
     public const int DWMWCP_DONOTROUND = 1;
-    public const int DWMWA_FORCE_ICONIC_REPRESENTATION = 7;
-    public const int DWMWA_ICONIC_BITMAP = 9;
-    public const int WM_DWMSENDICONICTHUMBNAIL = 0x0323;
-    public const int WM_DWMSENDICONICLIVEPREVIEWBITMAP = 0x0326;
 
     // GDI 位图
     public const uint PW_RENDERFULLCONTENT = 0x00000002;
@@ -117,18 +113,6 @@ internal static partial class Native
 
     [LibraryImport("gdi32.dll")]
     public static partial IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
-
-    [LibraryImport("user32.dll")]
-    public static partial IntPtr GetDC(IntPtr hWnd);
-
-    [LibraryImport("user32.dll")]
-    public static partial int ReleaseDC(IntPtr hWnd, IntPtr hdc);
-
-    [LibraryImport("dwmapi.dll")]
-    public static partial int DwmSetIconicThumbnail(IntPtr hwnd, IntPtr hbitmap, uint flags);
-
-    [LibraryImport("dwmapi.dll")]
-    public static partial int DwmSetIconicLivePreviewBitmap(IntPtr hwnd, IntPtr hbitmap, IntPtr ptClient, uint flags);
 
     // WinEvent
     public const uint EVENT_SYSTEM_MOVESIZE = 0x000A;
