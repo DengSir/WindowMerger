@@ -55,6 +55,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 
 - 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 启动吸附 → 命中/矩形偏差 → 合成预览请求 → 悬停 → 读日志）
 - 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
+- 拖动类交互（最大化拖动还原等）用 `ManualDragTest.ps1` 交互式验证：脚本只准备环境 + 每 150ms 采样窗口状态，**人工实际拖动**、回车后打印时间线——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
 - CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）
 - Win11 记事本是单实例多标签：同名目标会去重只吸一个，属预期
 - 悬停任务栏弹窗的远程截图时机不稳定，最终视觉验收交给用户
