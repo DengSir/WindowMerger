@@ -59,6 +59,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 
 ## 已知边界（不要试图"修复"）
 
-- 任务栏预览是格子缩略图快照（250ms 刷新），非逐帧直播——实现见 HostWindow `RefreshChildCaptures` + 格子底层 Image
+- **永远不要把子窗口的截图绘制进宿主窗口**（用户明确的永久规则，违反 = 预览假修复 + 点击被宿主拦截）。任务栏/Alt+Tab 预览的正确实现是 iconic 位图应答：`DWMWA_FORCE_ICONIC_REPRESENTATION` + `DWMWA_HAS_ICONIC_BITMAP` **成对**设置（缺 HAS 时 DWM 悬停不发请求），悬停/Alt+Tab 时 DWM 发 `WM_DWMSENDICONIC*` 消息，用 PrintWindow 现场抓子窗口画面合成后经 `DwmSetIconicThumbnail/LivePreviewBitmap` 应答（见 HostWindow `UpdateIconicAttributes`/`CreateCompositeHBitmap`）；内容变化时调 `DwmInvalidateIconicBitmaps` 刷新
+- 任务栏/Alt+Tab 预览显示的是应答时抓取的快照，非逐帧直播
 - Alt+Tab/任务栏只显示宿主一项（子窗口 tool window 是吸附架构的一部分）
 - 最大化时外边框隐藏（`CurBorderW`=0）、子窗口铺满格子，属设计
