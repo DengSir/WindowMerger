@@ -276,8 +276,20 @@ public sealed class HostWindow : Window
     private void OpenThemeMenu()
     {
         var p = AppTheme.Current();
+        // 默认 ContextMenu 模板里有一层不随主题的白色圆角内边框，必须整体替换为
+        // 极简模板（Border+ItemsPresenter），配色才完全由当前主题决定
+        var menuTemplate = new ControlTemplate(typeof(ContextMenu));
+        var menuBorder = new FrameworkElementFactory(typeof(Border));
+        menuBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(ContextMenu.BackgroundProperty));
+        menuBorder.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(ContextMenu.BorderBrushProperty));
+        menuBorder.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(ContextMenu.BorderThicknessProperty));
+        menuBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(ContextMenu.PaddingProperty));
+        menuBorder.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
+        menuTemplate.VisualTree = menuBorder;
+
         var menu = new ContextMenu
         {
+            Template = menuTemplate,
             Background = AppTheme.Brush(p.Bar),
             BorderBrush = AppTheme.Brush(p.Border),
             BorderThickness = new Thickness(1),
