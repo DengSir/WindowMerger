@@ -13,7 +13,7 @@ namespace WindowMerger;
 
 public sealed class HostWindow : Window
 {
-    private const double BorderW = 2;      // 可见边框宽度（最大化时隐藏为 0）
+    private const double BorderW = 1;      // 可见边框宽度（最大化时隐藏为 0）
     private const double TopBarH = 28;     // 顶条高度
     private const double DividerW = 8;     // 中间分隔条宽度
     private const double ChromeResizeBorder = 8;
@@ -29,6 +29,7 @@ public sealed class HostWindow : Window
     private Border _topBar = null!;
     private Border _divider = null!;
     private TextBlock _status = null!;
+    private TextBlock _appLabel = null!;
     private Border _leftGlow = null!;
     private Border _rightGlow = null!;
     private ColumnDefinition _leftCol = null!;
@@ -186,8 +187,19 @@ public sealed class HostWindow : Window
             Foreground = AppTheme.Brush(AppTheme.Current().Text),
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 10, 0),
+            Margin = new Thickness(0, 0, 10, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+
+        // 顶条左端固定程序名标识
+        _appLabel = new TextBlock
+        {
+            Text = "WindowMerger",
+            Foreground = AppTheme.Brush(AppTheme.Current().Text),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 6, 0),
         };
 
         _captionButtons = new StackPanel
@@ -224,10 +236,13 @@ public sealed class HostWindow : Window
         UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
 
         var topBarGrid = new Grid();
+        topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(_status, 0);
-        Grid.SetColumn(_captionButtons, 1);
+        Grid.SetColumn(_appLabel, 0);
+        Grid.SetColumn(_status, 1);
+        Grid.SetColumn(_captionButtons, 2);
+        topBarGrid.Children.Add(_appLabel);
         topBarGrid.Children.Add(_status);
         topBarGrid.Children.Add(_captionButtons);
 
@@ -348,6 +363,7 @@ public sealed class HostWindow : Window
         _rightPaneBorder.BorderBrush = AppTheme.Brush(p.Border);
         _topBar.Background = AppTheme.Brush(p.Bar);
         _status.Foreground = AppTheme.Brush(p.Text);
+        _appLabel.Foreground = AppTheme.Brush(p.Text);
         _divider.Background = AppTheme.Brush(p.Divider);
         foreach (var (b, _) in _captionButtonList) b.Foreground = AppTheme.Brush(p.Text);
         if (_themeButton is not null)
@@ -1096,12 +1112,12 @@ public sealed class HostWindow : Window
             return;
         }
 
-        // 两枚图标错位叠放
+        // 两枚图标对角叠放：右窗右上靠后（先画在下），左窗左下靠前（后画盖在上面）
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawImage(l, new Rect(0, 0, 24, 24));
-            dc.DrawImage(r, new Rect(8, 8, 24, 24));
+            dc.DrawImage(r, new Rect(8, 0, 24, 24));
+            dc.DrawImage(l, new Rect(0, 8, 24, 24));
         }
         var rtb = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
