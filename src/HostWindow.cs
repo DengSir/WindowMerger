@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -449,7 +450,8 @@ public sealed class HostWindow : Window
                 IntPtr hbmp = CreateCompositeHBitmap(maxW, maxH, coverFill: true);
                 if (hbmp != IntPtr.Zero)
                 {
-                    Native.DwmSetIconicThumbnail(_handle, hbmp, 0);
+                    int hr = Native.DwmSetIconicThumbnail(_handle, hbmp, 0);
+                    TraceIconic($"THUMBNAIL req {maxW}x{maxH} hr=0x{hr:X8}");
                     Native.DeleteObject(hbmp);
                 }
             }
@@ -462,7 +464,8 @@ public sealed class HostWindow : Window
                 IntPtr hbmp = CreateCompositeHBitmap(lr.Width, lr.Height, coverFill: true);
                 if (hbmp != IntPtr.Zero)
                 {
-                    Native.DwmSetIconicLivePreviewBitmap(_handle, hbmp, IntPtr.Zero, Native.DWM_SIT_DISPLAYFRAME);
+                    int hr = Native.DwmSetIconicLivePreviewBitmap(_handle, hbmp, IntPtr.Zero, Native.DWM_SIT_DISPLAYFRAME);
+                    TraceIconic($"LIVEPREVIEW {lr.Width}x{lr.Height} hr=0x{hr:X8}");
                     Native.DeleteObject(hbmp);
                 }
             }
@@ -1265,6 +1268,13 @@ public sealed class HostWindow : Window
         UpdateStatus();
         UpdateHostIcon();
         UpdateIconicAttributes();
+    }
+
+    /// <summary>临时诊断：iconic 位图请求/应答日志（%TEMP%\wm-iconic.log）。</summary>
+    private static void TraceIconic(string line)
+    {
+        try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "wm-iconic.log"), line + "\n"); }
+        catch (Exception) { /* 日志失败不影响主流程 */ }
     }
 
     private static string PaneTitle(IntPtr hwnd)
