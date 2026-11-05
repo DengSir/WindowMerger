@@ -73,6 +73,9 @@ internal static partial class Native
     public const int DWMWCP_DEFAULT = 0;
     public const int DWMWCP_DONOTROUND = 1;
 
+    // 进程快照
+    public const uint TH32CS_SNAPPROCESS = 0x00000002;
+
     // WinEvent
     public const uint EVENT_SYSTEM_MOVESIZE = 0x000A;
     public const uint EVENT_SYSTEM_MOVESIZEEND = 0x000B;
@@ -150,6 +153,74 @@ internal static partial class Native
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [LibraryImport("kernel32.dll", SetLastError = true, EntryPoint = "Process32FirstW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool Process32First(nint hSnapshot, ref PROCESSENTRY32W lppe);
+
+    [LibraryImport("kernel32.dll", SetLastError = true, EntryPoint = "Process32NextW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool Process32Next(nint hSnapshot, ref PROCESSENTRY32W lppe);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(nint hObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private unsafe struct PROCESSENTRY32W
+    {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public nint th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public long pcPriClassBase;
+        public uint dwFlags;
+        public fixed char szExeFile[260];
+    }
+
+    /// <summary>rootPid 的全部后代进程 PID（含间接后代；快照式，不含 rootPid 本身）。</summary>
+    public static HashSet<int> GetDescendantProcessIds(int rootPid)
+    {
+        var result = new HashSet<int>();
+        nint snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap == nint.Zero || snap == new nint(-1)) return result;
+        try
+        {
+            var pe = new PROCESSENTRY32W { dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32W>() };
+            if (!Process32First(snap, ref pe)) return result;
+            var byParent = new Dictionary<uint, List<uint>>();
+            do
+            {
+                if (!byParent.TryGetValue(pe.th32ParentProcessID, out var kids))
+                {
+                    byParent[pe.th32ParentProcessID] = kids = new List<uint>();
+                }
+                kids.Add(pe.th32ProcessID);
+            }
+            while (Process32Next(snap, ref pe));
+
+            var queue = new Queue<uint>();
+            queue.Enqueue((uint)rootPid);
+            while (queue.Count > 0)
+            {
+                if (!byParent.TryGetValue(queue.Dequeue(), out var kids)) continue;
+                foreach (var kid in kids)
+                {
+                    if (result.Add((int)kid)) queue.Enqueue(kid);
+                }
+            }
+        }
+        finally
+        {
+            CloseHandle(snap);
+        }
+        return result;
+    }
 
     [LibraryImport("user32.dll")]
     public static partial uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);

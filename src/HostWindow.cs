@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -831,8 +832,9 @@ public sealed class HostWindow : Window
     // ---------- 吸附 ----------
 
     /// <summary>
-    /// 命令行吸附：WindowMerger.exe [左进程名] [右进程名]，Loaded 后执行一次。
-    /// 进程名可带可不带 .exe（大小写不敏感）；同名多窗口取面积最大的；
+    /// 命令行吸附：WindowMerger.exe [左进程名|左PID] [右进程名|右PID]，Loaded 后执行一次。
+    /// 参数为纯数字时按 PID 匹配（脚本 Start-Process -PassThru 可直接拿到），否则按进程名
+    /// （可带可不带 .exe，大小写不敏感）；同候选多窗口取面积最大的；
     /// 未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
     /// </summary>
     private void AttachStartupTargets()
@@ -848,13 +850,12 @@ public sealed class HostWindow : Window
         foreach (var (side, raw) in targets)
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
-            string name = raw.Trim();
-            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
+            string arg = raw.Trim();
 
-            IntPtr hwnd = FindWindowByProcessName(name);
+            IntPtr hwnd = FindWindowByArg(arg);
             if (hwnd == IntPtr.Zero)
             {
-                ShowNotice($"未找到 {name} 的窗口，已跳过");
+                ShowNotice($"未找到 {arg} 的窗口，已跳过");
                 continue;
             }
             if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
@@ -862,13 +863,46 @@ public sealed class HostWindow : Window
         }
     }
 
-    private IntPtr FindWindowByProcessName(string name)
+    /// <summary>按命令行参数找窗口：纯数字 = PID，否则 = 进程名（可带 .exe 后缀）。同候选多窗口取面积最大。
+    /// PID 匹配三级回退：精确 PID → 该进程的后代进程树（Win11 打包应用经别名 stub 拉起，
+    /// Start-Process -PassThru 返回的 stub 没有窗口，真实窗口属于其后代进程）→ 同名进程（stub
+    /// 已退出时树仍可走而名字查询不行，故名字放最后兜底单实例交接场景）。</summary>
+    private IntPtr FindWindowByArg(string arg)
+    {
+        bool byPid = long.TryParse(arg, out var pid);
+        string name = arg;
+        if (!byPid && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
+
+        var candidates = WindowLocator.GetCandidates(_handle);
+        IntPtr best = PickBestBy(candidates, c =>
+            byPid ? c.Pid == pid : c.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (best != IntPtr.Zero || !byPid) return best;
+
+        // 回退 1：后代进程树（Win11 别名 stub → 真实打包应用）
+        var descendants = Native.GetDescendantProcessIds((int)pid);
+        best = PickBestBy(candidates, c => descendants.Contains((int)c.Pid));
+        if (best != IntPtr.Zero) return best;
+
+        // 回退 2：同名进程（stub 已退出等交接场景的最后兜底）
+        try
+        {
+            string pname = Process.GetProcessById((int)pid).ProcessName;
+            best = PickBestBy(candidates, c => c.ProcessName.Equals(pname, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (ArgumentException)
+        {
+            // PID 不存在（进程已退出且无后代），保持未匹配
+        }
+        return best;
+    }
+
+    private IntPtr PickBestBy(IEnumerable<WindowCandidate> candidates, Func<WindowCandidate, bool> match)
     {
         IntPtr best = IntPtr.Zero;
         long bestArea = -1;
-        foreach (var c in WindowLocator.GetCandidates(_handle))
+        foreach (var c in candidates)
         {
-            if (!c.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!match(c)) continue;
             if (c.Hwnd == _leftHwnd || c.Hwnd == _rightHwnd) continue; // 已吸附的跳过
             if (!Native.GetWindowRect(c.Hwnd, out var r)) continue;
             long area = (long)r.Width * r.Height;

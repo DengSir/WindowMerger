@@ -7,8 +7,9 @@
 
 ```cmd
 dotnet build -c Release        :: 必须做到 0 警告 0 错误
-bin\Release\net10.0-windows\WindowMerger.exe [左进程名 右进程名]
+bin\Release\net10.0-windows\WindowMerger.exe [左进程名|左PID 右进程名|右PID]
 bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
+bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 ```
 
 - **重建前必须先关闭运行中的实例**（exe 被运行实例锁定会构建失败）。优雅关闭 = PostMessage `WM_CLOSE (0x0010)`，走正常退出流程（保存配置 + 释放子窗口回原位）；`taskkill /F` 会跳过这些清理，仅在卡死时用
@@ -61,7 +62,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 - 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 启动吸附 → 命中/矩形偏差 → 还原置顶状态）
 - 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
 - 拖动类交互（最大化拖动还原等）用 `ManualDragTest.ps1` 交互式验证：脚本只准备环境 + 每 150ms 采样窗口状态，**人工实际拖动**、回车后打印时间线——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
-- CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）
+- CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）。参数**纯数字 = PID、否则 = 进程名**；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用经别名 stub 启动，`Start-Process -PassThru` 返回的 stub 没有窗口，真实窗口属于其后代进程，Toolhelp 快照走树匹配）→ 同名进程（stub 已退出的交接场景兜底）
 - Win11 记事本是单实例多标签：同名目标会去重只吸一个，属预期
 - 悬停任务栏弹窗的远程截图时机不稳定，最终视觉验收交给用户
 

@@ -6,7 +6,8 @@ public partial class App : Application
 {
     private void OnStartup(object sender, StartupEventArgs e)
     {
-        // 命令行：WindowMerger.exe [--left 左进程名] [--right 右进程名] 或位置参数 [左] [右]
+        // 命令行：WindowMerger.exe [--left 左进程名|左PID] [--right 右进程名|右PID] 或位置参数 [左] [右]
+        // 纯数字参数按 PID 匹配（脚本 Start-Process -PassThru 可直接拿到目标进程 PID）
         var (left, right) = ParseArgs(e.Args);
         var host = new HostWindow(ConfigStore.Load(), left, right);
         MainWindow = host;
