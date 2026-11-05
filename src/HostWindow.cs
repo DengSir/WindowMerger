@@ -109,9 +109,9 @@ public sealed class HostWindow : Window
         Activated += (_, _) =>
         {
             ShowAttachedChildren();
-            RaiseChildrenAbove();
-            // 宿主激活可能把子窗口压到下方，低优先级再拉起一次
-            Dispatcher.BeginInvoke(RaiseChildrenAbove, DispatcherPriority.Background);
+            RaiseChildrenBelow();
+            // 宿主激活把宿主单独升到 z 序顶端，子窗口留在原地；低优先级再插回一次加固
+            Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
         Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids); AttachStartupTargets(); };
@@ -540,8 +540,10 @@ public sealed class HostWindow : Window
         {
             return true; // 已就位，避免无谓的 SetWindowPos
         }
-        // HWND_TOP：子窗口压在宿主上方，点击直达子窗口；分隔条/边框是宿主独立不透明部分不受影响
-        return Native.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
+        // 插到宿主正下方（相对插入是稳定语义）：宿主不透明部分（分隔条/边框）盖住子窗口
+        // 隐形边可点击，透明格子透出子窗口。不要用 HWND_TOP——实测 Alt+Tab 切回宿主后
+        // 它是静默无效调用（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住）
+        return Native.SetWindowPos(hwnd, _handle, x, y, w, h,
             Native.SWP_NOACTIVATE);
     }
 
@@ -568,39 +570,37 @@ public sealed class HostWindow : Window
         _leftCol.Width = new GridLength(avail * _ratio);
     }
 
-    private void RaiseChildrenAbove()
+    private void RaiseChildrenBelow()
     {
         if (_handle == IntPtr.Zero) return;
-        // HWND_TOP：两个子窗口压在宿主上方（精确贴合无外扩，隐形边不会劫持分隔条）
+        // 插到宿主正下方（先右后左，最终顺序上→下：宿主、左、右）。
+        // 不用 HWND_TOP：实测 Alt+Tab 切回宿主后它是静默无效调用（返回 true 但 z 序不变）
         foreach (var h in new[] { _rightHwnd, _leftHwnd })
         {
             if (h == IntPtr.Zero || !Native.IsWindow(h) || Native.IsIconic(h)) continue;
-            Native.SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0,
+            Native.SetWindowPos(h, _handle, 0, 0, 0, 0,
                 Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
         }
     }
 
     private void FixZOrder()
     {
-        foreach (var h in new[] { _leftHwnd, _rightHwnd })
+        // 宿主正下方必须是连续的子窗口块（次序不限）：Alt+Tab 切回时宿主单独升顶，
+        // 子窗口留在原地会被切走前的前台窗口压住（宿主内 HWND_TOP 拉起实测无效）。
+        // 不满足就整体插回宿主正下方。最小化（移出屏幕外但非 iconic）的子窗口豁免。
+        IntPtr below = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetWindow(_handle, Native.GW_HWNDNEXT);
+        bool leftOk = false, rightOk = false;
+        for (int i = 0; i < 2 && below != IntPtr.Zero; i++)
         {
-            if (h == IntPtr.Zero || !Native.IsWindow(h) || Native.IsIconic(h)) continue;
-            if (IsAboveHost(h)) continue;
-            RaiseChildrenAbove();
-            return;
+            if (below == _leftHwnd) leftOk = true;
+            if (below == _rightHwnd) rightOk = true;
+            below = Native.GetWindow(below, Native.GW_HWNDNEXT);
         }
-    }
-
-    /// <summary>沿 z 序从 child 向下遍历，先遇到宿主 = child 在宿主上方。</summary>
-    private bool IsAboveHost(IntPtr child)
-    {
-        IntPtr cur = child;
-        for (int i = 0; i < 64 && cur != IntPtr.Zero; i++)
-        {
-            cur = Native.GetWindow(cur, Native.GW_HWNDNEXT);
-            if (cur == _handle) return true;
-        }
-        return false;
+        bool needLeft = _leftHwnd != IntPtr.Zero && Native.IsWindow(_leftHwnd)
+            && !Native.IsIconic(_leftHwnd) && !leftOk;
+        bool needRight = _rightHwnd != IntPtr.Zero && Native.IsWindow(_rightHwnd)
+            && !Native.IsIconic(_rightHwnd) && !rightOk;
+        if (needLeft || needRight) RaiseChildrenBelow();
     }
 
     private void Maintain()
@@ -1086,7 +1086,7 @@ public sealed class HostWindow : Window
             ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
             return;
         }
-        RaiseChildrenAbove();
+        RaiseChildrenBelow();
         UpdateStatus();
         UpdateHostIcon();
         UpdateIconicAttributes();

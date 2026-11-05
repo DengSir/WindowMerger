@@ -23,6 +23,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 
 ### WPF / Win32 语义
 - `SetWindowPos` 的 `hWndInsertAfter` = "放到目标窗口**下方**"。子窗口吸附 z 序 = 子窗口永远插在宿主**正下方**（宿主不透明部分盖住子窗口隐形边，分隔条才可点击；透明格子透出子窗口）
+- **拉起子窗口 z 序不要用 `HWND_TOP`**：Alt+Tab 切回宿主后它是**静默无效调用**（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住，实测必现）；z 序修复一律相对插入 `hWndInsertAfter = 宿主`，自愈校验用"宿主正下方连续子窗口块"（见 `FixZOrder`）。复现/回归：`tools\AltTabZRepro.ps1`
 - 吸附子窗口设为 `WS_EX_TOOLWINDOW`（无任务栏/Alt+Tab）→ **最小化或独立最大化后无法手动恢复**，维护定时器（250ms）会自动拉回：子窗口没有"自己最大化"的概念
 - Win11 DWM 自动圆角是格子四角"圆角缝"的根源：吸附时设 `DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND`，释放还原 `DEFAULT`
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
