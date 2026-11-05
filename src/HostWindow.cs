@@ -1,4 +1,3 @@
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -41,7 +40,6 @@ public sealed class HostWindow : Window
     private IntPtr _rightHwnd;
     private readonly Dictionary<IntPtr, Native.RECT> _preAttachRects = new();
     private readonly Dictionary<IntPtr, (int L, int T, int R, int B)> _frameMargins = new();
-    private readonly Dictionary<IntPtr, BitmapSource> _lastGoodCaptures = new();
     private readonly HashSet<long> _attachedPids = new();
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
@@ -118,8 +116,6 @@ public sealed class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        // 注意：不要在 Deactivated 时 DwmInvalidateIconicBitmaps——Alt-Tab 叠加层打开后
-        // DWM 不会重新请求（实测），失效化只会把缓存里的好图变成黑占位
         Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(); };
         Closing += (_, _) => OnClosingCleanup();
 
@@ -569,56 +565,6 @@ public sealed class HostWindow : Window
                 Dispatcher.BeginInvoke(ApplyTheme, DispatcherPriority.Background);
             }
         }
-        else if (msg == Native.WM_DWMSENDICONICTHUMBNAIL)
-        {
-            // lParam：HIWORD=最大宽，LOWORD=最大高（超尺寸 E_INVALIDARG 拒收，实测）。
-            // DWM 渲染瓦片不等应答：先用缓存渲染槽位，请求只是异步刷新缓存——
-            // 所以缓存必须靠 PrePopulateThumbnail 预填，首显才有内容
-            int maxW = (int)(((long)lParam >> 16) & 0xFFFF);
-            int maxH = (int)((long)lParam & 0xFFFF);
-            if (maxW > 0 && maxH > 0)
-            {
-                // 应答尺寸 = 请求尺寸（硬上限：更大的位图 E_INVALIDARG 拒收，实测 500/512 均被拒）。
-                // DWM 显示 iconic 位图不放大，瓦片大于 200x109 时（窗口数量少）图像居于瓦片一隅——
-                // 这是 DWM iconic API 的固有行为，无 API 可突破
-                IntPtr hbmp = CreateCompositeHBitmap(maxW, maxH, coverFill: true);
-                if (hbmp != IntPtr.Zero)
-                {
-                    int hr = Native.DwmSetIconicThumbnail(_handle, hbmp, 0);
-                    TraceIconic($"THUMBNAIL req {maxW}x{maxH} hr=0x{hr:X8}");
-                    Native.DeleteObject(hbmp);
-                }
-            }
-            handled = true;
-        }
-        else if (msg == Native.WM_DWMSENDICONICLIVEPREVIEWBITMAP)
-        {
-            // 最小化时 GetWindowRect 是 -32000 处 ~160x99 的幽灵矩形，用它当位图尺寸
-            // 预览会缩成任务栏缩略图那么点大——最小化时改用还原尺寸（rcNormalPosition）
-            int w = 0, h = 0;
-            var pl = new Native.WINDOWPLACEMENT { length = Marshal.SizeOf<Native.WINDOWPLACEMENT>() };
-            if (Native.IsIconic(_handle) && Native.GetWindowPlacement(_handle, ref pl))
-            {
-                w = pl.rcNormalPosition.Width;
-                h = pl.rcNormalPosition.Height;
-            }
-            else if (Native.GetWindowRect(_handle, out var lr))
-            {
-                w = lr.Width;
-                h = lr.Height;
-            }
-            if (w > 0 && h > 0)
-            {
-                IntPtr hbmp = CreateCompositeHBitmap(w, h, coverFill: true);
-                if (hbmp != IntPtr.Zero)
-                {
-                    int hr = Native.DwmSetIconicLivePreviewBitmap(_handle, hbmp, IntPtr.Zero, Native.DWM_SIT_DISPLAYFRAME);
-                    TraceIconic($"LIVEPREVIEW {w}x{h} iconic={Native.IsIconic(_handle)} hr=0x{hr:X8}");
-                    Native.DeleteObject(hbmp);
-                }
-            }
-            handled = true;
-        }
         return IntPtr.Zero;
     }
 
@@ -758,7 +704,6 @@ public sealed class HostWindow : Window
         {
             _preAttachRects.Remove(_leftHwnd);
             _frameMargins.Remove(_leftHwnd);
-            _lastGoodCaptures.Remove(_leftHwnd);
             _leftHwnd = IntPtr.Zero;
             childLost = true;
         }
@@ -766,12 +711,11 @@ public sealed class HostWindow : Window
         {
             _preAttachRects.Remove(_rightHwnd);
             _frameMargins.Remove(_rightHwnd);
-            _lastGoodCaptures.Remove(_rightHwnd);
             _rightHwnd = IntPtr.Zero;
             childLost = true;
         }
         UpdateStatus();
-        if (childLost) { UpdateHostIcon(); UpdateIconicAttributes(); }
+        if (childLost) { UpdateHostIcon(); }
 
         if (WindowState == WindowState.Minimized) return; // 最小化时不布局；最大化也要自愈
         bool dragging = _drag is { IsBusy: true };
@@ -990,190 +934,6 @@ public sealed class HostWindow : Window
         Native.DwmSetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
     }
 
-    // ---------- 任务栏合成预览（iconic 位图应答） ----------
-
-    /// <summary>
-    /// 附着状态变化时更新 DWM 属性。FORCE_ICONIC 与 HAS_ICONIC_BITMAP 必须成对设置——
-    /// 只设 FORCE 时 DWM 悬停不会发送 WM_DWMSENDICONICTHUMBNAIL/LIVEPREVIEW（实测踩坑，
-    /// 文档：DWM 发送条件为「HAS_ICONIC_BITMAP 已设置」）。无吸附窗口时两者清零还原实时预览。
-    /// 开启后主动预填一张缩略图进 DWM 缓存：DWM 渲染瓦片不等应答（先用缓存渲染槽位，
-    /// 请求只是异步刷新缓存），不预填则每次启动后的首次 Alt-Tab 必然显示黑/小。
-    /// </summary>
-    private void UpdateIconicAttributes()
-    {
-        if (_handle == IntPtr.Zero) return;
-        int on = (_leftHwnd != IntPtr.Zero || _rightHwnd != IntPtr.Zero) ? 1 : 0;
-        Native.DwmSetWindowAttribute(_handle, Native.DWMWA_FORCE_ICONIC_REPRESENTATION, ref on, sizeof(int));
-        Native.DwmSetWindowAttribute(_handle, Native.DWMWA_HAS_ICONIC_BITMAP, ref on, sizeof(int));
-        if (on != 0)
-        {
-            Native.DwmInvalidateIconicBitmaps(_handle); // 内容持续变化，令缓存失效以便悬停时重新索取
-            PrePopulateThumbnail();
-        }
-    }
-
-    /// <summary>主动预填 iconic 缩略图缓存（不等 DWM 请求）。DWM 显示 iconic 位图约为槽位的
-    /// 50%（实测），预填 2 倍尺寸（512x360，≈槽位 223x155 的 2.3 倍）显示后恰好铺满。</summary>
-    private void PrePopulateThumbnail()
-    {
-        IntPtr hbmp = CreateCompositeHBitmap(512, 360, coverFill: true);
-        if (hbmp == IntPtr.Zero) return;
-        int hr = Native.DwmSetIconicThumbnail(_handle, hbmp, 0);
-        TraceIconic($"THUMBNAIL prepopulate 512x360 hr=0x{hr:X8}");
-        Native.DeleteObject(hbmp);
-    }
-
-    /// <summary>合成"合并窗口"位图（顶条 + 双子窗口实时截图拼合）。coverFill=true 时铺满目标尺寸（居中裁切），返回不透明 DIB（调用方 DeleteObject）。</summary>
-    private IntPtr CreateCompositeHBitmap(int w, int h, bool coverFill)
-    {
-        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-        var dv = new DrawingVisual();
-        using (var dc = dv.RenderOpen())
-        {
-            var p = AppTheme.Current();
-            // 缩放系数：cover=铺满裁切；fit=等比完整（Peek 大图用）
-            double sc = coverFill
-                ? Math.Max((double)w / Math.Max(1, ActualWidth), (double)h / Math.Max(1, ActualHeight))
-                : Math.Min((double)w / Math.Max(1, ActualWidth), (double)h / Math.Max(1, ActualHeight));
-            double ox = (w - ActualWidth * sc) / 2;
-            double oy = (h - ActualHeight * sc) / 2;
-            double bw = CurBorderW;
-            double avail = Math.Max(0, ActualWidth - 2 * bw - DividerW);
-            double dividerX = bw + avail * _ratio;
-
-            dc.DrawRectangle(AppTheme.Brush(p.Bar), null, new Rect(ox, oy, ActualWidth * sc, TopBarH * sc));
-            DrawChildComposite(dc, _leftHwnd, 0, sc, ox, oy, p);
-            DrawChildComposite(dc, _rightHwnd, 1, sc, ox, oy, p);
-            dc.DrawRectangle(AppTheme.Brush(p.Divider), null, new Rect(ox + dividerX * sc, oy, DividerW * sc, h));
-        }
-        rtb.Render(dv);
-
-        int stride = w * 4;
-        var pixels = new byte[stride * h];
-        rtb.CopyPixels(pixels, stride, 0);
-        for (int i = 3; i < pixels.Length; i += 4) pixels[i] = 255; // DWM 要求不透明
-
-        var hdr = new Native.BITMAPINFOHEADER
-        {
-            biSize = (uint)Marshal.SizeOf<Native.BITMAPINFOHEADER>(),
-            biWidth = w,
-            biHeight = -h, // 自上而下
-            biPlanes = 1,
-            biBitCount = 32,
-        };
-        IntPtr bits;
-        IntPtr hbmp = Native.CreateDIBSection(IntPtr.Zero, ref hdr, 0, out bits, IntPtr.Zero, 0);
-        if (hbmp == IntPtr.Zero) return IntPtr.Zero;
-        Marshal.Copy(pixels, 0, bits, pixels.Length);
-        return hbmp;
-    }
-
-    /// <summary>当前分隔条在宿主坐标系中的 x 位置（DIP）。</summary>
-    private double DividerXDip()
-    {
-        double bw = CurBorderW;
-        double avail = Math.Max(0, ActualWidth - 2 * bw - DividerW);
-        return bw + avail * _ratio;
-    }
-
-    private void DrawChildComposite(DrawingContext dc, IntPtr hwnd, int slot, double sc, double ox, double oy, AppTheme.Palette p)
-    {
-        if (hwnd == IntPtr.Zero) return;
-        var src = CaptureChildSource(hwnd); // 应答请求时现场抓取，缩略图内容实时
-        if (src is null)
-        {
-            // 抓取失败（被全屏遮挡/权限不足）时以主题底色占位
-            double bw0 = CurBorderW;
-            double avail0 = Math.Max(0, ActualWidth - 2 * bw0 - DividerW);
-            double leftW0 = avail0 * _ratio;
-            Rect pane0 = slot == 0
-                ? new Rect(ox + bw0 * sc, oy + (bw0 + TopBarH) * sc, leftW0 * sc, Math.Max(0, ActualHeight - 2 * bw0 - TopBarH) * sc)
-                : new Rect(ox + (bw0 + leftW0 + DividerW) * sc, oy + (bw0 + TopBarH) * sc, (avail0 - leftW0) * sc, Math.Max(0, ActualHeight - 2 * bw0 - TopBarH) * sc);
-            dc.DrawRectangle(AppTheme.Brush(p.Bar), null, pane0);
-            return;
-        }
-
-        double bw = CurBorderW;
-        double avail = Math.Max(0, ActualWidth - 2 * bw - DividerW);
-        double contentH = Math.Max(0, ActualHeight - 2 * bw - TopBarH);
-        double leftW = avail * _ratio;
-        Rect pane = slot == 0
-            ? new Rect(bw, bw + TopBarH, leftW, contentH)
-            : new Rect(bw + leftW + DividerW, bw + TopBarH, avail - leftW, contentH);
-        Rect dest = new Rect(ox + pane.X * sc, oy + pane.Y * sc, pane.Width * sc, pane.Height * sc);
-
-        // 源截图裁掉四周隐形边，可见部分与格子目标对齐
-        var mm = _frameMargins.TryGetValue(hwnd, out var m) ? m : default;
-        int sw = Math.Max(1, src.PixelWidth - mm.L - mm.R);
-        int sh = Math.Max(1, src.PixelHeight - mm.T - mm.B);
-        var cropped = new CroppedBitmap(src, new Int32Rect(mm.L, mm.T, sw, sh));
-        dc.DrawImage(cropped, dest);
-
-        if (slot == 0) // 右侧补分隔条
-        {
-            dc.DrawRectangle(AppTheme.Brush(p.Divider), null,
-                new Rect(ox + (bw + leftW) * sc, oy + (bw + TopBarH) * sc, DividerW * sc, contentH * sc));
-        }
-    }
-
-    /// <summary>PrintWindow(PW_RENDERFULLCONTENT) 抓取子窗口完整内容（含 Chromium 直合成内容），冻结返回。
-    /// 子窗口被其他不透明窗口完全遮挡时 PrintWindow 可能返回全黑图——采样检测到即视为失败，
-    /// 由调用方以主题底色占位（避免合成缩略图出现黑格）。</summary>
-    private BitmapSource? CaptureChildSource(IntPtr hwnd)
-    {
-        if (!Native.GetWindowRect(hwnd, out var r)) return null;
-        int w = r.Width, h = r.Height;
-        if (w <= 0 || h <= 0) return null;
-
-        var hdr = new Native.BITMAPINFOHEADER
-        {
-            biSize = (uint)Marshal.SizeOf<Native.BITMAPINFOHEADER>(),
-            biWidth = w,
-            biHeight = -h,
-            biPlanes = 1,
-            biBitCount = 32,
-        };
-        IntPtr bits;
-        IntPtr hbmp = Native.CreateDIBSection(IntPtr.Zero, ref hdr, 0, out bits, IntPtr.Zero, 0);
-        if (hbmp == IntPtr.Zero) return null;
-
-        IntPtr hdcMem = Native.CreateCompatibleDC(IntPtr.Zero);
-        IntPtr old = Native.SelectObject(hdcMem, hbmp);
-        bool ok = Native.PrintWindow(hwnd, hdcMem, Native.PW_RENDERFULLCONTENT);
-        Native.SelectObject(hdcMem, old);
-        Native.DeleteDC(hdcMem);
-        if (!ok || IsBitmapAllBlack(bits, w, h))
-        {
-            // 遮挡导致抓黑：回退到最后一次成功抓图（缩略图宁旧勿黑）
-            Native.DeleteObject(hbmp);
-            return _lastGoodCaptures.TryGetValue(hwnd, out var cached) ? cached : null;
-        }
-
-        var src = Imaging.CreateBitmapSourceFromHBitmap(hbmp, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-        Native.DeleteObject(hbmp);
-        src.Freeze();
-        _lastGoodCaptures[hwnd] = src;
-        return src;
-    }
-
-    /// <summary>采样 9 个点判断位图是否全黑（遮挡时 PrintWindow 的失败形态）。</summary>
-    private static unsafe bool IsBitmapAllBlack(IntPtr bits, int w, int h)
-    {
-        int* p = (int*)bits;
-        for (int iy = 1; iy <= 3; iy++)
-        {
-            for (int ix = 1; ix <= 3; ix++)
-            {
-                int pixel = p[(h * iy / 4) * w + (w * ix / 4)];
-                if ((pixel & 0x00FFFFFF) != 0)
-                {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
     // ---------- 任务栏隐藏与图标叠加 ----------
 
     private static void SetToolWindowStyle(IntPtr hwnd, bool tool)
@@ -1284,7 +1044,6 @@ public sealed class HostWindow : Window
         RaiseChildrenBelow();
         UpdateStatus();
         UpdateHostIcon();
-        UpdateIconicAttributes();
         SaveConfig(); // 吸附即落盘：宿主被强杀时孤儿清理才有 HWND 可循
     }
 
@@ -1300,7 +1059,6 @@ public sealed class HostWindow : Window
         SetToolWindowStyle(hwnd, tool: false);
         UpdateStatus();
         UpdateHostIcon();
-        UpdateIconicAttributes();
     }
 
     private void SavePreAttachRect(IntPtr hwnd)
@@ -1341,7 +1099,6 @@ public sealed class HostWindow : Window
         _rightHwnd = IntPtr.Zero;
         UpdateStatus();
         UpdateHostIcon();
-        UpdateIconicAttributes(); // 与 ReleaseSide 一致：无吸附窗口时还原实时预览
     }
 
     private void SwapSides()
@@ -1544,14 +1301,6 @@ public sealed class HostWindow : Window
         else { DetachRestore(_rightHwnd); _rightHwnd = IntPtr.Zero; }
         UpdateStatus();
         UpdateHostIcon();
-        UpdateIconicAttributes();
-    }
-
-    /// <summary>临时诊断：iconic 位图请求/应答日志（%TEMP%\wm-iconic.log）。</summary>
-    private static void TraceIconic(string line)
-    {
-        try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "wm-iconic.log"), $"{DateTime.Now:HH:mm:ss.fff} " + line + "\n"); }
-        catch (Exception) { /* 日志失败不影响主流程 */ }
     }
 
     private static string PaneTitle(IntPtr hwnd)

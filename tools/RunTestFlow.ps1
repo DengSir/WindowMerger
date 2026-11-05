@@ -1,6 +1,6 @@
 # ASCII-only. Full regression flow for WindowMerger:
 # cleanup -> open test windows -> CLI launch (--left/--right named args) ->
-# verify attach/hit-tests/child rects -> trigger composite thumbnail -> read log.
+# verify attach/hit-tests/child rects -> restore topmost state.
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
@@ -77,40 +77,6 @@ Get-Process mspaint -ErrorAction SilentlyContinue | Where-Object { $_.MainWindow
     Write-Output ("RIGHT_CHILD rect=({0},{1})-({2},{3}) paneDeviation={4}" -f $r.L, $r.T, $r.R, $r.B, $dx)
 }
 
-# 6. composite thumbnail request (synthetic; log records compose time)
-$wReq = [IntPtr]((500 -shl 16) -bor 300)
-[TF]::SendMessage($hm, 0x0323, $wReq, [IntPtr]::Zero) | Out-Null
-Start-Sleep -Milliseconds 400
-
-# 7. real hover on taskbar button -> real DWM request -> log records real hr
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-$root = [System.Windows.Automation.AutomationElement]::RootElement
-$taskbar = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
-    (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, "Shell_TrayWnd")))
-$btn = $null
-if ($taskbar -ne $null) {
-    $all = $taskbar.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-    foreach ($e in $all) { if ($e.Current.Name -match "WindowMerger") { $btn = $e; break } }
-}
-if ($btn -ne $null) {
-    $rc = $btn.Current.BoundingRectangle
-    $cx = [int]($rc.X + $rc.Width / 2); $cy = [int]($rc.Y + $rc.Height / 2)
-    Add-Type 'using System; using System.Runtime.InteropServices; public static class HV2 { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); }'
-    [HV2]::SetCursorPos($cx, $cy) | Out-Null
-    Start-Sleep -Milliseconds 1500
-    Write-Output ("HOVERED taskbar button at " + $cx + "," + $cy)
-} else {
-    Write-Output "NO_TASKBAR_BUTTON"
-}
-
-# 8. read composite log (real request line = the one NOT 500x300)
-if (Test-Path "$env:TEMP\wm-composite.log") {
-    Get-Content "$env:TEMP\wm-composite.log" | ForEach-Object { Write-Output ("LOG " + $_) }
-} else {
-    Write-Output "LOG missing"
-}
-
-# 9. no topmost residue
+# 6. no topmost residue
 [TF]::SetWindowPos($hm, [IntPtr](-2), 0, 0, 0, 0, 0x0003) | Out-Null
 Write-Output FLOW_DONE

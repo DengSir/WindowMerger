@@ -58,7 +58,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 
 ## 验证流程
 
-- 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 启动吸附 → 命中/矩形偏差 → 合成预览请求 → 悬停 → 读日志）
+- 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 启动吸附 → 命中/矩形偏差 → 还原置顶状态）
 - 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
 - 拖动类交互（最大化拖动还原等）用 `ManualDragTest.ps1` 交互式验证：脚本只准备环境 + 每 150ms 采样窗口状态，**人工实际拖动**、回车后打印时间线——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
 - CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）
@@ -67,9 +67,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 
 ## 已知边界（不要试图"修复"）
 
-- **永远不要把子窗口的截图绘制进宿主窗口**（用户明确的永久规则，违反 = 预览假修复 + 点击被宿主拦截）。任务栏/Alt+Tab 预览的正确实现是 iconic 位图应答：`DWMWA_FORCE_ICONIC_REPRESENTATION` + `DWMWA_HAS_ICONIC_BITMAP` **成对**设置（缺 HAS 时 DWM 悬停不发请求），悬停/Alt+Tab 时 DWM 发 `WM_DWMSENDICONIC*` 消息，用 PrintWindow 现场抓子窗口画面合成后经 `DwmSetIconicThumbnail/LivePreviewBitmap` 应答（见 HostWindow `UpdateIconicAttributes`/`CreateCompositeHBitmap`）；内容变化时调 `DwmInvalidateIconicBitmaps` 刷新
-- **iconic 缩略图首显黑/小深坑（.NET 10 WPF 实测）**：DWM 渲染瓦片**不等应答**——先用缓存渲染槽位，`WM_DWMSENDICONICTHUMBNAIL` 请求只是异步刷新缓存供下次显示。不预填缓存则每次启动后的首次 Alt-Tab 必然黑/小。修复 = 吸附状态变化时主动调 `DwmSetIconicThumbnail` 预填（`PrePopulateThumbnail`，尺寸用上次请求值或 200x109 兜底）。超尺寸位图被 E_INVALIDARG 拒收（请求尺寸即硬上限）；不要在 Deactivated 时失效化缓存（叠加层打开后 DWM 不重新请求，只会把好图变黑占位）
-- 子窗口被其他不透明窗口完全遮挡时 `PrintWindow(PW_RENDERFULLCONTENT)` 返回全黑图——按 9 点采样检测，回退到最后一次成功抓图（`_lastGoodCaptures`，宁旧勿黑）
-- 任务栏/Alt+Tab 预览显示的是应答时抓取的快照，非逐帧直播
+- **永远不要把子窗口的截图绘制进宿主窗口**（用户明确的永久规则，违反 = 预览假修复 + 点击被宿主拦截）
+- **不做自定义缩略图/预览接管（iconic 位图方案已于 2026-11 移除）**：DWM 对 `FORCE_ICONIC` 窗口的缩略图请求尺寸恒为 200x109（不随 Alt-Tab 瓦片大小变化）、超尺寸位图 `E_INVALIDARG` 拒收、显示不放大——吸附态 Alt-Tab 瓦片无法铺满，无 API 可突破；而取消 FORCE 后宿主实时渲染只有顶条+透明格子（空面板），信息量更差。当前行为：任务栏/Alt+Tab 显示宿主实时画面（顶条 + 深色空格子），属已知取舍
 - Alt+Tab/任务栏只显示宿主一项（子窗口 tool window 是吸附架构的一部分）
 - 最大化时外边框隐藏（`CurBorderW`=0）、子窗口铺满格子，属设计
