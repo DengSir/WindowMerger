@@ -38,6 +38,7 @@ public sealed class HostWindow : Window
     private IntPtr _rightHwnd;
     private readonly Dictionary<IntPtr, Native.RECT> _preAttachRects = new();
     private readonly Dictionary<IntPtr, (int L, int T, int R, int B)> _frameMargins = new();
+    private readonly HashSet<long> _attachedPids = new();
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
@@ -55,10 +56,6 @@ public sealed class HostWindow : Window
     private Border _leftPaneBorder = null!;
     private Border _rightPaneBorder = null!;
     private readonly List<(Button Button, bool Danger)> _captionButtonList = new();
-    private Image _leftThumb = null!;
-    private Image _rightThumb = null!;
-    private BitmapSource? _capLeft;
-    private BitmapSource? _capRight;
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
@@ -71,6 +68,7 @@ public sealed class HostWindow : Window
         _cliRight = string.IsNullOrWhiteSpace(cliRight) ? null : cliRight;
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
+        var orphanPids = config.AttachedPids;
 
         Title = "窗口合并 WindowMerger";
         WindowStyle = WindowStyle.None;
@@ -110,11 +108,12 @@ public sealed class HostWindow : Window
         Activated += (_, _) =>
         {
             ShowAttachedChildren();
-            // 宿主激活升到子窗口上方后，低优先级把子窗口插回宿主正下方加固相邻关系
-            Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
+            RaiseChildrenAbove();
+            // 宿主激活可能把子窗口压到下方，低优先级再拉起一次
+            Dispatcher.BeginInvoke(RaiseChildrenAbove, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); AttachStartupTargets(); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids); AttachStartupTargets(); };
         Closing += (_, _) => OnClosingCleanup();
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -134,16 +133,10 @@ public sealed class HostWindow : Window
         _rightGlow = MakeGlow(accent);
 
         // 格子四周 2px 框线（与外边框同色）：子窗口可见边缘与格子齐平，
-        // 外扩/取整带来的最后一像素缝透出的是框线色而非桌面壁纸；内部保持透明。
-        // 缩略图 Image 放在格子底层：DWM 实时预览截取宿主表面时会带上子窗口画面，
-        // 任务栏悬停预览因此能看到两个吸附窗口（真子窗口浮在宿主上方遮住实图）
-        _leftThumb = new Image { Stretch = Stretch.Fill, IsHitTestVisible = false };
-        _rightThumb = new Image { Stretch = Stretch.Fill, IsHitTestVisible = false };
+        // 外扩/取整带来的最后一像素缝透出的是框线色而非桌面壁纸；内部保持透明
         var leftInner = new Grid { Background = null };
-        leftInner.Children.Add(_leftThumb);
         leftInner.Children.Add(_leftGlow);
         var rightInner = new Grid { Background = null };
-        rightInner.Children.Add(_rightThumb);
         rightInner.Children.Add(_rightGlow);
         _leftPaneBorder = new Border { Background = null, BorderBrush = AppTheme.Brush(AppTheme.Current().Border), BorderThickness = new Thickness(2), Child = leftInner };
         _rightPaneBorder = new Border { Background = null, BorderBrush = AppTheme.Brush(AppTheme.Current().Border), BorderThickness = new Thickness(2), Child = rightInner };
@@ -310,6 +303,7 @@ public sealed class HostWindow : Window
     private void SaveConfig()
     {
         var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
+        cfg.AttachedPids = _attachedPids.ToList();
         if (WindowState == WindowState.Normal)
         {
             cfg.Left = Left;
@@ -512,8 +506,9 @@ public sealed class HostWindow : Window
         {
             return true; // 已就位，避免无谓的 SetWindowPos
         }
-        // 插到宿主正下方：可见内容与格子齐平，分隔条/边框盖在隐形边上（宿主在上可点击）
-        return Native.SetWindowPos(hwnd, _handle, x, y, w, h, Native.SWP_NOACTIVATE);
+        // HWND_TOP：子窗口压在宿主上方，点击直达子窗口；分隔条/边框是宿主独立不透明部分不受影响
+        return Native.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
+            Native.SWP_NOACTIVATE);
     }
 
     private (int X, int Y, int W, int H) PaneRectDevice(int slot)
@@ -539,14 +534,14 @@ public sealed class HostWindow : Window
         _leftCol.Width = new GridLength(avail * _ratio);
     }
 
-    private void RaiseChildrenBelow()
+    private void RaiseChildrenAbove()
     {
         if (_handle == IntPtr.Zero) return;
-        // 插到宿主正下方：先右后左，最终顺序（上→下）为 宿主、左、右
+        // HWND_TOP：两个子窗口压在宿主上方（精确贴合无外扩，隐形边不会劫持分隔条）
         foreach (var h in new[] { _rightHwnd, _leftHwnd })
         {
             if (h == IntPtr.Zero || !Native.IsWindow(h) || Native.IsIconic(h)) continue;
-            Native.SetWindowPos(h, _handle, 0, 0, 0, 0,
+            Native.SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0,
                 Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
         }
     }
@@ -556,10 +551,22 @@ public sealed class HostWindow : Window
         foreach (var h in new[] { _leftHwnd, _rightHwnd })
         {
             if (h == IntPtr.Zero || !Native.IsWindow(h) || Native.IsIconic(h)) continue;
-            if (Native.GetWindow(h, Native.GW_HWNDPREV) == _handle) continue;
-            RaiseChildrenBelow();
+            if (IsAboveHost(h)) continue;
+            RaiseChildrenAbove();
             return;
         }
+    }
+
+    /// <summary>沿 z 序从 child 向下遍历，先遇到宿主 = child 在宿主上方。</summary>
+    private bool IsAboveHost(IntPtr child)
+    {
+        IntPtr cur = child;
+        for (int i = 0; i < 64 && cur != IntPtr.Zero; i++)
+        {
+            cur = Native.GetWindow(cur, Native.GW_HWNDNEXT);
+            if (cur == _handle) return true;
+        }
+        return false;
     }
 
     private void Maintain()
@@ -604,8 +611,6 @@ public sealed class HostWindow : Window
             if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
             if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
         }
-
-        RefreshChildCaptures(); // 缓存子窗口截图供任务栏合成预览使用
 
         UpdatePaneWidths(); // 分隔条视觉位置与 _ratio 的持续对账（自愈任何布局漂移）
         ApplyLayout();
@@ -654,6 +659,28 @@ public sealed class HostWindow : Window
             if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
             if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
         }
+    }
+
+    /// <summary>
+    /// 启动时清理上一会话的孤儿：宿主被强杀时已吸附子窗口会残留
+    /// WS_EX_TOOLWINDOW（任务栏消失、无法交互操作区域），按记录的 PID 摘除样式。
+    /// </summary>
+    private static void CleanupOrphanedToolWindows(List<long>? pids)
+    {
+        if (pids is not { Count: > 0 }) return;
+        var set = pids.ToHashSet();
+        Native.EnumWindows((h, _) =>
+        {
+            Native.GetWindowThreadProcessId(h, out uint pid);
+            if (!set.Contains(pid)) return true;
+            int ex = Native.GetWindowLong(h, Native.GWL_EXSTYLE);
+            if ((ex & Native.WS_EX_TOOLWINDOW) != 0)
+            {
+                Native.SetWindowLong(h, Native.GWL_EXSTYLE, ex & ~Native.WS_EX_TOOLWINDOW);
+                Native.ShowWindow(h, Native.SW_SHOWNA); // 任务栏重新收录
+            }
+            return true;
+        }, IntPtr.Zero);
     }
 
     // ---------- 吸附 ----------
@@ -762,69 +789,6 @@ public sealed class HostWindow : Window
         Native.DwmSetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
     }
 
-    /// <summary>持续缓存两个子窗口的 PrintWindow 截图：刷新格子缩略图（任务栏预览用）。</summary>
-    private void RefreshChildCaptures()
-    {
-        _capLeft = CaptureChildSource(_leftHwnd);
-        _capRight = CaptureChildSource(_rightHwnd);
-        UpdatePaneThumbs();
-    }
-
-    /// <summary>把缓存的子窗口截图（裁掉隐形边）填进对应格子的底层 Image。</summary>
-    private void UpdatePaneThumbs()
-    {
-        if (_leftThumb is null) return;
-        _leftThumb.Source = PaneThumb(_leftHwnd, _capLeft);
-        _rightThumb.Source = PaneThumb(_rightHwnd, _capRight);
-    }
-
-    private ImageSource? PaneThumb(IntPtr hwnd, BitmapSource? capture)
-    {
-        if (hwnd == IntPtr.Zero || capture is null) return null;
-        if (!_frameMargins.TryGetValue(hwnd, out var m)) return null;
-        int sw = Math.Max(1, capture.PixelWidth - m.L - m.R);
-        int sh = Math.Max(1, capture.PixelHeight - m.T - m.B);
-        var cropped = new CroppedBitmap(capture, new Int32Rect(m.L, m.T, sw, sh));
-        cropped.Freeze();
-        return cropped;
-    }
-
-    /// <summary>PrintWindow(PW_RENDERFULLCONTENT) 抓取子窗口完整内容（含 Chromium 直合成内容），冻结返回。</summary>
-    private BitmapSource? CaptureChildSource(IntPtr hwnd)
-    {
-        if (!Native.GetWindowRect(hwnd, out var r)) return null;
-        int w = r.Width, h = r.Height;
-        if (w <= 0 || h <= 0) return null;
-
-        var hdr = new Native.BITMAPINFOHEADER
-        {
-            biSize = (uint)Marshal.SizeOf<Native.BITMAPINFOHEADER>(),
-            biWidth = w,
-            biHeight = -h,
-            biPlanes = 1,
-            biBitCount = 32,
-        };
-        IntPtr bits;
-        IntPtr hbmp = Native.CreateDIBSection(IntPtr.Zero, ref hdr, 0, out bits, IntPtr.Zero, 0);
-        if (hbmp == IntPtr.Zero) return null;
-
-        IntPtr hdcMem = Native.CreateCompatibleDC(IntPtr.Zero);
-        IntPtr old = Native.SelectObject(hdcMem, hbmp);
-        bool ok = Native.PrintWindow(hwnd, hdcMem, Native.PW_RENDERFULLCONTENT);
-        Native.SelectObject(hdcMem, old);
-        Native.DeleteDC(hdcMem);
-        if (!ok)
-        {
-            Native.DeleteObject(hbmp);
-            return null;
-        }
-
-        var src = Imaging.CreateBitmapSourceFromHBitmap(hbmp, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-        Native.DeleteObject(hbmp);
-        src.Freeze();
-        return src;
-    }
-
     // ---------- 任务栏隐藏与图标叠加 ----------
 
     private static void SetToolWindowStyle(IntPtr hwnd, bool tool)
@@ -924,6 +888,7 @@ public sealed class HostWindow : Window
         SetSquareCorners(hwnd, square: true);
         if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
         SetToolWindowStyle(hwnd, tool: true);
+        _attachedPids.Add(Native.GetPid(hwnd));
         if (!ApplyLayoutTo(hwnd, slot))
         {
             // SetWindowPos 被拒：最常见是目标窗口以更高权限运行（UIPI 拦截跨完整性级别操作）
@@ -931,7 +896,7 @@ public sealed class HostWindow : Window
             ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
             return;
         }
-        RaiseChildrenBelow();
+        RaiseChildrenAbove();
         UpdateStatus();
         UpdateHostIcon();
     }

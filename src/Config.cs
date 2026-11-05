@@ -7,6 +7,7 @@ public sealed class AppConfig
 {
     public double Ratio { get; set; } = 0.5;
     public string Theme { get; set; } = "Auto";
+    public List<long>? AttachedPids { get; set; }
     public double? Left { get; set; }
     public double? Top { get; set; }
     public double? Width { get; set; }

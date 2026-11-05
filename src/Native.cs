@@ -52,6 +52,7 @@ internal static partial class Native
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int GW_OWNER = 4;
     public const int GW_HWNDPREV = 3;
+    public const int GW_HWNDNEXT = 2;
 
     // ShowWindow
     public const int SW_HIDE = 0;

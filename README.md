@@ -43,9 +43,9 @@ WindowMerger.exe --right mspaint     :: 只指定右格
 ## 架构注记
 
 - **外扩补偿**：Win11/DWM 给带框窗口留了约 7px 的隐形边，`GetWindowRect` 比可见窗口大。吸附时按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩目标矩形，可见内容才能与格子齐平
-- **z 序（关键）**：`SetWindowPos` 的 `hWndInsertAfter` 语义是"放到目标**下方**"。子窗口始终插在宿主**正下方**——宿主的不透明部分（顶条/边框/分隔条）盖住子窗口的隐形边，分隔条才可点击；透明格子处子窗口透出。250ms 维护定时器负责 z 序/布局自愈与样式补挂
+- **z 序（关键）**：`SetWindowPos` 的 `hWndInsertAfter` 语义是"放到目标**下方**"。子窗口压在宿主**上方**（`HWND_TOP`，精确贴合无外扩——隐形边不会劫持分隔条，点击直达子窗口）；分隔条/边框/顶条是宿主的不透明部分，不受影响。宿主激活后立即+低优先级重拉子窗口，250ms 维护定时器负责 z 序（精确 z 遍历）/布局自愈与样式补挂
+- **字体**：FA 双字体（Solid/Regular）以 Content 随 exe 分发，按文件路径加载；可解析的家族名是完整名 `Font Awesome 6 Free Solid/Regular`；Regular 集不含 xmark，关闭按钮用 Segoe UI 的 ✕（WPF 字体回退）
 - **P/Invoke**：`LibraryImport` 源生成器不会自动补 W 后缀，**自定义方法名也必须显式 `EntryPoint` 指向真实导出名**（`GetMonitorInfoW`/`GetWindowTextLengthW`/`DwmSetWindowAttributePointer` 均为此踩坑），且不支持 `StringBuilder` 参数（走经典 `DllImport`）；.NET Core 的 `GlyphTypeface` 不支持 pack:// URI
-- **字体**：pack 资源流在本应用内静默解析失败（非标准 src 布局所致），故字体以 Content 随 exe 分发，按文件路径加载；可解析的家族名是完整名 `Font Awesome 6 Free Regular`。单字体（Regular 空心风格），f096/f24d/f2d1 直接覆盖；Regular 集不含 xmark，关闭按钮用 Segoe UI 的 ✕（WPF 字体回退）
 
 ## 字体许可
 
