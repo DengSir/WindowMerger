@@ -51,12 +51,10 @@ internal static partial class Native
     public const int GWL_EXSTYLE = -20;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int GW_OWNER = 4;
-    public const int GW_HWNDPREV = 3;
     public const int GW_HWNDNEXT = 2;
 
     // ShowWindow
     public const int SW_HIDE = 0;
-    public const int SW_MAXIMIZE = 3;
     public const int SW_MINIMIZE = 6;
     public const int SW_SHOWNA = 8;
     public const int SW_RESTORE = 9;
@@ -76,7 +74,6 @@ internal static partial class Native
     public const int DWMWCP_DONOTROUND = 1;
     public const int DWMWA_FORCE_ICONIC_REPRESENTATION = 7;
     public const int DWMWA_HAS_ICONIC_BITMAP = 10;
-    public const int DWMWA_ICONIC_BITMAP = 9;
     public const int WM_DWMSENDICONICTHUMBNAIL = 0x0323;
     public const int WM_DWMSENDICONICLIVEPREVIEWBITMAP = 0x0326;
     public const uint DWM_SIT_DISPLAYFRAME = 0x00000001;
@@ -216,9 +213,6 @@ internal static partial class Native
 
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
-
-    [LibraryImport("dwmapi.dll", EntryPoint = "DwmSetWindowAttribute")]
-    public static partial int DwmSetWindowAttributePointer(IntPtr hwnd, int dwAttribute, ref IntPtr pvAttribute, int cbAttribute);
 
     [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
     public static partial int DwmGetWindowAttributeRect(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
