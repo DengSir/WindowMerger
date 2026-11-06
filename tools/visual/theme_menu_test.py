@@ -69,10 +69,13 @@ def main() -> int:
     for i, it in enumerate(items):
         print(f"ITEM[{i}] {name_codepoints(it)}")
 
+    dark_ok = restored_ok = False
     if len(items) >= 3:
         wm_uia.invoke(items[1])  # 深色
         time.sleep(0.6)
-        print(f"THEME_AFTER_DARK={read_cfg_theme()}")
+        after = read_cfg_theme()
+        dark_ok = after == "Dark"
+        print(f"THEME_AFTER_DARK={after}")
 
         wm_uia.invoke(theme_btn)  # 重开
         time.sleep(0.8)
@@ -87,7 +90,9 @@ def main() -> int:
         if len(items2) >= 3:
             wm_uia.invoke(items2[idx])
             time.sleep(0.6)
-            print(f"THEME_RESTORED={read_cfg_theme()}")
+            restored = read_cfg_theme()
+            restored_ok = restored == orig_theme
+            print(f"THEME_RESTORED={restored}")
     else:
         print("MENU_NOT_FOUND")
 
@@ -96,7 +101,9 @@ def main() -> int:
     time.sleep(1.2)
     print("APP_STILL_RUNNING" if wm.pids_by_name("WindowMerger") else "APP_CLOSED")
     print("THEME_UIA_TEST_DONE")
-    return 0
+    ok = dark_ok and restored_ok
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

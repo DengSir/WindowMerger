@@ -368,6 +368,22 @@ def top_windows_of_pids(pids: list[int]) -> list[int]:
     return out
 
 
+def all_windows_of_pid(pid: int) -> list[int]:
+    """该 PID 的全部可见顶层窗口（**含 owned 对话框**——UIA root children 会漏掉
+    ShowDialog 的 owned 窗口，实测；按标题找模态对话框必须走这里）。"""
+    out: list[int] = []
+    WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    @WNDENUMPROC
+    def _cb(h, _lp):
+        if pid_of(h) == pid and is_window_visible(h):
+            out.append(h)
+        return True
+
+    _user32.EnumWindows(_cb, 0)
+    return out
+
+
 def main_windows_by_name(*names: str) -> list[tuple[str, int]]:
     """Get-Process A,B | Where MainWindowHandle≠0 等价：[(进程名, hwnd)]。"""
     out: list[tuple[str, int]] = []
@@ -485,8 +501,18 @@ def proc_start_time(pid: int):
 
 SM_CXSCREEN = 0
 SM_CYSCREEN = 1
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
+SM_CXVIRTUALSCREEN = 78
+SM_CYVIRTUALSCREEN = 79
 SM_CXICON = 49
 SM_CYICON = 50
+
+
+def virtual_screen_bounds() -> tuple[int, int, int, int]:
+    """虚拟屏 (x, y, w, h)：全部显示器包围盒（物理像素）。"""
+    return (_user32.GetSystemMetrics(SM_XVIRTUALSCREEN), _user32.GetSystemMetrics(SM_YVIRTUALSCREEN),
+            _user32.GetSystemMetrics(SM_CXVIRTUALSCREEN), _user32.GetSystemMetrics(SM_CYVIRTUALSCREEN))
 
 
 def get_system_metrics(index: int) -> int:
@@ -510,6 +536,33 @@ def primary_work_area() -> RECT:
     if not _user32.GetMonitorInfoW(h, byref(mi)):
         raise OSError("GetMonitorInfo failed")
     return mi.rcWork
+
+
+def monitors() -> list[MONITORINFO]:
+    """全部可见显示器信息（EnumDisplayMonitors，物理像素）。"""
+    out: list[MONITORINFO] = []
+    MONITORENUMPROC = ctypes.WINFUNCTYPE(
+        wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, POINTER(RECT), wintypes.LPARAM)
+
+    @MONITORENUMPROC
+    def _cb(hmon, _hdc, _rc, _lp):
+        mi = MONITORINFO()
+        mi.cbSize = sizeof(MONITORINFO)
+        if _user32.GetMonitorInfoW(hmon, byref(mi)):
+            out.append(mi)
+        return True
+
+    _user32.EnumDisplayMonitors(None, None, _cb, 0)
+    return out
+
+
+def left_monitor_work_area() -> RECT:
+    """最左（原点 x 最小）显示器的工作区——测试钉位基准（AGENTS：测试宿主一律停左侧
+    100% 屏）。单屏即主屏工作区。"""
+    ms = monitors()
+    if not ms:
+        raise OSError("no monitor")
+    return min(ms, key=lambda mi: mi.rcMonitor.Left).rcWork
 
 
 def wait_until(fn, timeout_ms: int, interval_ms: int = 100) -> bool:

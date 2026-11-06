@@ -66,8 +66,9 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 验证流程
 
-- **清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 是 Stop-Process 强杀，未保存内容丢失）。跑之前先确认没有正在使用的窗口，这是实测踩过的坑
-- 全流程回归：`py tools\tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）
+- **一键完整回归**：`py tools\run_all.py`（15 项自动测试按依赖顺序跑 + PASS/FAIL/SKIP 汇总表，`--only 名称` 跑子集）——**清理/回归会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 强杀，未保存内容丢失），跑之前先确认没有正在使用的窗口
+- **拖动类测试固定布局约定**（2026-11 实测）：除恢复定位测试外，宿主与靶窗口先 `SetWindowPos` 钉到主屏固定矩形（主屏坐标=物理像素，无跨 DPI 换算地雷——钉到 100% 左屏时 WPF 宿主会收 WM_DPICHANGED 自缩放，坐标全歪）；靶窗口一律 **mspaint**（Win11 notepad 自我缩放+最小尺寸钳制，用户确认不可靠）；拖动抓点取**标题栏中点**（左侧图标抓不动，实测）；窗口尺寸一律按**钉位后回读值**推导（PMv2 窗口被系统按 DPI 缩放，写死值不可信）；注入拖动本身可靠，先前失败全是坐标假设过期
+- 全流程回归：`py tools\tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）；选窗吸附 `tools\tests\picker_attach_test.py`、交换 `tools\tests\swap_sides_test.py`、几何持久化四场景 `tools\tests\geometry_persistence_test.py`
 - 跨 DPI 缝隙回归（4K+100% 双屏）：`py tools\tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
 - 快捷方式生成回归：`py tools\tests\shortcut_create_test.py`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
 - 拉起吸附回归：`py tools\tests\launch_attach_test.py`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径现场用 QueryFullProcessImageNameW 解析、不硬编码版本号路径）

@@ -56,7 +56,9 @@ def main() -> int:
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.2)
     print("EXCLUDE_SELF_TEST_DONE")
-    return 0
+    ok = not tool and not moved
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

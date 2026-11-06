@@ -4,8 +4,9 @@
 
 | 目录 | 用途 | 数量 |
 |---|---|---|
+| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单） | 1 |
 | `publish/` | 本地打包发布 | 1 |
-| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 11 |
+| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 14 |
 | `manual/` | 人工交互验证（脚本准备环境+采样，**人操作**） | 2 |
 | `visual/` | 视觉/主题/字形/截图验证（出 PNG，判定人工看） | 12 |
 | `utils/` | 单项工具：查询/控制/截图/配置 | 18 |
@@ -13,6 +14,8 @@
 | `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config）、`wm_uia.py`（uiautomation UIA） | 2 |
 
 **依赖**：`py -m pip install pillow comtypes uiautomation`（截图存 PNG、UI Automation——UIA 层用 uiautomation 包，comtypes 仅作其底层与 WScript.Shell 动态调度）。应用本身不需要 Python。
+
+**拖动类测试约定（2026-11 实测固化）**：除 `geometry_persistence_test`（恢复定位即被测对象）外，一律**固定布局**——宿主与靶窗口先 `SetWindowPos` 钉到主屏固定矩形（主屏上坐标=物理像素，无跨 DPI 换算地雷）再操作；靶窗口用 **mspaint**（Win11 notepad 自我缩放/最小尺寸钳制不可靠，用户确认）；拖动抓点取**标题栏中点**（左侧图标抓不动、右侧有按钮）；窗口尺寸一律以**钉位后回读值**推导（PMv2 窗口会被按 DPI 缩放，写死值不可信）。
 
 **警告**：清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——**包括你自己开着的实例**（Notepad 是强杀，未保存内容丢失）。跑之前确认没有正在使用的窗口。
 
@@ -31,15 +34,18 @@
 | 脚本 | 回归点（原名） |
 |---|---|
 | `run_test_flow.py` | 全流程：清理 → 开测试窗 → CLI 吸附 → 命中/矩形断言 → 还原置顶（RunTestFlow） |
+| `release_test.py` | 释放路径：UIA 点释放按钮，子窗口摘 TOOLWINDOW 且窗口完好（ReleaseTest） |
+| `picker_attach_test.py` | 顶条选窗吸附全链路：UIA 点 ← → 选窗对话框过滤/选中/吸附 → 左格断言（新增 2026-11） |
+| `swap_sides_test.py` | 交换左右：UIA 点交换按钮 → 两侧命中互换断言（新增 2026-11） |
+| `geometry_persistence_test.py` | 几何持久化四场景：保存/恢复、最大化保存/恢复、屏外钳制、垃圾回退（新增 2026-11，首次脚本化 ef15752 的手工验证） |
 | `cross_dpi_seam_test.py` | 跨 DPI 缝隙：96DPI mspaint 吸进 150% 宿主，子窗口可见缘与格子四边 ≤1px；左屏不在/非 100% 自动 SKIP（CrossDpiSeamTest） |
 | `shortcut_create_test.py` | 快捷方式生成：mspaint 单侧 + UIA 点按钮，校验 .lnk 参数含 `--left/--left-exe` 完整路径；mspaint 被占 SKIP 不强杀（ShortcutCreateTest） |
 | `launch_attach_test.py` | 拉起吸附：目标未运行，宿主带 `--left 名字 --left-exe 完整路径` 启动，断言宿主自己拉起并吸附成功（LaunchAttachTest） |
 | `orphan_e2e_test.py` | 孤儿清理端到端：强杀宿主留孤儿 → 重启宿主启动清理摘除 TOOLWINDOW（OrphanE2ETest） |
 | `pid_mode_test.py` | CLI PID 模式：PID/名字混合吸附 + 无窗口 PID 的报因路径（PidModeTest） |
-| `release_test.py` | 释放路径：UIA 点释放按钮，子窗口摘 TOOLWINDOW 且窗口完好（ReleaseTest） |
 | `exclude_self_test.py` | 排除自身：另一个 WindowMerger 实例的宿主不可被 CLI 吸附（ExcludeSelfTest） |
-| `cursor_drop_test.py` | 光标落点判定：光标在格外/窗口中心在格内 → 不吸附（旧中心逻辑回归）（CursorDropTest） |
-| `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举）（GhostCycleTest） |
+| `cursor_drop_test.py` | 光标落点判定（注入拖动，固定布局）：光标在格外/窗口中心在格内 → 不吸附；拖到左格中心 → 吸附（CursorDropTest） |
+| `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
 
 ## manual/（人工交互验证）

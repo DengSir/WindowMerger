@@ -41,6 +41,10 @@ def main() -> int:
     if not hm:
         print("NO_HOST")
         return 1
+    wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+    time.sleep(1.5)
+    wm.set_topmost(hm, True)
+    time.sleep(0.4)
     hr = wm.get_window_rect(hm)
     avail = hr.Right - hr.Left - 12
     mid_y = (hr.Top + hr.Bottom) // 2
@@ -48,6 +52,8 @@ def main() -> int:
     h2 = wm.window_from_point(int(hr.Left + 2 + avail * 0.75), mid_y)
     print(f"LEFT_HIT={wm.proc_name_of(h1)}")
     print(f"RIGHT_HIT={wm.proc_name_of(h2)}")
+    hits_ok = (wm.proc_name_of(h1).lower() == "notepad"
+               and wm.proc_name_of(h2).lower() == "mspaint")
 
     # 反例：无窗口的 PID（本 Python 进程自身）→ 报因路径，宿主不崩
     subprocess.Popen([a.exe, "--left", str(os.getpid())])
@@ -57,7 +63,8 @@ def main() -> int:
     time.sleep(1.2)
     wm.force_kill_by_name("Notepad", "mspaint")
     print("PID_MODE_TEST_DONE")
-    return 0
+    print(f"RESULT {'PASS' if hits_ok else 'FAIL'}")
+    return 0 if hits_ok else 1
 
 
 if __name__ == "__main__":

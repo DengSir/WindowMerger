@@ -80,10 +80,8 @@ def main() -> int:
     ok_args = re.search(r'--left\s+"?mspaint"?', s.Arguments)
     ok_exe = re.search(r'--left-exe\s+"?[^"]*mspaint\.exe', s.Arguments)
     ok_target = re.search(r"WindowMerger.*\.exe$", s.TargetPath)
-    if ok_args and ok_exe and ok_target:
-        print("PASS_SHORTCUT")
-    else:
-        print("FAIL_CONTENT")
+    ok = bool(ok_args and ok_exe and ok_target)
+    print("PASS_SHORTCUT" if ok else "FAIL_CONTENT")
 
     lnk.unlink(missing_ok=True)
 
@@ -92,7 +90,8 @@ def main() -> int:
     time.sleep(1.5)
     wm.force_kill_by_name("mspaint")
     print("SHORTCUT_TEST_DONE")
-    return 0
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

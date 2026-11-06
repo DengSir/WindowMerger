@@ -71,7 +71,8 @@ def main() -> int:
     time.sleep(4)
 
     print("--- scan after relaunch (expect tool=False, vis=True) ---")
-    for row in scan_notepad_toolwindow():
+    after = scan_notepad_toolwindow()
+    for row in after:
         print(row)
 
     # 4. 清理测试环境
@@ -79,7 +80,11 @@ def main() -> int:
     time.sleep(1.2)
     wm.force_kill_by_name("Notepad", "mspaint")
     print("ORPHAN_E2E_DONE")
-    return 0
+    # 判定：重启后 notepad 主窗必须摘除 TOOLWINDOW 且可见（孤儿被启动清理救回）
+    main_rows = [x for x in after if "Notepad]" in x or " - 记事本" in x]
+    ok = bool(main_rows) and all("tool=False" in x and "vis=True" in x for x in main_rows)
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

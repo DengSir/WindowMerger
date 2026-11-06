@@ -112,7 +112,19 @@ def main() -> int:
 
     z_dump("FINAL")
     print("REPRO_DONE")
-    return 0
+    # 判定：自愈窗后左右格必须命中子窗口（z 序拉回宿主正下方）
+    hm2 = wm.host_hwnd()
+    ok = False
+    if hm2:
+        hr = wm.get_window_rect(hm2)
+        avail = hr.Right - hr.Left - 4 - 8
+        mid_y = (hr.Top + hr.Bottom) // 2
+        l = wm.proc_name_of(wm.window_from_point(int(hr.Left + 2 + avail * 0.35), mid_y)).lower()
+        r = wm.proc_name_of(wm.window_from_point(int(hr.Left + 2 + avail * 0.75), mid_y)).lower()
+        print(f"VERDICT_PROBE LEFT={l} RIGHT={r}")
+        ok = l == "notepad" and r == "mspaint"
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
