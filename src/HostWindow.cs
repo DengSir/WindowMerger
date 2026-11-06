@@ -53,7 +53,8 @@ public sealed partial class HostWindow : Window
         else ReleaseSide(side);
     }
 
-    public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null)
+    public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null,
+        string? cliLeftExe = null, string? cliRightExe = null)
     {
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
@@ -87,7 +88,7 @@ public sealed partial class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight, cliLeftExe, cliRightExe); };
         Closing += (_, _) => OnClosingCleanup();
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -249,7 +250,9 @@ public sealed partial class HostWindow : Window
 
     // ---------- 快捷方式 ----------
 
-    /// <summary>按当前吸附生成桌面快捷方式：参数用进程名（重启后仍能复现组合），PID 易失不入参。</summary>
+    /// <summary>按当前吸附生成桌面快捷方式：参数用进程名（重启后仍能复现组合），PID 易失不入参；
+    /// 另记录各侧 exe 完整路径（--left-exe/--right-exe），双击时目标未运行可自动拉起再吸附。
+    /// 提权/受保护进程取不到路径，降级为仅名字。</summary>
     private void CreateShortcutForCurrent()
     {
         string? left = ProcessNameOfChild(_left);
@@ -260,9 +263,20 @@ public sealed partial class HostWindow : Window
             return;
         }
 
+        string? leftExe = ImagePathOfChild(_left);
+        string? rightExe = ImagePathOfChild(_right);
+
         var argv = new List<string>();
-        if (left is not null) argv.Add($"--left \"{left}\"");
-        if (right is not null) argv.Add($"--right \"{right}\"");
+        if (left is not null)
+        {
+            argv.Add($"--left \"{left}\"");
+            if (leftExe is not null) argv.Add($"--left-exe \"{leftExe}\"");
+        }
+        if (right is not null)
+        {
+            argv.Add($"--right \"{right}\"");
+            if (rightExe is not null) argv.Add($"--right-exe \"{rightExe}\"");
+        }
         string display = string.Join(" + ", new[] { left, right }.Where(n => n is not null));
 
         // 文件名剔除非法字符（进程名源自 exe 文件名，防御性处理）
@@ -292,6 +306,21 @@ public sealed partial class HostWindow : Window
         catch (ArgumentException)
         {
             return null; // 进程已退出
+        }
+    }
+
+    /// <summary>子窗口进程的 exe 完整路径；进程打不开（提权/受保护）、查询失败或已退出返回 null。
+    /// 用户触发的快捷方式生成走这里，任何异常都不上抛（降级为仅进程名，不崩宿主）。</summary>
+    private static string? ImagePathOfChild(AttachedChild? child)
+    {
+        if (child is null || !child.IsAlive) return null;
+        try
+        {
+            return Native.GetProcessImagePath(child.Pid);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

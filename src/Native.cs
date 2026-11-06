@@ -226,6 +226,34 @@ internal static partial class Native
         return result;
     }
 
+    /// <summary>进程的可执行文件完整路径（镜像路径）；打不开进程（提权/受保护）返回 null。</summary>
+    public static string? GetProcessImagePath(uint pid)
+    {
+        // PROCESS_QUERY_LIMITED_INFORMATION：跨完整性级别查询镜像路径的最低权限
+        nint hProc = OpenProcess(0x1000, false, (int)pid);
+        if (hProc == nint.Zero) return null;
+        try
+        {
+            var sb = new StringBuilder(1024);
+            int size = sb.Capacity;
+            // 字符串出入参走经典 DllImport（LibraryImport 不支持 StringBuilder，见 AGENTS.md；
+            // 必须 CharSet.Unicode——漏写会按 ANSI 反序列化，sb.Length 小于返回的 size，ToString 越界）
+            if (!QueryFullProcessImageName(hProc, 0, sb, ref size) || size <= 0 || size > sb.Length) return null;
+            return sb.ToString(0, size);
+        }
+        finally
+        {
+            CloseHandle(hProc);
+        }
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint OpenProcess(uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, int dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "QueryFullProcessImageNameW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(nint hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+
     [LibraryImport("user32.dll")]
     public static partial uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 

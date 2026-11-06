@@ -1,24 +1,24 @@
-# ASCII-only: verify the create-shortcut button. Attach notepad+mspaint via CLI,
-# UIA-invoke the _shortcutButton, then read the fresh .lnk from the Desktop via
-# WScript.Shell and assert TargetPath/Arguments. Deletes the .lnk afterwards.
+# ASCII-only: verify the create-shortcut button. Attach mspaint via CLI (single side,
+# NO notepad), UIA-invoke the _shortcutButton, then read the fresh .lnk from the
+# Desktop via WScript.Shell and assert TargetPath/Arguments incl. --left-exe full path.
+# Deletes the .lnk afterwards. Kills only its own mspaint, never notepad.
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-$exe = "D:\AddOns\WindowMerger\bin\Release\net10.0-windows\WindowMerger.exe"
+$exe = "D:\Develop\WindowMerger\bin\Release\net10.0-windows\WindowMerger.exe"
 
-# cleanup
+if (Get-Process mspaint -ErrorAction SilentlyContinue) { Write-Output "SKIP_MSPAINT_RUNNING"; exit 0 }
+
+# cleanup (mspaint only; other running hosts closed gracefully)
 Get-Process WindowMerger -ErrorAction SilentlyContinue | ForEach-Object { $null = $_.CloseMainWindow() }
-Get-Process Notepad, mspaint -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process mspaint -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 1300
 
-# target windows
-Set-Content "$env:TEMP\wmsc.txt" "shortcut-test"
-Start-Process notepad "$env:TEMP\wmsc.txt"
-Start-Sleep -Milliseconds 700
+# target window
 Start-Process mspaint
 Start-Sleep -Milliseconds 1500
 
-Start-Process $exe -ArgumentList "--left", "notepad", "--right", "mspaint"
+Start-Process $exe -ArgumentList "--left", "mspaint"
 Start-Sleep -Seconds 4
 
 $proc = Get-Process WindowMerger -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
@@ -45,14 +45,15 @@ $s = $ws.CreateShortcut($lnk.FullName)
 Write-Output ("TARGET=" + $s.TargetPath)
 Write-Output ("ARGS=" + $s.Arguments)
 Write-Output ("ICON=" + $s.IconLocation)
-$okArgs = ($s.Arguments -match '--left\s+"?notepad"?') -and ($s.Arguments -match '--right\s+"?mspaint"?')
+$okArgs = $s.Arguments -match '--left\s+"?mspaint"?'
+$okExe = $s.Arguments -match '--left-exe\s+"?[^"]*mspaint\.exe'
 $okTarget = $s.TargetPath -like "*WindowMerger*.exe"
-if ($okArgs -and $okTarget) { Write-Output "PASS_SHORTCUT" } else { Write-Output "FAIL_CONTENT" }
+if ($okArgs -and $okExe -and $okTarget) { Write-Output "PASS_SHORTCUT" } else { Write-Output "FAIL_CONTENT" }
 
 Remove-Item $lnk.FullName -Force
 
 # cleanup
 $null = $proc.CloseMainWindow()
 Start-Sleep -Milliseconds 1500
-Get-Process Notepad, mspaint -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process mspaint -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Write-Output SHORTCUT_TEST_DONE

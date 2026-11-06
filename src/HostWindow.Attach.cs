@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 
 namespace WindowMerger;
@@ -10,31 +11,110 @@ public sealed partial class HostWindow : Window
     /// <summary>
     /// 命令行吸附：WindowMerger.exe [左进程名|左PID] [右进程名|右PID]，Loaded 后执行一次。
     /// 参数为纯数字时按 PID 匹配（脚本 Start-Process -PassThru 可直接拿到），否则按进程名
-    /// （可带可不带 .exe，大小写不敏感）；同候选多窗口取面积最大的；
-    /// 未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
+    /// （可带可不带 .exe，大小写不敏感）；--left-exe/--right-exe 提供目标 exe 完整路径：
+    /// 名字/PID 匹配不到时先按镜像路径匹配已运行窗口，仍没有就拉起该 exe 并轮询窗口出现
+    /// （上限 12 秒，异步等待不阻塞 UI）——快捷方式双击复现组合时目标应用可以还没开。
+    /// 同候选多窗口取面积最大的；未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
     /// </summary>
-    private void AttachStartupTargets(string? cliLeft, string? cliRight)
+    private async void AttachStartupTargets(string? cliLeft, string? cliRight, string? cliLeftExe, string? cliRightExe)
     {
-        if (cliLeft is null && cliRight is null) return;
-
-        var targets = new[]
+        if (string.IsNullOrWhiteSpace(cliLeft) && string.IsNullOrWhiteSpace(cliRight)
+            && string.IsNullOrWhiteSpace(cliLeftExe) && string.IsNullOrWhiteSpace(cliRightExe))
         {
-            (Side: AttachSide.Left, Raw: cliLeft),
-            (Side: AttachSide.Right, Raw: cliRight),
-        };
-        foreach (var (side, raw) in targets)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) continue;
-            string arg = raw.Trim();
+            return;
+        }
 
-            IntPtr hwnd = FindWindowByArg(arg);
-            if (hwnd == IntPtr.Zero)
+        try
+        {
+            var targets = new[]
             {
-                ShowNotice($"未找到 {arg} 的窗口，已跳过");
-                continue;
+                (Side: AttachSide.Left, Raw: cliLeft, Exe: cliLeftExe),
+                (Side: AttachSide.Right, Raw: cliRight, Exe: cliRightExe),
+            };
+
+            // 先把能直接吸附的吸掉、缺失的并行拉起，再统一轮询等窗口出现
+            var pending = new List<(AttachSide Side, string Exe, string Label)>();
+            foreach (var (side, raw, exe) in targets)
+            {
+                if (string.IsNullOrWhiteSpace(raw) && string.IsNullOrWhiteSpace(exe)) continue;
+                IntPtr hwnd = FindStartupTarget(raw, exe);
+                if (hwnd != IntPtr.Zero)
+                {
+                    AttachFound(side, hwnd);
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(exe))
+                {
+                    ShowNotice($"未找到 {raw!.Trim()} 的窗口，已跳过");
+                    continue;
+                }
+                string path = exe.Trim();
+                if (!File.Exists(path))
+                {
+                    ShowNotice($"路径不存在：{path}，已跳过");
+                    continue;
+                }
+                if (LaunchTarget(path))
+                {
+                    pending.Add((side, path, string.IsNullOrWhiteSpace(raw) ? Path.GetFileName(path) : raw.Trim()));
+                }
             }
-            if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
-            TryAttach(side, hwnd);
+
+            var deadline = Environment.TickCount64 + 12_000;
+            while (pending.Count > 0 && Environment.TickCount64 < deadline)
+            {
+                await Task.Delay(500);
+                if (_handle == IntPtr.Zero || !IsLoaded) return; // 宿主已关闭，中止轮询
+                for (int i = pending.Count - 1; i >= 0; i--)
+                {
+                    IntPtr hwnd = FindWindowByExePath(pending[i].Exe);
+                    if (hwnd == IntPtr.Zero) continue;
+                    AttachFound(pending[i].Side, hwnd);
+                    pending.RemoveAt(i);
+                }
+            }
+            foreach (var (_, _, label) in pending)
+            {
+                ShowNotice($"启动 {label} 超时（窗口未出现），已跳过");
+            }
+        }
+        catch (Exception ex)
+        {
+            // async void 事件处理器：失败不上抛崩宿主，状态栏报因
+            ShowNotice($"启动目标失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>启动目标匹配：名字/PID（raw）优先，其次按镜像路径匹配已运行窗口（exe）。</summary>
+    private IntPtr FindStartupTarget(string? raw, string? exe)
+    {
+        IntPtr hwnd = string.IsNullOrWhiteSpace(raw) ? IntPtr.Zero : FindWindowByArg(raw.Trim());
+        if (hwnd == IntPtr.Zero && !string.IsNullOrWhiteSpace(exe))
+        {
+            hwnd = FindWindowByExePath(exe.Trim());
+        }
+        return hwnd;
+    }
+
+    private void AttachFound(AttachSide side, IntPtr hwnd)
+    {
+        if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
+        TryAttach(side, hwnd);
+    }
+
+    /// <summary>ShellExecute 拉起目标 exe（打包应用别名也能走通）；失败状态栏报因返回 false。</summary>
+    private bool LaunchTarget(string path)
+    {
+        try
+        {
+            using var _ = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            ShowNotice($"正在启动 {Path.GetFileNameWithoutExtension(path)}…");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ShowNotice($"启动 {path} 失败：{ex.Message}");
+            return false;
         }
     }
 
@@ -69,6 +149,23 @@ public sealed partial class HostWindow : Window
             // PID 不存在（进程已退出且无后代），保持未匹配
         }
         return best;
+    }
+
+    /// <summary>按 exe 镜像路径匹配已运行窗口（大小写不敏感，同名/多窗口取面积最大）。
+    /// pid→路径惰性查询：打不开的进程（提权/受保护）得到空路径、永不匹配。</summary>
+    private IntPtr FindWindowByExePath(string exePath)
+    {
+        var candidates = WindowLocator.GetCandidates(_handle);
+        var pidPaths = new Dictionary<uint, string>();
+        return PickBestBy(candidates, c =>
+        {
+            if (!pidPaths.TryGetValue(c.Pid, out var path))
+            {
+                path = Native.GetProcessImagePath(c.Pid) ?? "";
+                pidPaths[c.Pid] = path;
+            }
+            return path.Equals(exePath, StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     private IntPtr PickBestBy(IEnumerable<WindowCandidate> candidates, Func<WindowCandidate, bool> match)

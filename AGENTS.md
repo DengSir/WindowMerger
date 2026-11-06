@@ -23,7 +23,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ### P/Invoke（LibraryImport 源生成器）
 - **不会自动补 W 后缀**：自定义方法名必须显式 `EntryPoint` 指向真实导出名。已为此崩过三次：`GetMonitorInfoW`、`GetWindowTextLengthW`、`DwmSetWindowAttributePointer→DwmSetWindowAttribute`。新增 P/Invoke 时先确认真实导出名
-- **不支持 `StringBuilder` 参数**：字符串出入参走经典 `DllImport`（CharSet.Unicode）
+- **不支持 `StringBuilder` 参数**：字符串出入参走经典 `DllImport`（CharSet.Unicode）——**漏写 CharSet 按 ANSI 反序列化**：原生端写 WCHAR、size 返回字符数，ANSI marshaller 遇伪空字节提前截断 → `sb.Length < size` → `ToString(0, size)` 越界崩宿主（实测 QueryFullProcessImageNameW 三连崩，2026-11）
 - `dwmapi` 属性 `DWMWA_FORCE_ICONIC_REPRESENTATION` **只写不可读**（Get 返回 E_INVALIDARG）——不要用读回验证它
 
 ### WPF / Win32 语义
@@ -66,6 +66,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - **清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 是 Stop-Process 强杀，未保存内容丢失）。跑之前先确认没有正在使用的窗口，这是实测踩过的坑
 - 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）
 - 跨 DPI 缝隙回归（4K+100% 双屏）：`tools\CrossDpiSeamTest.ps1`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
+- 快捷方式生成回归：`tools\ShortcutCreateTest.ps1`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
+- 拉起吸附回归：`tools\LaunchAttachTest.ps1`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径先用 (Get-Process).Path 现场解析、不硬编码版本号路径）
 - 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
 - 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`ManualDragTest.ps1`（环境准备 + 每 150ms 采样打印时间线）、`CoveredDragTest.ps1`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
 - 主题/悬停类视觉验证：`TooltipShot.ps1`（悬停截 Tooltip 弹层 + 像素采样对调色板；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**）、`ZoomPng.ps1`（PNG 区域放大，检字形/像素）、`ThemeMenuShot.ps1`（真实点击截展开的主题菜单）
