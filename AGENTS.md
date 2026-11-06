@@ -2,7 +2,7 @@
 
 把任意两个独立窗口合并进同一个带边框宿主窗口（透明格子 + 子窗口吸附，**不用 SetParent**）。
 技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，宿主视觉树与布局尺寸常量在 `src/HostWindow.xaml`——`x:Name` 生成字段供 code-behind 引用，动态逻辑全在 `HostWindow.xaml.cs`；构造顺序 = InitializeComponent → WireUi（事件挂接 + 从 UI 读入布局尺寸 + 动态字形）→ ApplyTheme（换主题资源，XAML 只带深色初值）→ 配置尺寸覆盖）。
-吸附态封装在 `src/AttachedChild.cs`（Hwnd/吸附前矩形/隐形边 + EnsureDockedState/Restore），与左右/几何/UI 完全解耦、可在格间整体交换；宿主以 `_left/_right` 两个引用持有，`SwapSides` = 引用交换。几何/吸附编排（TryAttach 分支、格子矩形、z 序自愈）留在宿主。
+吸附态封装在 `src/AttachedChild.cs`（Hwnd/吸附前矩形/隐形边 + 全部自身 hwnd 的 Win32 操作：`Attach` 捕获、`PlaceInPane` 放置含隐形边外扩与已就位跳过、`PrepareForDock`/`Undock`/`Restore`、`EnsureDockedState`、`MoveBy`/`MoveOffscreen`/`PlaceBelowHost`），与左右/几何/UI 完全解耦、可在格间整体交换；构造时持有宿主句柄（子窗口插入点 = 宿主正下方）。宿主以 `_left/_right` 两个引用持有，`SwapSides` = 引用交换。几何计算与吸附编排（TryAttach 分支、格子矩形、FixZOrder 遍历）留在宿主。
 **布局尺寸单一来源 = XAML**（`_outer` BorderThickness / `_topBar` Height / 分隔条列宽），WireUi 读入 `_borderW/_topBarH/_dividerW` 字段，几何公式用字段；不能直接把 BorderThickness 当基准读——最大化时会写 0，恢复时形成循环（曾因此设计过分步写回）。最小窗口尺寸 = XAML `MinWidth/MinHeight`（WndProc 的 ptMinTrackSize 读它们）。
 主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值；**悬停刷色也在 XAML**（Button 隐式样式/DangerCaptionButton/DividerStyle 的 `IsMouseOver` Trigger + DynamicResource，实测 .NET 10 WPF 完全可用——早前"Trigger 不能用 DynamicResource"的记录是错误结论）。**陷阱**：对 DynamicResource 属性做局部赋值（如事件里刷悬停色）会销毁资源引用表达式，之后 `ClearValue` 不会恢复引用而是落到 null（实测分隔条变透明）——悬停一律走 Trigger，不要用事件刷色。顶条按钮是 XAML 实例 + 隐式 Button 样式，静态字形直接写在按钮文本里，点击/动态字形（主题月亮/太阳、最大化还原、左右翻转）由 WireUi/UpdateSideButtons 补。
 

@@ -83,7 +83,10 @@ public sealed partial class HostWindow : Window
         StateChanged += (_, _) => OnStateChanged();
         Activated += (_, _) =>
         {
-            ShowAttachedChildren();
+            foreach (var child in new[] { _left, _right })
+            {
+                child?.EnsureDockedState();
+            }
             RaiseChildrenBelow();
             // 宿主激活把宿主单独升到 z 序顶端，子窗口留在原地；低优先级再插回一次加固
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
@@ -396,10 +399,7 @@ public sealed partial class HostWindow : Window
 
         foreach (var child in new[] { _left, _right })
         {
-            if (child is null || !child.IsAlive || Native.IsIconic(child.Hwnd)) continue;
-            if (!Native.GetWindowRect(child.Hwnd, out var r)) continue;
-            Native.SetWindowPos(child.Hwnd, IntPtr.Zero, r.Left + dx, r.Top + dy, 0, 0,
-                Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
+            child?.MoveBy(dx, dy);
         }
     }
 
@@ -412,30 +412,13 @@ public sealed partial class HostWindow : Window
 
     private bool ApplyLayoutTo(AttachedChild? child, int slot)
     {
-        if (child is null || !Native.IsWindow(child.Hwnd) || Native.IsIconic(child.Hwnd) || Native.IsZoomed(child.Hwnd)) return false;
+        if (child is null || !child.CanPlace) return false;
         if (ActualWidth < 50 || ActualHeight < 50) return false;
-        IntPtr hwnd = child.Hwnd;
 
         var (x, y, w, h) = PaneRectDevice(slot);
 
-        // 外扩 DWM 隐形边，可见内容才能精确填满格子
-        var m = child.FrameMargins;
-        x -= m.L;
-        y -= m.T;
-        w += m.L + m.R;
-        h += m.T + m.B;
-
-        if (Native.GetWindowRect(hwnd, out var r)
-            && Math.Abs(r.Left - x) <= 1 && Math.Abs(r.Top - y) <= 1
-            && Math.Abs(r.Width - w) <= 1 && Math.Abs(r.Height - h) <= 1)
-        {
-            return true; // 已就位，避免无谓的 SetWindowPos
-        }
-        // 插到宿主正下方（相对插入是稳定语义）：宿主不透明部分（分隔条/边框）盖住子窗口
-        // 隐形边可点击，透明格子透出子窗口。不要用 HWND_TOP——实测 Alt+Tab 切回宿主后
-        // 它是静默无效调用（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住）
-        return Native.SetWindowPos(hwnd, _handle, x, y, w, h,
-            Native.SWP_NOACTIVATE);
+        // 外扩自身隐形边 + 插到宿主正下方，都在 child 内部完成
+        return child.PlaceInPane(x, y, w, h);
     }
 
     private (int X, int Y, int W, int H) PaneRectDevice(int slot)
@@ -468,9 +451,7 @@ public sealed partial class HostWindow : Window
         // 不用 HWND_TOP：实测 Alt+Tab 切回宿主后它是静默无效调用（返回 true 但 z 序不变）
         foreach (var child in new[] { _right, _left })
         {
-            if (child is null || !Native.IsWindow(child.Hwnd) || Native.IsIconic(child.Hwnd)) continue;
-            Native.SetWindowPos(child.Hwnd, _handle, 0, 0, 0, 0,
-                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            child?.PlaceBelowHost();
         }
     }
 
@@ -529,9 +510,7 @@ public sealed partial class HostWindow : Window
                 // （对所有窗口类型有效，还原时 ApplyLayout 按格子矩形拉回）
                 foreach (var child in new[] { _left, _right })
                 {
-                    if (child is null || !Native.IsWindow(child.Hwnd)) continue;
-                    Native.SetWindowPos(child.Hwnd, IntPtr.Zero, -32000, -32000, 0, 0,
-                        Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
+                    child?.MoveOffscreen();
                 }
                 break;
 
@@ -540,7 +519,10 @@ public sealed partial class HostWindow : Window
                 // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化；边框同步隐藏/恢复。
                 // 立即按当前窗口宽校一次；WPF 尺寸回缩/边框变化完成后再校一次（Loaded 优先级），
                 // 消除事件时序导致的分隔条位置漂移
-                ShowAttachedChildren();
+                foreach (var child in new[] { _left, _right })
+                {
+                    child?.EnsureDockedState();
+                }
                 if (_outer is not null) _outer.BorderThickness = new Thickness(CurBorderW);
                 UpdatePaneWidths();
                 ApplyLayout();
@@ -549,28 +531,6 @@ public sealed partial class HostWindow : Window
         }
 
         UpdateMaxGlyph();
-    }
-
-    /// <summary>
-    /// 宿主回到可见状态时恢复所有子窗口的可见性（隐藏的最小化联动子窗口、
-    /// 被独立最小化/最大化的子窗口一律拉回格子）。
-    /// 子窗口是 tool window 没有任务栏按钮，不在这里还原就永远回不来；
-    /// 最大化路径尤其必要：从最大化最小化后点任务栏还原直接进 Maximized，不经过 Normal。
-    /// </summary>
-    private void ShowAttachedChildren()
-    {
-        foreach (var child in new[] { _left, _right })
-        {
-            if (child is null || !Native.IsWindow(child.Hwnd)) continue;
-            if (Native.IsIconic(child.Hwnd) || Native.IsZoomed(child.Hwnd))
-            {
-                Native.ShowWindow(child.Hwnd, Native.SW_RESTORE);
-            }
-            else if (!Native.IsWindowVisible(child.Hwnd))
-            {
-                Native.ShowWindow(child.Hwnd, Native.SW_SHOWNA);
-            }
-        }
     }
 
     /// <summary>
@@ -813,11 +773,9 @@ public sealed partial class HostWindow : Window
         }
 
         if (child is not null) child.Restore(); // 替换：原窗口回到吸附前位置
-        var attached = AttachedChild.Attach(hwnd);
+        var attached = AttachedChild.Attach(_handle, hwnd);
         if (slot == 0) _left = attached; else _right = attached;
-        Native.SetSquareCorners(hwnd, square: true);
-        if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
-        Native.SetToolWindowStyle(hwnd, tool: true);
+        attached.PrepareForDock();
         _attachedPids.Add(Native.GetPid(hwnd));
         if (!ApplyLayoutTo(attached, slot))
         {
@@ -839,8 +797,7 @@ public sealed partial class HostWindow : Window
         {
             if (slot == 0) _left = null; else _right = null;
         }
-        Native.SetSquareCorners(child.Hwnd, square: false);
-        Native.SetToolWindowStyle(child.Hwnd, tool: false);
+        child.Undock();
         UpdateStatus();
         UpdateHostIcon();
     }
