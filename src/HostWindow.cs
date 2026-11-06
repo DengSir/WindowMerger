@@ -6,17 +6,18 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shell;
 using System.Windows.Threading;
 
 namespace WindowMerger;
 
 public sealed partial class HostWindow : Window
 {
-    private const double BorderW = 2;      // 可见边框宽度（最大化时隐藏为 0）
-    private const double TopBarH = 28;     // 顶条高度
-    private const double DividerW = 8;     // 中间分隔条宽度
-    private const double ChromeResizeBorder = 8;
+    // 布局尺寸单一来源是 HostWindow.xaml（外框 BorderThickness / 顶条 Height / 分隔条列宽），
+    // WireUi 时从 UI 读入这里，代码不再手工维护同值常量
+    private double _borderW;    // 外框宽（最大化时隐藏为 0）
+    private double _topBarH;    // 顶条高度
+    private double _dividerW;   // 中间分隔条宽度
+
     private const double MinRatio = 0.2;
     private const double MaxRatio = 0.8;
 
@@ -37,19 +38,14 @@ public sealed partial class HostWindow : Window
     private int _highlightSlot = -1;
     private string? _notice;
     private DateTime _noticeUntil;
-    private readonly string? _cliLeft;
-    private readonly string? _cliRight;
-    private bool _cliTargetsDone;
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
     /// <summary>当前生效的边框宽度：最大化时边框隐藏，格子铺满窗口。</summary>
-    private double CurBorderW => WindowState == WindowState.Maximized ? 0 : BorderW;
+    private double CurBorderW => WindowState == WindowState.Maximized ? 0 : _borderW;
 
     public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null)
     {
-        _cliLeft = string.IsNullOrWhiteSpace(cliLeft) ? null : cliLeft;
-        _cliRight = string.IsNullOrWhiteSpace(cliRight) ? null : cliRight;
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
         var orphanPids = config.AttachedPids;
@@ -74,16 +70,6 @@ public sealed partial class HostWindow : Window
         WireUi();
         ApplyTheme(); // XAML 只带深色初值，按配置主题重刷一遍（含按钮前景）
 
-        // CaptionHeight=0：顶条走 DragMove，右键才能弹自定义菜单；缩放交给 WindowChrome 的 resize 边
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            ResizeBorderThickness = new Thickness(ChromeResizeBorder),
-            CaptionHeight = 0,
-            CornerRadius = new CornerRadius(0),
-            GlassFrameThickness = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
         LocationChanged += (_, _) => OnHostMoved();
         SizeChanged += (_, _) => { UpdatePaneWidths(); ApplyLayout(); };
         StateChanged += (_, _) => OnStateChanged();
@@ -95,7 +81,7 @@ public sealed partial class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight); };
         Closing += (_, _) => OnClosingCleanup();
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -107,9 +93,14 @@ public sealed partial class HostWindow : Window
 
     // ---------- UI ----------
 
-    /// <summary>视觉树在 HostWindow.xaml；这里只补齐动态部分：字形内容、点击、悬停刷色、条件可见性。</summary>
+    /// <summary>视觉树在 HostWindow.xaml；这里只补齐动态部分：字形内容、点击、条件可见性。</summary>
     private void WireUi()
     {
+        // 布局尺寸单一来源 = XAML；这里读入，几何公式不再手工维护同值常量
+        _borderW = _outer.BorderThickness.Left;
+        _topBarH = _topBar.Height;
+        _dividerW = _content.ColumnDefinitions[1].Width.Value;
+
         _divider.MouseLeftButtonDown += DividerOnMouseDown;
         _divider.MouseMove += DividerOnMouseMove;
         _divider.MouseLeftButtonUp += DividerOnMouseUp;
@@ -119,8 +110,8 @@ public sealed partial class HostWindow : Window
 
         // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
         // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题月亮/太阳、最大化/还原）
-        _pickLeftButton.Click += (_, _) => { if (_leftHwnd == IntPtr.Zero) Pick(AttachSide.Left); else ReleaseSide(0); };
-        _pickRightButton.Click += (_, _) => { if (_rightHwnd == IntPtr.Zero) Pick(AttachSide.Right); else ReleaseSide(1); };
+        _pickLeftButton.Click += (_, _) => ToggleSide(0);
+        _pickRightButton.Click += (_, _) => ToggleSide(1);
         _swapButton.Click += (_, _) => SwapSides();
         _releaseButton.Click += (_, _) => ReleaseAll();
         _themeButton.Content = ThemeGlyph();
@@ -133,6 +124,15 @@ public sealed partial class HostWindow : Window
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
         _topBar.MouseMove += TopBarOnMouseMove;
         _topBar.MouseLeftButtonUp += TopBarOnMouseUp;
+    }
+
+    private IntPtr HwndOf(int slot) => slot == 0 ? _leftHwnd : _rightHwnd;
+
+    /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
+    private void ToggleSide(int slot)
+    {
+        if (HwndOf(slot) == IntPtr.Zero) Pick(slot == 0 ? AttachSide.Left : AttachSide.Right);
+        else ReleaseSide(slot);
     }
 
     // ---------- 主题 ----------
@@ -349,8 +349,8 @@ public sealed partial class HostWindow : Window
                     mmi.ptMaxSize.Y = Math.Abs(info.rcWork.Bottom - info.rcWork.Top);
                 }
             }
-            mmi.ptMinTrackSize.X = 420;
-            mmi.ptMinTrackSize.Y = 320;
+            mmi.ptMinTrackSize.X = (int)MinWidth;
+            mmi.ptMinTrackSize.Y = (int)MinHeight;
             Marshal.StructureToPtr(mmi, lParam, true);
             handled = true;
         }
@@ -441,14 +441,14 @@ public sealed partial class HostWindow : Window
     private (int X, int Y, int W, int H) PaneRectDevice(int slot)
     {
         double bw = CurBorderW;
-        double availDip = Math.Max(0, ActualWidth - 2 * bw - DividerW);
-        double contentHDip = Math.Max(0, ActualHeight - 2 * bw - TopBarH);
+        double availDip = Math.Max(0, ActualWidth - 2 * bw - _dividerW);
+        double contentHDip = Math.Max(0, ActualHeight - 2 * bw - _topBarH);
         double leftWDip = availDip * _ratio;
-        double xDip = slot == 0 ? bw : bw + leftWDip + DividerW;
+        double xDip = slot == 0 ? bw : bw + leftWDip + _dividerW;
         double wDip = slot == 0 ? leftWDip : availDip - leftWDip;
 
-        var tl = PointToScreen(new Point(xDip, bw + TopBarH));
-        var br = PointToScreen(new Point(xDip + wDip, bw + TopBarH + contentHDip));
+        var tl = PointToScreen(new Point(xDip, bw + _topBarH));
+        var br = PointToScreen(new Point(xDip + wDip, bw + _topBarH + contentHDip));
         return ((int)Math.Round(tl.X), (int)Math.Round(tl.Y),
                 (int)Math.Round(br.X - tl.X), (int)Math.Round(br.Y - tl.Y));
     }
@@ -457,7 +457,7 @@ public sealed partial class HostWindow : Window
     {
         // 用窗口 ActualWidth 直算（与 PaneRectDevice 同一公式），不能用 _content.ActualWidth——
         // 最大化还原时 StateChanged 早于尺寸回缩完成，读到的旧值会把分隔条顶到错误位置
-        double avail = Math.Max(0, ActualWidth - 2 * CurBorderW - DividerW);
+        double avail = Math.Max(0, ActualWidth - 2 * CurBorderW - _dividerW);
         _leftCol.Width = new GridLength(avail * _ratio);
     }
 
@@ -633,15 +633,14 @@ public sealed partial class HostWindow : Window
     /// （可带可不带 .exe，大小写不敏感）；同候选多窗口取面积最大的；
     /// 未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
     /// </summary>
-    private void AttachStartupTargets()
+    private void AttachStartupTargets(string? cliLeft, string? cliRight)
     {
-        if (_cliTargetsDone || _cliLeft is null && _cliRight is null) return;
-        _cliTargetsDone = true;
+        if (cliLeft is null && cliRight is null) return;
 
         var targets = new[]
         {
-            (Side: AttachSide.Left, Raw: _cliLeft),
-            (Side: AttachSide.Right, Raw: _cliRight),
+            (Side: AttachSide.Left, Raw: cliLeft),
+            (Side: AttachSide.Right, Raw: cliRight),
         };
         foreach (var (side, raw) in targets)
         {
@@ -739,11 +738,11 @@ public sealed partial class HostWindow : Window
         double bw = CurBorderW;
         double x0 = bw;
         double x1 = ActualWidth - bw;
-        double y0 = bw + TopBarH;
+        double y0 = bw + _topBarH;
         double y1 = ActualHeight - bw;
         if (p.X < x0 || p.X > x1 || p.Y < y0 || p.Y > y1) return -1;
-        double avail = Math.Max(1, _content.ActualWidth - DividerW);
-        double split = x0 + avail * _ratio + DividerW / 2;
+        double avail = Math.Max(1, _content.ActualWidth - _dividerW);
+        double split = x0 + avail * _ratio + _dividerW / 2;
         return p.X < split ? 0 : 1;
     }
 
@@ -1060,7 +1059,7 @@ public sealed partial class HostWindow : Window
     {
         if (!_divider.IsMouseCaptured) return;
         var p = e.GetPosition(_content);
-        double avail = Math.Max(1, ActualWidth - 2 * CurBorderW - DividerW);
+        double avail = Math.Max(1, ActualWidth - 2 * CurBorderW - _dividerW);
         _ratio = Math.Clamp((p.X + 2 * CurBorderW) / avail, MinRatio, MaxRatio);
         UpdatePaneWidths();
         ApplyLayout();
@@ -1110,12 +1109,13 @@ public sealed partial class HostWindow : Window
     /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（f060/f061），已吸附=释放该侧（f2d2）。</summary>
     private void UpdateSideButtons()
     {
-        bool leftUsed = _leftHwnd != IntPtr.Zero;
-        _pickLeftButton.Content = leftUsed ? "\uF2D2" : "\uF060";
-        _pickLeftButton.ToolTip = leftUsed ? "释放左窗（回到原位）" : "选择左窗…";
-        bool rightUsed = _rightHwnd != IntPtr.Zero;
-        _pickRightButton.Content = rightUsed ? "\uF2D2" : "\uF061";
-        _pickRightButton.ToolTip = rightUsed ? "释放右窗（回到原位）" : "选择右窗…";
+        var sides = new[] { (_pickLeftButton, HwndOf(0)), (_pickRightButton, HwndOf(1)) };
+        foreach (var (btn, hwnd) in sides)
+        {
+            bool used = hwnd != IntPtr.Zero;
+            btn.Content = used ? "\uF2D2" : "\uF060";
+            btn.ToolTip = used ? "释放该侧（回到原位）" : "选择该侧…";
+        }
     }
 
     /// <summary>释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）。</summary>
