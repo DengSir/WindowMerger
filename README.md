@@ -43,7 +43,10 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-`.github/workflows/release.yml` 在 `windows-latest` 上执行与本地相同的发布命令（同样引用 FolderProfile），把 `WindowMerger-<版本>-win-x64.exe` 附到 [Releases](https://github.com/DengSir/WindowMerger/releases)，Release 说明由提交记录自动生成；tag 版本号（去掉 `v` 前缀）会作为程序集版本写入 exe。也可在 Actions 页手动触发（workflow_dispatch，只构建上传工件、不发 Release）。
+`.github/workflows/release.yml` 在 `windows-latest` 上执行与本地相同的发布命令（同样引用 FolderProfile），把 `WindowMerger-<版本>-win-x64.exe` 附到 [Releases](https://github.com/DengSir/WindowMerger/releases)，Release 说明由提交记录自动生成，版本号（去掉 `v` 前缀）会作为程序集版本写入 exe。两条发版路径：
+
+- **推 tag**（`git tag v0.1.0 && git push origin v0.1.0`）：从 tag 本身发 Release
+- **Actions 页手动触发**（可在 main 上直接发，无需预推 tag）：填 `version`（如 `0.1.0`、`0.1.0-alpha.1`，`v` 前缀可省）即在该分支当前 HEAD 上自动创建 tag 并发 Release，可勾选 `prerelease` 标记预发布；`version` 留空则只构建上传工件、不发 Release
 
 ## 命令行
 

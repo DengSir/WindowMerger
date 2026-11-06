@@ -1,7 +1,11 @@
-# Release pipeline: push a v* tag -> build a framework-dependent single-file
-# exe (win-x64) and attach it to a GitHub Release. Publish settings come from
-# the committed VS publish profile (Properties/PublishProfiles/FolderProfile.pubxml).
-# Manual dispatch (from the Actions page) builds the artifact only, no Release.
+# Release pipeline: publish a framework-dependent single-file exe (win-x64) to
+# GitHub Releases. Publish settings come from the committed VS publish profile
+# (Properties/PublishProfiles/FolderProfile.pubxml).
+# Two release paths:
+#   1. push a v* tag            -> Release from the tag itself
+#   2. workflow_dispatch        -> fill in "version" to release from the current
+#      branch HEAD (tag auto-created at the built commit, optional prerelease
+#      flag); leave "version" empty to build the artifact only, no Release.
 name: Release
 
 on:
@@ -9,6 +13,16 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.1.0 or 0.1.0-alpha.1 (leading v optional). Empty = build only, no Release.'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark the Release as prerelease'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -31,20 +45,36 @@ jobs:
       - name: Resolve version
         id: ver
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
         run: |
+          $prerelease = ($env:INPUT_PRERELEASE -eq 'true')
           if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            # tag push: version = tag name without the leading 'v'
+            # tag push: release from the tag itself
             $version = $env:GITHUB_REF_NAME -replace '^v', ''
+            $tag = $env:GITHUB_REF_NAME
+            $shouldRelease = 'true'
+          } elseif ($env:INPUT_VERSION) {
+            # manual dispatch with a version: release from the branch HEAD
+            $version = $env:INPUT_VERSION -replace '^v', ''
+            $tag = "v$version"
+            $shouldRelease = 'true'
           } else {
-            # manual dispatch: fall back to the version in the csproj
+            # manual dispatch without a version: build only, no Release
             [xml]$csproj = Get-Content -Raw -Encoding UTF8 'WindowMerger.csproj'
             $version = @($csproj.Project.PropertyGroup)[0].Version
+            $tag = ''
+            $shouldRelease = 'false'
           }
-          if (-not $version) { throw 'Cannot resolve version (tag name or csproj).' }
-          Write-Output "Resolved version: $version"
+          if (-not $version) { throw 'Cannot resolve version (tag name, input or csproj).' }
+          Write-Output "Version: $version | Tag: $tag | Release: $shouldRelease | Prerelease: $prerelease"
           "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
 
-      - name: Publish (VS publish profile: framework-dependent single-file, win-x64)
+      - name: "Publish (VS publish profile: framework-dependent single-file, win-x64)"
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
@@ -69,13 +99,23 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
-        if: github.event_name == 'push'
+        if: steps.ver.outputs.should_release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          PRERELEASE: ${{ steps.ver.outputs.prerelease }}
         run: |
           $asset = 'publish\WindowMerger-{0}-win-x64.exe' -f $env:VERSION
-          gh release create $env:GITHUB_REF_NAME $asset `
-            --title 'WindowMerger ${{ github.ref_name }}' `
-            --verify-tag --generate-notes
+          $ghArgs = @('release', 'create', $env:TAG, $asset,
+            '--title', "WindowMerger $env:TAG", '--generate-notes')
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $ghArgs += '--verify-tag'
+          } else {
+            # branch release: create the tag at this exact commit
+            $ghArgs += @('--target', $env:GITHUB_SHA)
+          }
+          if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+          gh @ghArgs
+          Write-Output "Release created: $env:TAG"

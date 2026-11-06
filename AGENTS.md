@@ -17,7 +17,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 - **重建前必须先关闭运行中的实例**（exe 被运行实例锁定会构建失败）。优雅关闭 = PostMessage `WM_CLOSE (0x0010)`，走正常退出流程（保存配置 + 释放子窗口回原位）；`taskkill /F` 会跳过这些清理，仅在卡死时用
 - 功能迭代单独 commit；`bin/`、`obj/`、`publish/`、`.zcode/` 已在 .gitignore，勿入库
-- 发布：本地 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\Publish.ps1`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`-Version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 触发 `.github/workflows/release.yml` 自动构建并发 GitHub Release（tag 版本去 `v` 写程序集版本；workflow_dispatch 仅构建出工件不发 Release）
+- 发布：本地 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\Publish.ps1`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`-Version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 或在 Actions 页手动触发 `.github/workflows/release.yml` 发 GitHub Release（tag 版本去 `v` 写程序集版本；dispatch 填 `version` 直接在所选分支 HEAD 自动建 tag 发版、可勾 prerelease，留空仅构建出工件不发 Release）
 
 ## 本仓库踩过的真坑（违反必炸，全部实测）
 
