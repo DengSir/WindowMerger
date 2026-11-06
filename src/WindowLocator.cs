@@ -51,6 +51,8 @@ public static class WindowLocator
 
             uint pid = Native.GetPid(h);
             if (pid == selfPid) return true;
+            // 排除"另一个自己"：其他 WindowMerger 实例的宿主窗口不进候选
+            if (procNames.TryGetValue(pid, out var pn) && IsSelfProcessName(pn)) return true;
 
             string pname = procNames.TryGetValue(pid, out var n) ? n : "?";
             results.Add(new WindowCandidate(h, title, Native.GetClassNameOf(h), pname, pid));
@@ -59,5 +61,28 @@ public static class WindowLocator
 
         results.Sort((a, b) => string.Compare(a.ProcessName, b.ProcessName, StringComparison.OrdinalIgnoreCase));
         return results;
+    }
+
+    /// <summary>"自己"的进程名前缀：含发布重命名变体（WindowMerger-&lt;版本&gt;-win-x64.exe）。</summary>
+    private const string SelfProcessPrefix = "WindowMerger";
+
+    private static bool IsSelfProcessName(string processName)
+        => processName.StartsWith(SelfProcessPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 窗口是否属于"另一个自己"——其他 WindowMerger 实例。它的宿主窗口不能被抓进格子、
+    /// 也不进选择器候选（其对话框有 Owner，本就被排除）。
+    /// </summary>
+    public static bool IsOtherSelf(uint pid, uint selfPid)
+    {
+        if (pid == selfPid || pid == 0) return false;
+        try
+        {
+            return IsSelfProcessName(Process.GetProcessById((int)pid).ProcessName);
+        }
+        catch (ArgumentException)
+        {
+            return false; // 进程已退出（快照间隙），窗口随后也会消失
+        }
     }
 }

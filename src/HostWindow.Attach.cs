@@ -97,7 +97,9 @@ public sealed partial class HostWindow : Window
         if (Native.IsCloaked(hwnd)) return false;
         if ((Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE) & Native.WS_EX_TOOLWINDOW) != 0) return false;
         if (Native.GetWindow(hwnd, Native.GW_OWNER) != IntPtr.Zero) return false;
-        return Native.GetPid(hwnd) != (uint)Environment.ProcessId;
+        uint pid = Native.GetPid(hwnd);
+        if (pid == (uint)Environment.ProcessId) return false;
+        return !WindowLocator.IsOtherSelf(pid, (uint)Environment.ProcessId); // 排除"另一个自己"
     }
 
     internal bool IsAttachedChild(IntPtr hwnd)
