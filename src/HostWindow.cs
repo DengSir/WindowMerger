@@ -200,13 +200,26 @@ public sealed partial class HostWindow : Window
         border.AppendChild(presenter);
         template.VisualTree = border;
 
+        // 选中标志 = Font Awesome 对勾（固定宽度占位，未选中留空但保持文字对齐），
+        // 与顶条按钮同一内嵌字体族；pack 字体必须经 XAML 声明，这里只取资源引用
+        var header = new StackPanel { Orientation = Orientation.Horizontal };
+        header.Children.Add(new TextBlock
+        {
+            Text = AppTheme.Mode == mode ? "\uF00C" : "",
+            FontFamily = (FontFamily)FindResource("FaSolid"),
+            FontSize = 10,
+            Width = 20,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        header.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+
         var item = new MenuItem
         {
-            Header = (AppTheme.Mode == mode ? "✓ " : "　 ") + label,
+            Header = header,
             Background = Brushes.Transparent,
             Foreground = AppTheme.Brush(p.Text),
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(12, 6, 20, 6),
+            Padding = new Thickness(6, 6, 20, 6),
             FontSize = 12,
             Template = template,
         };
