@@ -1,7 +1,7 @@
 # 构建产物
 bin/
 obj/
-publish/
+/publish/
 
 # IDE / 编辑器 / 会话工具
 .vs/
