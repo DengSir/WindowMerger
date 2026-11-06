@@ -101,11 +101,8 @@ public sealed partial class HostWindow : Window
         _pendingPlacement = ResolvePlacement(config);
         Width = 1280;
         Height = 800;
-        WindowStartupLocation = _pendingPlacement is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.Manual;
-
-        // 位置不持久化，启动一律居中：位置还原曾把窗口开到屏外（任务栏有按钮、桌面上
-        // 找不到窗口），多显示器坐标漂移/已断开的显示器时尤其如此
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        // hwnd 建好前的初始值（无有效几何时即最终状态）；有保存几何时 OnSourceInitialized
+        // 用 SetWindowPos 写物理像素落位，绕开 WPF 对 DIP 属性的初始主屏 DPI 解释
 
         WireUi();
         ApplyTheme(); // XAML 只带深色初值，按配置主题重刷一遍（含按钮前景）
