@@ -35,11 +35,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ### 字体与资源（Font Awesome Free，SIL OFL；全部内嵌进程序集）
 - 字体/图标在 `assets\`，以 `<Resource>` 内嵌（csproj），输出目录不落散资源文件
-- **pack 字体必须经 XAML 声明**：`App.xaml` 里 `<FontFamily x:Key="FaSolid">pack://application:,,,/assets/<文件>#<完整家族名></FontFamily>`，代码用 `TryFindResource` 取用——这是唯一渲染正常的路径。**代码里 `new FontFamily(同样的 pack 字符串)` 能构造、GetResourceStream/GetFontFamilies 都正常，但 DWrite 渲染不解析（全部回退缺字）**——.NET 10 WPF 实测，别再试
-- 校验用**渲染宽度对比**（探针码位 vs 确定缺失的私用区码位 U+F8FF，宽度不同 = 字形真实）——`GlyphTypeface`/`TryGetGlyphTypeface`/`GetTypefaces` 对 pack 字体均不可用
-- `Fonts.GetFontFamilies` 对同目录 pack 字体有家族名串扰（regular 文件会列出 solid 的家族名）——不能用它做家族名精确校验
-- `FontFamily` 解析要用完整名 `Font Awesome 6 Free Solid` / `Font Awesome 6 Free Regular`（name 表 ID-1 名反而解析不到）
-- 校验失败结果要一并缓存（`??=` 模式不会缓存 null，会每 250ms 重试解析）
+- **pack 字体必须经 XAML 声明**：`HostWindow.Resources` 里 `<FontFamily x:Key="FaSolid">pack://application:,,,/assets/<文件>#<完整家族名></FontFamily>`（FaRegular 同款）——这是唯一渲染正常的路径。**代码里 `new FontFamily(同样的 pack 字符串)` 能构造、GetResourceStream/GetFontFamilies 都正常，但 DWrite 渲染不解析（全部回退缺字）**——.NET 10 WPF 实测，别再试
+- 无需运行时加载/校验代码：XAML 声明即渲染（字形直接写在按钮文本里，动态字形由 code-behind 切 Content）
 - ico 内嵌后用 `BitmapDecoder.Create(资源流)` 解码取最大帧
 
 ### .NET 10 WPF 特有

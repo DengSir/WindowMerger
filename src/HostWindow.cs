@@ -114,8 +114,6 @@ public sealed partial class HostWindow : Window
         _divider.MouseMove += DividerOnMouseMove;
         _divider.MouseLeftButtonUp += DividerOnMouseUp;
 
-        if (Icons.Family is null) _gripText.Visibility = Visibility.Collapsed; // 字体不可用时不留缺字框
-
         // 顶条左端应用图标
         _appIcon.Source = LoadAppIconFrame();
 
