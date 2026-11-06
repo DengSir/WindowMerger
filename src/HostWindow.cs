@@ -659,15 +659,21 @@ public sealed partial class HostWindow : Window
     private static bool IsCtrlHeld()
         => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
 
-    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（f060/f061），已吸附=释放该侧（f2d2）。</summary>
+    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（左←/右→），已吸附=释放该侧（f2d2）。</summary>
     private void UpdateSideButtons()
     {
-        var sides = new[] { (_pickLeftButton, ChildAt(AttachSide.Left)), (_pickRightButton, ChildAt(AttachSide.Right)) };
-        foreach (var (btn, child) in sides)
+        var sides = new[]
+        {
+            (Button: _pickLeftButton, Child: ChildAt(AttachSide.Left), EmptyGlyph: "\uF060",
+             PickTip: "选择左窗…", ReleaseTip: "释放左窗（回到原位）"),
+            (Button: _pickRightButton, Child: ChildAt(AttachSide.Right), EmptyGlyph: "\uF061",
+             PickTip: "选择右窗…", ReleaseTip: "释放右窗（回到原位）"),
+        };
+        foreach (var (btn, child, emptyGlyph, pickTip, releaseTip) in sides)
         {
             bool used = child is not null;
-            btn.Content = used ? "\uF2D2" : "\uF060";
-            btn.ToolTip = used ? "释放该侧（回到原位）" : "选择该侧…";
+            btn.Content = used ? "\uF2D2" : emptyGlyph;
+            btn.ToolTip = used ? releaseTip : pickTip;
         }
     }
 
