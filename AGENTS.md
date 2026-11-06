@@ -2,7 +2,7 @@
 
 把任意两个独立窗口合并进同一个带边框宿主窗口（透明格子 + 子窗口吸附，**不用 SetParent**）。
 技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，宿主视觉树与布局尺寸常量在 `src/HostWindow.xaml`——`x:Name` 生成字段供 code-behind 引用，动态逻辑在 `HostWindow.cs` 与两个 partial（`HostWindow.Drag.cs` 交互拖拽 / `HostWindow.Attach.cs` 吸附编排）；构造顺序 = InitializeComponent → 配置尺寸覆盖（W/H/位置，只碰窗口自身、不碰 XAML 布局常量）→ WireUi（事件挂接 + 从 UI 读入布局尺寸 + 动态字形）→ ApplyTheme（换主题资源，XAML 只带深色初值）；窗口级事件（LocationChanged/StateChanged/Activated/250ms 定时器）在构造函数挂，WireUi 只挂 UI 元素）。
-吸附态封装在 `src/AttachedChild.cs`（Hwnd/吸附前矩形/隐形边 + 全部自身 hwnd 的 Win32 操作：`Attach` 捕获、`PlaceInPane` 放置含隐形边外扩与已就位跳过、`PrepareForDock`/`Undock`/`Restore`、`EnsureDockedState`、`MoveBy`/`MoveOffscreen`/`PlaceBelowHost`），与左右/几何/UI 完全解耦、可在格间整体交换；构造时持有宿主句柄（子窗口插入点 = 宿主正下方）。宿主以 `_left/_right` 两个引用持有，`SwapSides` = 引用交换。几何计算与吸附编排（TryAttach 分支、格子矩形、FixZOrder 遍历）留在宿主。
+吸附态封装在 `src/AttachedChild.cs`（Hwnd/吸附前矩形 + 全部自身 hwnd 的 Win32 操作：`Attach` 捕获、`PlaceInPane` 放置含隐形边现场实测外扩与已就位跳过、`PrepareForDock`/`Undock`/`Restore`、`EnsureDockedState`、`MoveBy`/`MoveOffscreen`/`PlaceBelowHost`），与左右/几何/UI 完全解耦、可在格间整体交换；构造时持有宿主句柄（子窗口插入点 = 宿主正下方）。宿主以 `_left/_right` 两个引用持有，`SwapSides` = 引用交换。几何计算与吸附编排（TryAttach 分支、格子矩形、FixZOrder 遍历）留在宿主。
 **布局尺寸单一来源 = XAML**（`_outer` BorderThickness / `_topBar` Height / 分隔条列宽），WireUi 读入 `_borderW/_topBarH/_dividerW` 字段，几何公式用字段；不能直接把 BorderThickness 当基准读——最大化时会写 0，恢复时形成循环（曾因此设计过分步写回）。最小窗口尺寸 = XAML `MinWidth/MinHeight`（WndProc 的 ptMinTrackSize 读它们）。
 主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值；**悬停刷色也在 XAML**（Button 隐式样式/DangerCaptionButton/DividerStyle 的 `IsMouseOver` Trigger + DynamicResource，实测 .NET 10 WPF 完全可用——早前"Trigger 不能用 DynamicResource"的记录是错误结论）。**陷阱**：对 DynamicResource 属性做局部赋值（如事件里刷悬停色）会销毁资源引用表达式，之后 `ClearValue` 不会恢复引用而是落到 null（实测分隔条变透明）——悬停一律走 Trigger，不要用事件刷色。顶条按钮是 XAML 实例 + 隐式 Button 样式，静态字形直接写在按钮文本里，点击/动态字形（主题月亮/太阳/半圆、最大化还原、左右选窗按钮的方向/空格字形）由 WireUi/UpdateSideButtons 补。
 
@@ -32,6 +32,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - 吸附子窗口设为 `WS_EX_TOOLWINDOW`（无任务栏/Alt+Tab）→ **最小化或独立最大化后无法手动恢复**，维护定时器（250ms）会自动拉回：子窗口没有"自己最大化"的概念
 - Win11 DWM 自动圆角是格子四角"圆角缝"的根源：吸附时设 `DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND`，释放还原 `DEFAULT`
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
+- **隐形边是物理像素且随所在显示器 DPI 缩放**（实测 mspaint：7px@100% ↔ 9px@150%，4K+100% 双屏）——吸附时**缓存** `FrameMargins` 会在跨屏吸附/宿主拖过另一块屏/改系统缩放后失真，可见内容缩水 2~4px，透明格透出后面的桌面形成整条竖缝/底缝（且 ±1px 就位跳过用的也是同一份失真值，维护定时器永远无法自愈，4K 屏实测）。因此 `PlaceInPane` 必须**每次放置现场实测**（`GetInvisibleFrameMargins` 一次 = GetWindowRect + 一次 DwmGetWindowAttribute，250ms 定时器开销可忽略）；DPI 切换瞬间子窗口还会收到 `WM_DPICHANGED` 自己改尺寸，下一个维护周期收敛
 - **宿主格子区域 alpha=0 在 OS 层点击穿透**（分层窗口全透明像素，拖入吸附因此走全局 WinEvent+光标坐标而非 WPF 鼠标事件）。推论：`WindowFromPoint(光标)` 在格子处返回的是宿主**后面**的窗口，"光标处最顶层是否本宿主"不能直判——必须用 z 序走到宿主为止的遍历、跳过被拖窗口与 `WS_EX_TRANSPARENT` 穿透层（`IsCoveredAtCursor`），直判会把拖入空格子（吸附主入口）误杀。**空格与吸附格的透明性是按占位切换的**：空格以 ThemeBar 填充+提示文案（不穿透，`UpdatePaneHints`）；**吸附格必须回到透明**——子窗口靠透明格子透出、点击穿透下去交互，填实会废掉吸附应用的交互
 - UIPI：管理员权限窗口（如任务管理器）**无法**被普通权限程序吸附，`SetWindowPos` 静默失败——失败时必须状态回滚 + 状态栏报因
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）

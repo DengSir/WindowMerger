@@ -16,7 +16,6 @@ internal sealed class AttachedChild
     public IntPtr Hwnd;                                // 当前子窗口
     public uint Pid;                                   // 子窗口所属进程（孤儿清理的句柄复用校验）
     public Native.RECT PreAttachRect;                  // 吸附前矩形（释放还原用）
-    public (int L, int T, int R, int B) FrameMargins;  // 隐形边（吸附时实测）
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
@@ -27,7 +26,8 @@ internal sealed class AttachedChild
         Pid = pid;
     }
 
-    /// <summary>吸附时捕获吸附态：吸附前矩形（最小化中则取还原矩形）+ 隐形边实测 + 所属 PID。</summary>
+    /// <summary>吸附时捕获吸附态：吸附前矩形（最小化中则取还原矩形）+ 所属 PID。
+    /// 隐形边不在此捕获——见 PlaceInPane，每次放置现场实测。</summary>
     public static AttachedChild Attach(IntPtr host, IntPtr hwnd)
     {
         Native.GetWindowThreadProcessId(hwnd, out var pid);
@@ -42,7 +42,6 @@ internal sealed class AttachedChild
         {
             child.PreAttachRect = r2;
         }
-        child.FrameMargins = Native.GetInvisibleFrameMargins(hwnd);
         return child;
     }
 
@@ -109,11 +108,15 @@ internal sealed class AttachedChild
     public bool PlaceInPane(int x, int y, int w, int h)
     {
         if (!CanPlace) return false;
-        // 外扩自身隐形边，可见内容才能精确填满格子
-        x -= FrameMargins.L;
-        y -= FrameMargins.T;
-        w += FrameMargins.L + FrameMargins.R;
-        h += FrameMargins.T + FrameMargins.B;
+        // 隐形边每次放置现场实测，不能吸附时缓存：它是物理像素，随子窗口当前所在显示器
+        // DPI 缩放（实测 mspaint：7px@100% ↔ 9px@150%）。跨屏吸附/拖宿主跨屏后缓存值失真，
+        // 可见内容缩水 2~4px，透明格透出后面的桌面形成一圈缝（且维护定时器无法自愈，
+        // 因为 ±1px 跳过检查用的也是同一份失真值）
+        var m = Native.GetInvisibleFrameMargins(Hwnd);
+        x -= m.Left;
+        y -= m.Top;
+        w += m.Left + m.Right;
+        h += m.Top + m.Bottom;
         if (Native.GetWindowRect(Hwnd, out var r)
             && Math.Abs(r.Left - x) <= 1 && Math.Abs(r.Top - y) <= 1
             && Math.Abs(r.Width - w) <= 1 && Math.Abs(r.Height - h) <= 1)
