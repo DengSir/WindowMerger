@@ -212,7 +212,9 @@ public sealed partial class HostWindow : Window
 
     internal void TryAttach(AttachSide side, IntPtr hwnd)
     {
-        if (!IsAttachable(hwnd)) return;
+        // 已吸附子窗口（toolwindow）被 IsAttachable 排除，但"拖走拖回归位/拖到另一侧
+        // 换侧/Ctrl 拖入替换"都以此为入口——豁免之，存活校验在 IsAttachedChild 内
+        if (!IsAttachable(hwnd) && !IsAttachedChild(hwnd)) return;
         var otherSide = side == AttachSide.Left ? AttachSide.Right : AttachSide.Left;
         var child = ChildAt(side);
         var other = ChildAt(otherSide);
@@ -232,9 +234,12 @@ public sealed partial class HostWindow : Window
         }
         if (hwnd == otherHwnd)
         {
-            // 拖到另一侧 = 换到另一侧（吸附态整体搬家）
-            if (side == AttachSide.Left) { _right = _left; _left = null; }
-            else { _left = _right; _right = null; }
+            // 拖到另一侧 = 换到另一侧（吸附态整体搬家）：被拖子窗口当前挂在另一侧
+            // 引用上（hwnd == otherHwnd），把它挂到目标侧、另一侧清空。
+            // （旧赋值方向反了：side=Right 时写成 _left=_right/_right=null，被拖窗口
+            // 引用直接丢失 → 孤儿停在松手位置，实测 2026-11）
+            if (side == AttachSide.Left) { _left = other; _right = null; }
+            else { _right = other; _left = null; }
             ApplyLayoutTo(ChildAt(side), side);
             UpdateStatus();
             return;

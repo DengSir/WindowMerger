@@ -64,9 +64,10 @@ def help_text_of(el) -> str:
 
 
 def bounding_rect_of(el) -> tuple[float, float, float, float]:
-    """(x, y, width, height)，屏幕坐标。"""
+    """(x, y, width, height)，屏幕坐标。（uiautomation 的 RECT 字段为小写且
+    width/height 是方法，不能直接调用——用 right/bottom 差值算）"""
     r = el.BoundingRectangle
-    return (r.left, r.top, float(r.width), float(r.height))
+    return (float(r.left), float(r.top), float(r.right - r.left), float(r.bottom - r.top))
 
 
 def find_windows_of_pid(pid: int) -> list:

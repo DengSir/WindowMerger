@@ -27,6 +27,10 @@ TESTS = [
     ("cursor_drop_test",    TOOLS / "tests" / "cursor_drop_test.py",          90),
     ("covered_drag_test",   TOOLS / "tests" / "covered_drag_test.py",         90),
     ("maximize_drag_test",  TOOLS / "tests" / "maximize_drag_test.py",        90),
+    ("double_click_max_test", TOOLS / "tests" / "double_click_max_test.py",   90),
+    ("divider_resize_test", TOOLS / "tests" / "divider_resize_test.py",       90),
+    ("minimize_linkage_test", TOOLS / "tests" / "minimize_linkage_test.py",   90),
+    ("drag_switch_side_test", TOOLS / "tests" / "drag_switch_side_test.py",   90),
     ("cross_dpi_seam_test", TOOLS / "tests" / "cross_dpi_seam_test.py",       90),
     ("alt_tab_z_repro",     TOOLS / "tests" / "alt_tab_z_repro.py",          120),
     ("ghost_cycle_test",    TOOLS / "tests" / "ghost_cycle_test.py",         300),
@@ -36,6 +40,12 @@ TESTS = [
     ("hover_visual_test",   TOOLS / "visual" / "hover_visual_test.py",        90),
     ("divider_hover_test",  TOOLS / "visual" / "divider_hover_test.py",       90),
     ("hint_pane_shot",      TOOLS / "visual" / "hint_pane_shot.py",          120),
+    ("pick_btn_dump",       TOOLS / "visual" / "pick_btn_dump.py",            90),
+    ("glyph_verify",        TOOLS / "visual" / "glyph_verify.py",             90),
+    ("side_btn_shot",       TOOLS / "visual" / "side_btn_shot.py",            90),
+    ("top_bar_left_shot",   TOOLS / "visual" / "top_bar_left_shot.py",        90),
+    ("icon_verify",         TOOLS / "visual" / "icon_verify.py",              90),
+    ("theme_menu_shot",     TOOLS / "visual" / "theme_menu_shot.py",          90),
 ]
 
 

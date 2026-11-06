@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+"""拖到另一侧换侧回归（注入拖动，固定布局）：mspaint 吸附在左格 → 抓其标题条
+（透过透明格子命中子窗口）拖到右格中心松手 → 吸附态整体换侧（TryAttach 换侧分支）。
+用法: py tools\\tests\\drag_switch_side_test.py [--exe 路径]
+警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
+"""
+import argparse
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import wm
+
+HOST_RECT = (400, 150, 2200, 900)
+
+
+def drag(from_x, from_y, to_x, to_y, steps=20):
+    wm.set_cursor_pos(from_x, from_y)
+    time.sleep(0.15)
+    wm.mouse_event(wm.MOUSEEVENTF_LEFTDOWN)
+    time.sleep(0.15)
+    for i in range(1, steps + 1):
+        wm.set_cursor_pos(from_x + int((to_x - from_x) * i / steps),
+                          from_y + int((to_y - from_y) * i / steps))
+        time.sleep(0.025)
+    time.sleep(0.2)
+    wm.mouse_event(wm.MOUSEEVENTF_LEFTUP)
+    time.sleep(1.2)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--exe", default=wm.exe_path())
+    a = ap.parse_args()
+
+    wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
+    time.sleep(0.8)
+    wm.remove_config()
+    subprocess.Popen(["mspaint"])
+    time.sleep(1.8)
+    subprocess.Popen([a.exe, "--left", "mspaint"])
+    time.sleep(4)
+    hm = wm.host_hwnd()
+    if not hm:
+        print("NO_HOST")
+        return 1
+    hx, hy, hw, hh = HOST_RECT
+    wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
+    time.sleep(1.5)
+    wm.set_topmost(hm, True)
+    time.sleep(0.4)
+
+    pane_w = (hw - 15) // 2
+    left_cx = hx + 3 + pane_w // 2
+    right_cx = hx + 3 + pane_w + 9 + pane_w // 2
+    mid_y = hy + 45 + (hh - 48) // 2
+
+    pre_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+    print(f"PRE LEFT_HIT={pre_l}")
+    if pre_l != "mspaint":
+        print("FAIL_NOT_ATTACHED_LEFT")
+        return 1
+
+    # 抓 mspaint 标题条（透过透明左格命中子窗口），拖到右格中心 → 换侧
+    mp_r = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
+    grab_x = min(mp_r.Left + 60, hx + 100)  # 标题条内、避开图标
+    grab_y = mp_r.Top + 15
+    if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
+        print("SKIP_COVERED_GRAB")
+        return 1
+    drag(grab_x, grab_y, right_cx, mid_y)
+
+    post_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+    post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
+    mp_h = wm.main_windows_by_name("mspaint")[0][1]
+    still_tool = wm.is_toolwindow(mp_h)
+    print(f"POST LEFT_HIT={post_l} RIGHT_HIT={post_r} tool={still_tool}")
+    wm.set_topmost(hm, False)
+
+    wm.graceful_close_by_name("WindowMerger")
+    time.sleep(1.2)
+    wm.force_kill_by_name("mspaint")
+    print("DRAG_SWITCH_SIDE_TEST_DONE")
+    ok = post_r == "mspaint" and post_l != "mspaint" and still_tool
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

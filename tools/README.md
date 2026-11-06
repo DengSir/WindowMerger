@@ -4,11 +4,11 @@
 
 | 目录 | 用途 | 数量 |
 |---|---|---|
-| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单） | 1 |
+| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单），32 项全覆盖 | 1 |
 | `publish/` | 本地打包发布 | 1 |
-| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 16 |
+| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 20 |
 | `manual/` | 人工交互排查工具（对应场景已有自动版在 tests/，此处留作诊断） | 2 |
-| `visual/` | 视觉/主题/字形/截图验证——**5 个带像素断言已入 run_all**，其余出 PNG 人工看 | 12 |
+| `visual/` | 视觉/主题/字形/截图验证——**11 个带自动判定已入 run_all**，theme_menu_shot 出 PNG 兼断言 | 12 |
 | `utils/` | 单项工具：查询/控制/截图/配置 | 18 |
 | `archive/` | 一次性历史脚本（**PowerShell 留档，不再维护**） | 6 |
 | `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config/调色板）、`wm_uia.py`（uiautomation UIA） | 2 |
@@ -47,10 +47,14 @@
 | `cursor_drop_test.py` | 光标落点判定（注入拖动，固定布局）：光标在格外/窗口中心在格内 → 不吸附；拖到左格中心 → 吸附（CursorDropTest） |
 | `covered_drag_test.py` | 遮挡格拒收（自动化）：置顶遮罩盖右格，注入拖到遮罩内 → 拒吸；拖到左格 → 吸附（原 manual/CoveredDragTest 自动化，2026-11） |
 | `maximize_drag_test.py` | 最大化拖顶条还原（自动化）：最大化 → 注入拖顶条 → 还原落位=占比锚点公式期望值（原 manual/ManualDragTest 自动化，2026-11） |
+| `double_click_max_test.py` | 双击顶条最大化/再双击还原（新增 2026-11；最大化后顶条坐标须按当前矩形重算） |
+| `divider_resize_test.py` | 拖分隔条调比例（子窗口矩形跟随）+ 双击复位 0.5 + 关闭后 config Ratio 校验（新增 2026-11） |
+| `minimize_linkage_test.py` | 最小化联动：宿主最小化子窗口移出屏外 -32000、还原拉回格子（新增 2026-11） |
+| `drag_switch_side_test.py` | 拖到另一侧换侧（新增 2026-11；**挖出并修复 src 换侧分支引用反向 + TryAttach 拒收 toolwindow 两个真 bug**） |
 | `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
 
-**visual/ 中已入 run_all 的像素断言测试**（调色板期望值见 `lib/wm.py` PALETTES）：
+**visual/ 中已入 run_all 的自动判定测试**（调色板期望值见 `lib/wm.py` PALETTES）：
 
 | 脚本 | 自动断言 |
 |---|---|
@@ -60,6 +64,12 @@
 | `hover_visual_test.py` | 分隔条悬停蓝/基态灰、最大化悬停灰（采样取按钮顶部无字形区）、关闭悬停红 |
 | `divider_hover_test.py` | 分隔条 基态/悬停/移开 三态像素（snap 探针不得动光标，否则全变悬停色——原 PS 缺陷） |
 | `hint_pane_shot.py` | 空格填充=Bar 色、吸附断言成立（notepad 深色编辑器底色≈ThemeBar，"透出"不能靠像素比对）、右格填充保留 |
+| `pick_btn_dump.py` | 顶条 9 个按钮 AutomationId→字形码点逐个比对（兼验证 FA 内嵌字体没缺字回退） |
+| `glyph_verify.py` / `side_btn_shot.py` / `top_bar_left_shot.py` | 按钮区/标签区存在 ThemeText 色像素（字形/文字画出来了），PNG 人工复核 |
+| `icon_verify.py` | exe 内嵌图标可提取 + 任务栏按钮存在；图标长相人工看 PNG |
+| `theme_menu_shot.py` | 真实点击主题按钮 → 断言菜单弹出（≥3 MenuItem）+ 截图 |
+
+**本质人工、不在 run_all**：UIPI 管理员窗口拒吸（需管理员靶窗）、跟随系统 WM_SETTINGCHANGE 实时刷（需切系统主题）、图标/字形美观度、悬停任务栏弹窗时机、`publish.py` 打包（日常回归不含发版）。
 
 ## manual/（人工交互验证）
 

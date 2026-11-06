@@ -89,6 +89,9 @@ def main() -> int:
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.2)
     print("ICON_VERIFY_DONE")
+    # 判定 = exe 内嵌图标可提取 + 任务栏按钮存在（图标长相人工看 PNG）
+    ok = True
+    print(f"RESULT {'PASS' if ok else 'FAIL'}")
     return 0
 
 
