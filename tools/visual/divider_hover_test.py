@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """分隔条悬停检查：分隔条 x 位置中高度竖条（基态/悬停/移开三态 + 像素取色）。
 原 DividerHoverTest.ps1。
-用法: py tools\\visual\\divider_hover_test.py（对已运行的宿主）
+用法: uv run tools/\visual\\divider_hover_test.py（对已运行的宿主）
 截图: %TEMP%\\wm_divhover_*.png
 """
 import sys

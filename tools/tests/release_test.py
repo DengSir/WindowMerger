@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """释放路径回归：CLI 吸附 notepad+mspaint → UIA Invoke 释放按钮（顶条第 4 个）→
 两者必须摘掉 TOOLWINDOW 且窗口完好（AttachedChild.Restore）。原 ReleaseTest.ps1。
-用法: py tools\\tests\\release_test.py [--exe 路径]
+用法: uv run tools/\tests\\release_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint。
 """
 import argparse

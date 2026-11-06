@@ -27,8 +27,8 @@ dotnet build -c Release
 **本地打包**（框架依赖单文件 exe，win-x64）：
 
 ```cmd
-py tools\publish\publish.py
-py tools\publish\publish.py --version 1.2.3
+uv run tools/publish\publish.py
+uv run tools/publish\publish.py --version 1.2.3
 ```
 
 - 打包参数复用 VS 发布配置 `Properties\PublishProfiles\FolderProfile.pubxml`（win-x64 / 框架依赖 / 单文件 / 输出 `publish\`）——在 VS 发布对话框里改设置，脚本与 CI 自动跟随
@@ -93,4 +93,4 @@ tools/      开发/验证/发布脚本（Python），按用途分目录（publis
             清单见 tools/README.md；lib/ 为公共库（ctypes Win32 + UIA）
 ```
 
-**开发脚本依赖**：应用本身不需要 Python；跑 `tools/` 脚本需要 Python 3.14 + `py -m pip install pillow comtypes uiautomation`（截图与 UI Automation）。
+**开发脚本依赖**：应用本身不需要 Python；跑 `tools/` 脚本需要 [uv](https://docs.astral.sh/uv/)，`uv run` 首次执行会自动建 `.venv` 并按 `uv.lock` 安装依赖（截图与 UI Automation）。

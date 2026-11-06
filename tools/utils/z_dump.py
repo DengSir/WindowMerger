@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """只读 z 序 dump，不动/不杀任何窗口。原 ZDump.ps1。
-用法: py tools\\utils\\z_dump.py
+用法: uv run tools/\utils\\z_dump.py
 """
 import sys
 from pathlib import Path

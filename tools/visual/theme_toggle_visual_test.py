@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """UIA 切主题：Invoke 主题按钮 → 从弹层 Invoke "浅色"/"深色" 菜单项，每次应用后
 PrintWindow 截顶条条带（%TEMP%\\wm_theme_s*.png）。原 ThemeToggleVisualTest.ps1。
-用法: py tools\\visual\\theme_toggle_visual_test.py
+用法: uv run tools/\visual\\theme_toggle_visual_test.py
 警告: 强杀运行中的 WindowMerger 实例。
 """
 import subprocess

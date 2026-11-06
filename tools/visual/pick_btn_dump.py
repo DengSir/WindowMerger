@@ -2,7 +2,7 @@
 """顶条按钮字形全套断言：UIA 读 9 个按钮的 AutomationId→Name 码点逐个比对期望值
 （同时验证 FA 内嵌字体没有缺字回退——Name 来自按钮 Content），并截两选窗按钮区
 4x 放大图人工复核。原 PickBtnDump.ps1。
-用法: py tools\\visual\\pick_btn_dump.py [--exe 路径]
+用法: uv run tools/\visual\\pick_btn_dump.py [--exe 路径]
 警告: 强杀运行中的 WindowMerger。
 截图: %TEMP%\\wm_pickbtns_zoom.png
 """

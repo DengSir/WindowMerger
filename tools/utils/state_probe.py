@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """全状态探针：宿主、左右格命中、前台。原 StateProbe.ps1。
-用法: py tools\\utils\\state_probe.py
+用法: uv run tools/\utils\\state_probe.py
 """
 import sys
 from pathlib import Path

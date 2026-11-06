@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """恢复用户主题设置为 Auto。原 RestoreTheme.ps1。
-用法: py tools\\utils\\restore_theme.py
+用法: uv run tools/\utils\\restore_theme.py
 """
 import sys
 from pathlib import Path

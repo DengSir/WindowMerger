@@ -2,7 +2,7 @@
 """Tooltip 主题检查：强制深/浅色各悬停主题按钮一次，Tooltip 是独立弹层必须
 CopyFromScreen 全屏截，打印采样 RGB 像素做确定性校验，存 3x 放大裁片，
 还原 NOTOPMOST + 优雅关。原 TooltipShot.ps1。
-用法: py tools\\visual\\tooltip_shot.py
+用法: uv run tools/\visual\\tooltip_shot.py
 截图: %TEMP%\\wm_tooltip_Dark.png / wm_tooltip_Light.png
 """
 import subprocess

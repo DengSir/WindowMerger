@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """顶条左侧（图标+标题）PrintWindow 截图 3x 放大 + 非空渲染断言（存在 ThemeText
 色像素=标签文字画出来了）。原 TopBarLeftShot.ps1。
-用法: py tools\\visual\\top_bar_left_shot.py [--exe 路径]
+用法: uv run tools/\visual\\top_bar_left_shot.py [--exe 路径]
 警告: 强杀运行中的 WindowMerger。
 截图: %TEMP%\\wm_topbar_left.png
 """

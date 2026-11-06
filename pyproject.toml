@@ -1,0 +1,17 @@
+# WindowMerger 开发工具链（tools/ 脚本）的依赖清单。
+# 应用本身是 .NET 程序，不需要 Python；本文件只服务于 tools/ 的开发/测试/发布脚本。
+# 跑法：uv run tools/<目录>/<脚本>.py（首次自动建 .venv 并装依赖，uv.lock 锁版本）
+[project]
+name = "windowmerger-tools"
+version = "0.1.0"
+description = "WindowMerger dev/test/publish tooling (tools/)"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=11",
+    "comtypes>=1.4",
+    "uiautomation>=2.0",
+]
+
+# 仓库根不是 Python 包：uv 不要构建/安装本项目本身，只管依赖
+[tool.uv]
+package = false

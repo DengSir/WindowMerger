@@ -16,3 +16,4 @@ obj/
 
 # Python 工具脚本
 __pycache__/
+.venv/

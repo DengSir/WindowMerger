@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """只优雅关 WindowMerger（WM_CLOSE，走正常退出流程），不动其他应用。原 CloseHostOnly.ps1。
-用法: py tools\\utils\\close_host_only.py
+用法: uv run tools/\utils\\close_host_only.py
 """
 import sys
 import time

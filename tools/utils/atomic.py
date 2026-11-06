@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """置顶+截图+自动还原置顶（排查遮挡）。原 Atomic.ps1。
-用法: py tools\\utils\\atomic.py <shot.png>
+用法: uv run tools/\utils\\atomic.py <shot.png>
 """
 import sys
 import time

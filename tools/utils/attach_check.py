@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """吸附状态确定性校验：TOOLWINDOW 样式 + 矩形（无屏幕探针）。原 AttachCheck.ps1。
-用法: py tools\\utils\\attach_check.py
+用法: uv run tools/\utils\\attach_check.py
 """
 import sys
 from pathlib import Path

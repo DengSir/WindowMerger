@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """一键完整回归：按依赖顺序跑全部自动测试，汇总 PASS/FAIL/SKIP 表。
 SKIP 判定 = 脚本 exit 0 且输出含 SKIP_；判定 = 尾部 RESULT PASS/FAIL 行 + exit code。
-用法: py tools\\run_all.py [--only 名称,名称] [--list]
+用法: uv run tools/\run_all.py [--only 名称,名称] [--list]
 警告: 测试会无差别关闭所有 WindowMerger/Notepad/mspaint——包括你自己开着的实例。
 """
 import argparse
@@ -74,7 +74,7 @@ def main() -> int:
         start = time.monotonic()
         try:
             proc = subprocess.run(
-                ["py", str(path)],
+                [sys.executable, str(path)],  # uv run 入口下 = venv 解释器，子进程同环境
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=timeout)
             out = proc.stdout + proc.stderr

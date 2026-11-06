@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """应用图标验证：(1) exe 内嵌图标 (2) 运行中任务栏按钮图标（UIA 定位 + 全屏截裁剪）。
 原 IconVerify.ps1。
-用法: py tools\\visual\\icon_verify.py
+用法: uv run tools/\visual\\icon_verify.py
 截图: %TEMP%\\wm_exeicon.png / wm_taskbaricon.png
 """
 import subprocess

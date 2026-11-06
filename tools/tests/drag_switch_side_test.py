@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """拖到另一侧换侧回归（注入拖动，固定布局）：mspaint 吸附在左格 → 抓其标题条
 （透过透明格子命中子窗口）拖到右格中心松手 → 吸附态整体换侧（TryAttach 换侧分支）。
-用法: py tools\\tests\\drag_switch_side_test.py [--exe 路径]
+用法: uv run tools/\tests\\drag_switch_side_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """孤儿清理端到端：CLI 吸附 notepad → 强杀宿主留孤儿 → 扫描确认 TOOLWINDOW →
 重启宿主，启动清理（按 HWND 精确）必须摘除。原 OrphanE2ETest.ps1。
-用法: py tools\\tests\\orphan_e2e_test.py [--exe 路径]
+用法: uv run tools/\tests\\orphan_e2e_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint。
 """
 import argparse

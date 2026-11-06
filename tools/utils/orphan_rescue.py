@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """孤儿扫描/救援：扫描全部 WS_EX_TOOLWINDOW 顶层窗口（孤儿特征）；
 --rescue 按进程摘样式 + 显示 + 拉回屏幕外 -32000 的窗口。原 OrphanRescue.ps1。
-用法: py tools\\utils\\orphan_rescue.py [--rescue] [--proc-name xxx]
+用法: uv run tools/\utils\\orphan_rescue.py [--rescue] [--proc-name xxx]
 """
 import argparse
 import sys

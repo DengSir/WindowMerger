@@ -5,7 +5,7 @@ STEP 1 拖到被遮右格松手 → 必须无高亮不吸附（TOOLWINDOW 不置
 STEP 2 拖到空左格松手 → 必须吸附。
 原 manual/CoveredDragTest.ps1 为人工两步拖拽；注入拖动在固定布局下可靠（2026-11 实测），
 升级为自动回归，manual 原版保留作交互排查工具。
-用法: py tools\\tests\\covered_drag_test.py [--exe 路径]
+用法: uv run tools/\tests\\covered_drag_test.py [--exe 路径]
 判定: STEP1 tool=False 且 STEP2 tool=True + LEFT_HIT=mspaint → exit 0。
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """

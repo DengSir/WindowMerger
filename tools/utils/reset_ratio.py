@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """分隔比例复位 0.5（改 config.json）。原 ResetRatio.ps1。
-用法: py tools\\utils\\reset_ratio.py
+用法: uv run tools/\utils\\reset_ratio.py
 """
 import sys
 from pathlib import Path

@@ -2,7 +2,7 @@
 """分隔条拖动调比例 + 双击复位回归（注入拖动，固定布局）：
 CLI 吸附两侧 → 注入拖分隔条右移 200px → 断言子窗口矩形跟随（右格变窄）→
 双击分隔条 → 断言比例复位 0.5（子窗口矩形回到原位）→ 优雅关后 config Ratio==0.5。
-用法: py tools\\tests\\divider_resize_test.py [--exe 路径]
+用法: uv run tools/\tests\\divider_resize_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

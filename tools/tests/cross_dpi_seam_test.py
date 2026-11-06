@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """跨 DPI 缝隙回归：96DPI mspaint（左侧 100% 屏）吸附进 150% 宿主（4K 主屏），
 断言子窗口可见缘（ExtFrameBounds）与格子矩形四边 ≤1px（右缘 ≤2px，比例来自 config）。原 CrossDpiSeamTest.ps1。
-用法: py tools\\tests\\cross_dpi_seam_test.py [--exe 路径]
+用法: uv run tools/\tests\\cross_dpi_seam_test.py [--exe 路径]
 左显示器不在/非 100% 时 SKIP。
 """
 import argparse

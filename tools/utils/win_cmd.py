@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """按 hwnd 执行 minimize/restore/close。原 WinCmd.ps1。
-用法: py tools\\utils\\win_cmd.py --hwnd N --action minimize|restore|close
+用法: uv run tools/\utils\\win_cmd.py --hwnd N --action minimize|restore|close
 """
 import argparse
 import sys

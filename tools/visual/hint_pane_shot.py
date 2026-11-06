@@ -2,7 +2,7 @@
 """空格占位提示视觉检查：阶段 1 纯宿主（两格填充+提示）；阶段 2 CLI 吸 notepad 到左格
 （左提示消失、notepad 经透明格透出、右提示保留）。置顶+全屏截，还原 NOTOPMOST。
 原 HintPaneShot.ps1。
-用法: py tools\\visual\\hint_pane_shot.py
+用法: uv run tools/\visual\\hint_pane_shot.py
 截图: %TEMP%\\wm_hint_empty.png / wm_hint_leftoccupied.png
 """
 import subprocess

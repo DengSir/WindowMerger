@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """分隔条处命中探针：验证宿主盖住子窗口隐形边（分隔条可点击的前提）。原 DividerProbe.ps1。
-用法: py tools\\utils\\divider_probe.py
+用法: uv run tools/\utils\\divider_probe.py
 """
 import sys
 from pathlib import Path

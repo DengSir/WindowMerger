@@ -5,7 +5,7 @@ S2 最大化：最大化状态优雅关→config WinMaximized=True→再起→Is
 S3 屏外钳制：手工写超屏 config→再起→矩形完整落在主屏工作区（不出幽灵窗）
 S4 垃圾回退：手工写 L≥R 的 config→再起→宿主存在且矩形合法（默认居中 1280x800 DIP）
 对应 ef15752 的五场景手工验证，首次脚本化（2026-11）。
-用法: py tools\\tests\\geometry_persistence_test.py [--exe 路径]
+用法: uv run tools/\tests\\geometry_persistence_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint。
 """
 import argparse

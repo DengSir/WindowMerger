@@ -17,7 +17,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 - **重建前必须先关闭运行中的实例**（exe 被运行实例锁定会构建失败）。优雅关闭 = PostMessage `WM_CLOSE (0x0010)`，走正常退出流程（保存配置 + 释放子窗口回原位）；`taskkill /F` 会跳过这些清理，仅在卡死时用
 - 功能迭代单独 commit；`bin/`、`obj/`、`publish/`、`.zcode/` 已在 .gitignore，勿入库
-- 发布：本地 `py tools\publish\publish.py`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`--version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 或在 Actions 页手动触发 `.github/workflows/release.yml` 发 GitHub Release（tag 版本去 `v` 写程序集版本；dispatch 填 `version` 直接在所选分支 HEAD 自动建 tag 发版、可勾 prerelease，留空仅构建出工件不发 Release）；main 分支每次 push 自动打包并发 prerelease Release（挂在固定滚动 tag `nightly` 上，先删旧 Release 再把 tag 强制挪到该提交重发，不新增 tag），CI 产物为 zip（内含固定名 `WindowMerger.exe`，不随版本改名），版本号 `0.0.1.<提交hash前8位>` 体现在 zip 文件名与 Release 标题；**带 hash 的版本不能直接喂 `-p:Version`**——NuGet restore 把 `$(Version)` 当 PackageVersion 校验，第 4 段非数字即拒收（报“不是有效的版本字符串”，实测炸在 restore 阶段且 MSB4181 无具体日志），CI 与 publish.py 同款拆法：`-p:Version=<数字前缀>` + `-p:InformationalVersion=<显示版本>`（后者进 exe 的 ProductVersion）
+- 发布：本地 `uv run tools/publish\publish.py`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`--version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 或在 Actions 页手动触发 `.github/workflows/release.yml` 发 GitHub Release（tag 版本去 `v` 写程序集版本；dispatch 填 `version` 直接在所选分支 HEAD 自动建 tag 发版、可勾 prerelease，留空仅构建出工件不发 Release）；main 分支每次 push 自动打包并发 prerelease Release（挂在固定滚动 tag `nightly` 上，先删旧 Release 再把 tag 强制挪到该提交重发，不新增 tag），CI 产物为 zip（内含固定名 `WindowMerger.exe`，不随版本改名），版本号 `0.0.1.<提交hash前8位>` 体现在 zip 文件名与 Release 标题；**带 hash 的版本不能直接喂 `-p:Version`**——NuGet restore 把 `$(Version)` 当 PackageVersion 校验，第 4 段非数字即拒收（报“不是有效的版本字符串”，实测炸在 restore 阶段且 MSB4181 无具体日志），CI 与 publish.py 同款拆法：`-p:Version=<数字前缀>` + `-p:InformationalVersion=<显示版本>`（后者进 exe 的 ProductVersion）
 
 ## 本仓库踩过的真坑（违反必炸，全部实测）
 
@@ -52,8 +52,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 源码修改纪律
 
-- **禁止用任何脚本正则批量改源文件**（历史教训：PowerShell 5.1 按系统 ANSI/GBK 读 UTF-8 文件，中文源文件曾因此整体乱码损毁）。源码修改只用 Edit 工具
-- **tools 脚本 = Python 3.14**（`tools\lib\wm.py` 公共库：ctypes Win32/截图/进程/config；`wm_uia.py`：UIA 层用 **uiautomation 包**（comtypes 自动生成桩在 Py3.14 退化不可靠，勿回退）；依赖 `py -m pip install pillow comtypes uiautomation`；脚本一律 `sys.path.insert(0, .../lib)` 后 `import wm`，调用 `py tools\<目录>\<脚本>.py`）。中文注释可用（lib 已重配 stdout UTF-8）；诊断输出标记保持英文（NO_HOST / LEFT_HIT=...）。仅 `tools\archive\*.ps1` 是历史留档（ASCII-only，PS 5.1 时代产物），冻结不再维护勿新增——**新脚本一律 Python，不再写 PowerShell**
+- **禁止用脚本正则批量改源文件**（历史教训：PowerShell 5.1 按系统 ANSI/GBK 读 UTF-8 文件，中文源文件曾因此整体乱码损毁）。源码修改只用 Edit 工具；确需跨文件批量修改时，只允许**显式 UTF-8 编码的精确串替换**（禁正则、逐文件核对该串唯一性），改完抽查
+- **tools 脚本 = Python 3.14，一律经 uv 跑**（`uv run tools\<目录>\<脚本>.py`，首次自动建 .venv 并按 `pyproject.toml`/`uv.lock` 装依赖，`.python-version` 钉 3.14——comtypes 在 3.15 有 enum 行为变化告警勿升）：`tools\lib\wm.py` 公共库（ctypes Win32/截图/进程/config）；`wm_uia.py`：UIA 层用 **uiautomation 包**（comtypes 自动生成桩在 Py3.14 退化不可靠，勿回退）。脚本一律 `sys.path.insert(0, .../lib)` 后 `import wm`。中文注释可用（lib 已重配 stdout UTF-8）；诊断输出标记保持英文（NO_HOST / LEFT_HIT=...）。仅 `tools\archive\*.ps1` 是历史留档（ASCII-only，PS 5.1 时代产物），冻结不再维护勿新增——**新脚本一律 Python，不再写 PowerShell**
 - 注释与 UI 文案用中文；异常直接抛出，不吞（唯一例外：配置文件损坏回退默认值、UIPI/DWM 属性调用失败按设计降级）
 
 ## 运行环境注意（Bash 工具 = Git Bash）
@@ -67,12 +67,12 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 验证流程
 
-- **一键完整回归**：`py tools\run_all.py`（32 项自动测试按依赖顺序跑 + PASS/FAIL/SKIP 汇总表，`--only 名称` 跑子集）——**清理/回归会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 强杀，未保存内容丢失），跑之前先确认没有正在使用的窗口
+- **一键完整回归**：`uv run tools/run_all.py`（32 项自动测试按依赖顺序跑 + PASS/FAIL/SKIP 汇总表，`--only 名称` 跑子集）——**清理/回归会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 强杀，未保存内容丢失），跑之前先确认没有正在使用的窗口
 - **拖动类测试固定布局约定**（2026-11 实测）：除恢复定位测试外，宿主与靶窗口先 `SetWindowPos` 钉到主屏固定矩形（主屏坐标=物理像素，无跨 DPI 换算地雷——钉到 100% 左屏时 WPF 宿主会收 WM_DPICHANGED 自缩放，坐标全歪）；靶窗口一律 **mspaint**（Win11 notepad 自我缩放+最小尺寸钳制，用户确认不可靠）；拖动抓点取**标题栏中点**（左侧图标抓不动，实测）；窗口尺寸一律按**钉位后回读值**推导（PMv2 窗口被系统按 DPI 缩放，写死值不可信）；注入拖动本身可靠，先前失败全是坐标假设过期
-- 全流程回归：`py tools\tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）；选窗吸附 `tools\tests\picker_attach_test.py`、交换 `tools\tests\swap_sides_test.py`、几何持久化四场景 `tools\tests\geometry_persistence_test.py`
-- 跨 DPI 缝隙回归（4K+100% 双屏）：`py tools\tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
-- 快捷方式生成回归：`py tools\tests\shortcut_create_test.py`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
-- 拉起吸附回归：`py tools\tests\launch_attach_test.py`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径现场用 QueryFullProcessImageNameW 解析、不硬编码版本号路径）
+- 全流程回归：`uv run tools/tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）；选窗吸附 `tools\tests\picker_attach_test.py`、交换 `tools\tests\swap_sides_test.py`、几何持久化四场景 `tools\tests\geometry_persistence_test.py`
+- 跨 DPI 缝隙回归（4K+100% 双屏）：`uv run tools/tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
+- 快捷方式生成回归：`uv run tools/tests\shortcut_create_test.py`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
+- 拉起吸附回归：`uv run tools/tests\launch_attach_test.py`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径现场用 QueryFullProcessImageNameW 解析、不硬编码版本号路径）
 - 单项工具（`tools\utils\`）：`rect/hit/shot/drag/win_cmd/atomic.py`（atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
 - 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`tools\manual\manual_drag_test.py`（环境准备 + 每 150ms 采样打印时间线）、`tools\manual\covered_drag_test.py`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
 - 主题/悬停类视觉验证（5 个带像素断言已入 run_all，调色板期望值在 `lib/wm.py` PALETTES）：`tools\visual\tooltip_shot.py`（悬停截 Tooltip 弹层 + 像素采样对调色板；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**；主题按钮定位用 UIA 取真实矩形——150% 下按 100% 偏移写死会落到最小化按钮上，实测）、`tools\utils\zoom_png.py`（PNG 区域放大，检字形/像素）、`tools\visual\theme_menu_shot.py`（真实点击截展开的主题菜单）；像素断言坑：WPF 自定义 Header 的 MenuItem UIA Name 为空（只能按索引 Invoke）；按钮中心正压字形，悬停采样取按钮顶部无字形区；探针（WindowFromPoint/截图）与光标悬停是两回事，snap 里动光标会让所有状态变悬停色；notepad 深色编辑器底色 ≈ ThemeBar（32,32,32），"透出子窗口"不能靠像素比对，断言吸附本身

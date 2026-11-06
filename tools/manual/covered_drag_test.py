@@ -2,7 +2,7 @@
 """遮挡格拒收人工验证（IsCoveredAtCursor）：准备空宿主 + 右格上的置顶红色遮罩窗，
 **人工**两步拖 notepad：①拖到被遮的右格松手 → 必须无高亮不吸附；②拖到空左格 →
 吸附。每步后回本控制台按 ENTER，脚本打印判定（TOOLWINDOW + 落格位置）。原 CoveredDragTest.ps1。
-用法: py tools\\manual\\covered_drag_test.py
+用法: uv run tools/\manual\\covered_drag_test.py
 """
 import subprocess
 import sys

@@ -1,6 +1,6 @@
 # tools 脚本清单
 
-开发/验证/发布脚本，**Python 3.14**（公共库 `lib/wm.py` ctypes Win32 封装 + `lib/wm_uia.py` UIA），调用方式 `py tools\<目录>\<脚本>.py`。全量对照（原名 → 新位置）：
+开发/验证/发布脚本，**Python 3.14**（公共库 `lib/wm.py` ctypes Win32 封装 + `lib/wm_uia.py` UIA），调用方式 `uv run tools/<目录>\<脚本>.py`。全量对照（原名 → 新位置）：
 
 | 目录 | 用途 | 数量 |
 |---|---|---|
@@ -13,7 +13,7 @@
 | `archive/` | 一次性历史脚本（**PowerShell 留档，不再维护**） | 6 |
 | `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config/调色板）、`wm_uia.py`（uiautomation UIA） | 2 |
 
-**依赖**：`py -m pip install pillow comtypes uiautomation`（截图存 PNG、UI Automation——UIA 层用 uiautomation 包，comtypes 仅作其底层与 WScript.Shell 动态调度）。应用本身不需要 Python。
+**依赖**：[uv](https://docs.astral.sh/uv/) 自动管理——`uv run` 首次执行按根目录 `pyproject.toml`/`uv.lock` 自动建 `.venv` 并装依赖（pillow 截图、uiautomation/comtypes UI Automation），无需手动 pip。应用本身不需要 Python。
 
 **拖动类测试约定（2026-11 实测固化）**：除 `geometry_persistence_test`（恢复定位即被测对象）外，一律**固定布局**——宿主与靶窗口先 `SetWindowPos` 钉到主屏固定矩形（主屏上坐标=物理像素，无跨 DPI 换算地雷）再操作；靶窗口用 **mspaint**（Win11 notepad 自我缩放/最小尺寸钳制不可靠，用户确认）；拖动抓点取**标题栏中点**（左侧图标抓不动、右侧有按钮）；窗口尺寸一律以**钉位后回读值**推导（PMv2 窗口会被按 DPI 缩放，写死值不可信）。
 

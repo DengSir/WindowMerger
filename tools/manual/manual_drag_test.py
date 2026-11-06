@@ -2,7 +2,7 @@
 """交互式最大化拖动验证：脚本准备环境（新宿主 + notepad/mspaint 吸附），**人工**操作：
 最大化 → 顶条原地点击 → 拖顶条。期间每 150ms 采样窗口状态到时间线，回本控制台按
 ENTER 结束并打印状态迁移。原 ManualDragTest.ps1。
-用法: py tools\\tests\\manual_drag_test.py [--exe 路径]
+用法: uv run tools/\tests\\manual_drag_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

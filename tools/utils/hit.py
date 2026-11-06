@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """查某点 WindowFromPoint 命中（窗口/类/PID/标题）。原 Hit.ps1。
-用法: py tools\\utils\\hit.py <X> <Y>
+用法: uv run tools/\utils\\hit.py <X> <Y>
 """
 import sys
 from pathlib import Path

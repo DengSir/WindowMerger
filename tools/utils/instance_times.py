@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """列出运行中 WindowMerger 实例的启动时间。原 InstanceTimes.ps1。
-用法: py tools\\utils\\instance_times.py
+用法: uv run tools/\utils\\instance_times.py
 """
 import sys
 from pathlib import Path

@@ -2,7 +2,7 @@
 """内嵌 FA 字形渲染验证（PrintWindow，z 序免疫）：截顶条右侧按钮区，断言存在
 ThemeText 色像素（字形画出来了=没缺字回退成空白/方块），存 3x 放大图人工复核。
 原 GlyphVerify.ps1。
-用法: py tools\\visual\\glyph_verify.py [--exe 路径]
+用法: uv run tools/\visual\\glyph_verify.py [--exe 路径]
 警告: 强杀运行中的 WindowMerger。
 截图: %TEMP%\\wm_captionbtns.png
 """

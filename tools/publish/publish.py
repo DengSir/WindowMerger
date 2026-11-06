@@ -3,7 +3,7 @@
 先 WM_CLOSE 优雅关运行实例（同正常退出路径：存配置 + 子窗口回原位），再复用
 Properties\\PublishProfiles\\FolderProfile.pubxml（打包设置唯一来源）发布。
 原 Publish.ps1。
-用法: py tools\\publish\\publish.py [--version 1.2.3] [--configuration Release]
+用法: uv run tools/\publish\\publish.py [--version 1.2.3] [--configuration Release]
 """
 import argparse
 import hashlib

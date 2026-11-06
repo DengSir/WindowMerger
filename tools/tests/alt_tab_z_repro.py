@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """真实 Alt+Tab z 序复现/回归：宿主（notepad+mspaint 吸附）被最大化 mspaint 全遮 →
 Alt+Tab 切回 → 探针确认子窗口升起（TOPBAR/LEFT/RIGHT 命中）。原 AltTabZRepro.ps1。
-用法: py tools\\tests\\alt_tab_z_repro.py [--exe 路径]
+用法: uv run tools/\tests\\alt_tab_z_repro.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint；注入真实 Alt+Tab，前台 = LockApp 时静默失败。
 """
 import argparse

@@ -2,7 +2,7 @@
 """拉起吸附回归（无 notepad）：确保 mspaint 未运行 → 宿主带 --left mspaint
 --left-exe 完整路径 启动 → 断言宿主自己拉起 mspaint 且 15s 内吸附成功
 （TOOLWINDOW 置位）。原 LaunchAttachTest.ps1。
-用法: py tools\\tests\\launch_attach_test.py [--exe 路径]
+用法: uv run tools/\tests\\launch_attach_test.py [--exe 路径]
 """
 import argparse
 import datetime

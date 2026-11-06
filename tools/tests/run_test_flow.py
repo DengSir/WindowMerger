@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """全流程回归：清理 → 开测试窗 → CLI 吸附 → 命中/矩形断言 → 还原置顶。原 RunTestFlow.ps1。
-用法: py tools\\tests\\run_test_flow.py [--exe 路径]
+用法: uv run tools/\tests\\run_test_flow.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint（含用户自己开着的实例）。
 """
 import argparse

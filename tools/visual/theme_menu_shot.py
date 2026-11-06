@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """主题下拉视觉检查：启动 → 置顶 → 真实点击主题按钮 → 截展开菜单 → ESC +
 NOTOPMOST + 优雅关。原 ThemeMenuShot.ps1。
-用法: py tools\\visual\\theme_menu_shot.py
+用法: uv run tools/\visual\\theme_menu_shot.py
 截图: %TEMP%\\wm_thememenu.png
 """
 import subprocess

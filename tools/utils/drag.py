@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """注入式拖动。原 Drag.ps1。（AGENTS.md：注入式自动拖动受前台锁/覆盖窗干扰不可靠，回归别走这条）
-用法: py tools\\utils\\drag.py <X1> <Y1> <X2> <Y2> [--steps 30] [--delay-ms 20]
+用法: uv run tools/\utils\\drag.py <X1> <Y1> <X2> <Y2> [--steps 30] [--delay-ms 20]
 """
 import argparse
 import sys

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """双击顶条最大化/还原回归（注入双击，固定布局）：双击顶条空白区 → 最大化
 （只放大格子布局）→ 再双击 → 还原。原功能无脚本覆盖，2026-11 补。
-用法: py tools\\tests\\double_click_max_test.py [--exe 路径]
+用法: uv run tools/\tests\\double_click_max_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

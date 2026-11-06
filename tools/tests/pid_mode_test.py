@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CLI PID 模式端到端：自己拉起的 notepad（拿 PID）+ mspaint，混合 PID/名字吸附；
 再给一个无窗口的 PID（本测试进程自身）走报因路径。原 PidModeTest.ps1。
-用法: py tools\\tests\\pid_mode_test.py [--exe 路径]
+用法: uv run tools/\tests\\pid_mode_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint。
 """
 import argparse

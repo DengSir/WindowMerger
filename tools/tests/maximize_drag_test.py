@@ -4,7 +4,7 @@
 还原（非 zoomed）+ 落位 = 按光标占比锚点公式计算的期望矩形（StartMaxRestoreDrag 语义）。
 原 manual/ManualDragTest.ps1 为人工操作+150ms 采样时间线；注入拖动在固定布局下可靠
 （2026-11 实测），升级为自动回归，manual 原版保留作交互排查工具。
-用法: py tools\\tests\\maximize_drag_test.py [--exe 路径]
+用法: uv run tools/\tests\\maximize_drag_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

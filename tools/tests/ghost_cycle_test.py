@@ -4,7 +4,7 @@
 vis/iconic/cloaked/rect）——任务栏条目对应窗口隐藏/屏外 = 幽灵。
 最终全杀测试应用再 dump：死应用的按钮 = 点击无反应的陈旧 shell 条目。
 原 GhostCycleTest.ps1。
-用法: py tools\\tests\\ghost_cycle_test.py [--exe 路径] [--rounds 5]
+用法: uv run tools/\tests\\ghost_cycle_test.py [--exe 路径] [--rounds 5]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint。
 """
 import argparse

@@ -3,7 +3,7 @@
 mspaint 已运行未吸附 → UIA Invoke 顶条 ← 按钮 → 选窗对话框输入过滤 "mspaint" →
 选中第一行 → 点【吸附】→ 断言 mspaint 进入左格（TOOLWINDOW + LEFT_HIT）。
 固定布局：宿主钉主屏 (400,150,2200,900)。
-用法: py tools\\tests\\picker_attach_test.py [--exe 路径]
+用法: uv run tools/\tests\\picker_attach_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

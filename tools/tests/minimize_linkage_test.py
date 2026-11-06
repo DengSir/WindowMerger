@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """最小化联动回归：宿主最小化 → 吸附子窗口随动移出屏幕外（toolwindow 无任务栏按钮、
 最小化会缩成标题条，故移到 -32000）；宿主还原 → 维护定时器把子窗口拉回格子。
-用法: py tools\\tests\\minimize_linkage_test.py [--exe 路径]
+用法: uv run tools/\tests\\minimize_linkage_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse

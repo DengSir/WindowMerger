@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """改 config.json 主题（Auto/Dark/Light）。原 SetTheme.ps1。
-用法: py tools\\utils\\set_theme.py [Mode]
+用法: uv run tools/\utils\\set_theme.py [Mode]
 """
 import sys
 from pathlib import Path

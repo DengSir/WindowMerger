@@ -5,7 +5,7 @@
 CASE B 拖到宿主上方外侧松手（光标在外、窗口中心落进左格）→ 必须不吸附——旧中心逻辑会误吸；
 CASE A 再从那里拖到左格中心 → 必须吸附。
 原 CursorDropTest.ps1；旧版 notepad+动态坐标在多屏混合 DPI 下失效（2026-11 实测）。
-用法: py tools\\tests\\cursor_drop_test.py [--exe 路径]
+用法: uv run tools/\tests\\cursor_drop_test.py [--exe 路径]
 判定: CASE_B tool=False 且 CASE_A tool=True + LEFT_HIT=mspaint → exit 0。
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json（比例/几何复位 0.5/默认）。
 """

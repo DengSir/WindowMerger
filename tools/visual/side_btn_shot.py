@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """顶条右侧（标题按钮区）PrintWindow 截图 2x 放大 + 非空渲染断言（存在 ThemeText
 色像素）。原 SideBtnShot.ps1。
-用法: py tools\\visual\\side_btn_shot.py [--exe 路径]
+用法: uv run tools/\visual\\side_btn_shot.py [--exe 路径]
 警告: 强杀运行中的 WindowMerger。
 截图: %TEMP%\\wm_sidebtns.png
 """

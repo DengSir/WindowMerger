@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """按 hwnd/标题查窗口矩形。原 Rect.ps1。
-用法: py tools\\utils\\rect.py [--hwnd N] [--title 标题]
+用法: uv run tools/\utils\\rect.py [--hwnd N] [--title 标题]
 """
 import argparse
 import sys

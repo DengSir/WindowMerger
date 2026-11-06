@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """悬停视觉测试：光标移到 分隔条/远离/最大化/关闭 上，各 PrintWindow 截顶条条带。
 强制深色保证颜色确定（结束恢复 Auto）。原 HoverVisualTest.ps1。
-用法: py tools\\visual\\hover_visual_test.py
+用法: uv run tools/\visual\\hover_visual_test.py
 警告: 强杀运行中的 WindowMerger；需 notepad/mspaint 可被 CLI 吸附。
 截图: %TEMP%\\wm_hover_*.png
 """

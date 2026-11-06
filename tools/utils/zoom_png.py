@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """PNG 区域放大（检字形/像素，最近邻插值）。原 ZoomPng.ps1。
-用法: py tools\\utils\\zoom_png.py --in <png> --out <png> [--scale 3] [--x 0 --y 0 --w 0 --h 0]
+用法: uv run tools/\utils\\zoom_png.py --in <png> --out <png> [--scale 3] [--x 0 --y 0 --w 0 --h 0]
 """
 import argparse
 import sys

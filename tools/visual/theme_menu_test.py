@@ -2,7 +2,7 @@
 """纯 UIA 主题下拉验证（不注入输入，锁屏可用）：启动 → UIA Invoke 主题按钮开菜单 →
 读 3 个菜单项（顺序：跟随系统/深色/浅色，打印名字码点）→ Invoke 深色 → 校验
 config Theme==Dark 且重开后深色项带 ✓(U+2713) → 恢复原模式 → 优雅关。原 ThemeMenuTest.ps1。
-用法: py tools\\visual\\theme_menu_test.py
+用法: uv run tools/\visual\\theme_menu_test.py
 """
 import subprocess
 import sys

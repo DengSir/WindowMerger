@@ -3,7 +3,7 @@
 读桌面新 .lnk（WScript.Shell COM）断言 TargetPath/Arguments 含 --left/--left-exe
 完整路径 → 删掉 .lnk。只杀自己拉起的 mspaint，绝不碰 notepad。
 原 ShortcutCreateTest.ps1。
-用法: py tools\\tests\\shortcut_create_test.py [--exe 路径]
+用法: uv run tools/\tests\\shortcut_create_test.py [--exe 路径]
 mspaint 被占用时 SKIP 不强杀。
 """
 import argparse
