@@ -49,12 +49,13 @@ $hr = New-Object RECT2
 [TF]::GetWindowRect($hm, [ref]$hr) | Out-Null
 Write-Output ("HOST (" + $hr.L + "," + $hr.T + ")-(" + $hr.R + "," + $hr.B + ")")
 
-# 4. hit tests at pane centers
+# 4. hit tests at pane centers (0.25 / 0.75 of content width; the old 0.5 probes sat
+#    on the pane split boundary and probed the wrong pane)
 $p = New-Object PT
-$p.X = [int]($hr.L + 2 + ($hr.R - $hr.L - 4 - 8) * 0.5); $p.Y = [int](($hr.T + $hr.B) / 2)
+$p.X = [int]($hr.L + 2 + ($hr.R - $hr.L - 4 - 8) * 0.25); $p.Y = [int](($hr.T + $hr.B) / 2)
 $h1 = [TF]::WindowFromPoint($p)
 Write-Output ("LEFT_HIT proc=" + (ProcName $h1))
-$p.X = [int]($hr.R - 2 - ($hr.R - $hr.L - 4 - 8) * 0.5)
+$p.X = [int]($hr.L + 2 + ($hr.R - $hr.L - 4 - 8) * 0.75)
 $h2 = [TF]::WindowFromPoint($p)
 Write-Output ("RIGHT_HIT proc=" + (ProcName $h2))
 

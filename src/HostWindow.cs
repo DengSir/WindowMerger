@@ -296,6 +296,7 @@ public sealed partial class HostWindow : Window
         _drag = new DragAttach(this);
         _timer.Start();
         SetFallbackIcon();
+        UpdateStatus(); // 首帧就显示空格占位提示（不等 250ms 维护定时器）
     }
 
     /// <summary>从内嵌 ico 资源流解码最大帧（窗口图标与顶条图标共用）。</summary>
@@ -649,6 +650,15 @@ public sealed partial class HostWindow : Window
             }
         }
         UpdateSideButtons();
+        UpdatePaneHints();
+    }
+
+    /// <summary>空格显示填充与提示文案（不再透明穿透）；该侧吸附后隐藏占位恢复透明——
+    /// 子窗口要靠透明格子透出、点击穿透下去交互，吸附格必须回到透明。</summary>
+    private void UpdatePaneHints()
+    {
+        _leftHint.Visibility = _left is null ? Visibility.Visible : Visibility.Collapsed;
+        _rightHint.Visibility = _right is null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowNotice(string text)
