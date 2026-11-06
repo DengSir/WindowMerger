@@ -145,6 +145,29 @@ public sealed partial class HostWindow : Window
         return p.X < split ? AttachSide.Left : AttachSide.Right;
     }
 
+    /// <summary>
+    /// 光标处宿主是否被其他窗口压住（拖入吸附/亮框的前置判定）：从 z 序顶端向下遍历到宿主
+    /// 为止，跳过被拖窗口本身（拖动中它必然悬在光标下且临时升到顶层），途中任何可见窗口按
+    /// 矩形命中光标点即视为遮挡——用户看到的不是我们的格子。WS_EX_TRANSPARENT 的点击穿透
+    /// 层不算遮挡。不能用 WindowFromPoint 直判"最顶层是否宿主"：格子区域 alpha=0 在 OS 层
+    /// 点击穿透，会拿到宿主后面的窗口，把拖入空格子（吸附主入口）误判成遮挡。
+    /// </summary>
+    internal bool IsCoveredAtCursor(IntPtr draggedHwnd)
+    {
+        if (_handle == IntPtr.Zero || !IsLoaded) return false;
+        if (!Native.GetCursorPos(out var p)) return false;
+        for (IntPtr h = Native.GetTopWindow(IntPtr.Zero); h != IntPtr.Zero && h != _handle;
+             h = Native.GetWindow(h, Native.GW_HWNDNEXT))
+        {
+            if (h == draggedHwnd) continue;
+            if (!Native.IsWindowVisible(h) || Native.IsCloaked(h)) continue;
+            if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TRANSPARENT) != 0) continue;
+            if (!Native.GetWindowRect(h, out var r)) continue;
+            if (p.X >= r.Left && p.X < r.Right && p.Y >= r.Top && p.Y < r.Bottom) return true;
+        }
+        return false;
+    }
+
     internal void SetDragHighlight(AttachSide? side)
     {
         _highlight = side;

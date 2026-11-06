@@ -73,6 +73,9 @@ internal sealed class DragAttach : IDisposable
         if (!Native.GetCursorPos(out var p)) return null;
         var side = _host.HitTestPaneAt(p.X, p.Y);
         if (side is null) return null;
+        // 光标处宿主上层有别的窗口（如另一实例的宿主）：用户看到的不是我们的格子，
+        // 不亮框也不吸附——同一可见层只有一个实例能抓到
+        if (_host.IsCoveredAtCursor(hwnd)) return null;
         return _host.IsDropAllowed(hwnd, side.Value) ? side : null; // 不允许就不显示高亮
     }
 

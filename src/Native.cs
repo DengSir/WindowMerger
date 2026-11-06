@@ -50,6 +50,7 @@ internal static partial class Native
     // GetWindowLong / GetWindow
     public const int GWL_EXSTYLE = -20;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
+    public const int WS_EX_TRANSPARENT = 0x00000020;
     public const int GW_OWNER = 4;
     public const int GW_HWNDNEXT = 2;
 
@@ -139,6 +140,9 @@ internal static partial class Native
 
     [LibraryImport("user32.dll")]
     public static partial IntPtr GetWindow(IntPtr hWnd, int nCmd);
+
+    [LibraryImport("user32.dll")]
+    public static partial IntPtr GetTopWindow(IntPtr hWnd);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
