@@ -33,6 +33,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - Win11 DWM 自动圆角是格子四角"圆角缝"的根源：吸附时设 `DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND`，释放还原 `DEFAULT`
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
 - **隐形边是物理像素且随所在显示器 DPI 缩放**（实测 mspaint：7px@100% ↔ 9px@150%，4K+100% 双屏）——吸附时**缓存** `FrameMargins` 会在跨屏吸附/宿主拖过另一块屏/改系统缩放后失真，可见内容缩水 2~4px，透明格透出后面的桌面形成整条竖缝/底缝（且 ±1px 就位跳过用的也是同一份失真值，维护定时器永远无法自愈，4K 屏实测）。因此 `PlaceInPane` 必须**每次放置现场实测**（`GetInvisibleFrameMargins` 一次 = GetWindowRect + 一次 DwmGetWindowAttribute，250ms 定时器开销可忽略）；DPI 切换瞬间子窗口还会收到 `WM_DPICHANGED` 自己改尺寸，下一个维护周期收敛
+- **1 DIP 边框在 150% 缩放下 = 1.5 物理px，非整数设备像素抗锯齿出半透明发丝线**（4K 屏实测）——细边框一律取 ≥2 DIP 保证整数物理像素（窗格边框因此 `1,2,1,1` → 统一 `2`）；几何上窗格边框加宽无副作用：`PaneRectDevice` 不读它，子窗口外扩时本来就压在边框线下面、由宿主盖住
 - **宿主格子区域 alpha=0 在 OS 层点击穿透**（分层窗口全透明像素，拖入吸附因此走全局 WinEvent+光标坐标而非 WPF 鼠标事件）。推论：`WindowFromPoint(光标)` 在格子处返回的是宿主**后面**的窗口，"光标处最顶层是否本宿主"不能直判——必须用 z 序走到宿主为止的遍历、跳过被拖窗口与 `WS_EX_TRANSPARENT` 穿透层（`IsCoveredAtCursor`），直判会把拖入空格子（吸附主入口）误杀。**空格与吸附格的透明性是按占位切换的**：空格以 ThemeBar 填充+提示文案（不穿透，`UpdatePaneHints`）；**吸附格必须回到透明**——子窗口靠透明格子透出、点击穿透下去交互，填实会废掉吸附应用的交互
 - UIPI：管理员权限窗口（如任务管理器）**无法**被普通权限程序吸附，`SetWindowPos` 静默失败——失败时必须状态回滚 + 状态栏报因
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）
