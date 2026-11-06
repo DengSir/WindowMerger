@@ -17,7 +17,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 - **重建前必须先关闭运行中的实例**（exe 被运行实例锁定会构建失败）。优雅关闭 = PostMessage `WM_CLOSE (0x0010)`，走正常退出流程（保存配置 + 释放子窗口回原位）；`taskkill /F` 会跳过这些清理，仅在卡死时用
 - 功能迭代单独 commit；`bin/`、`obj/`、`publish/`、`.zcode/` 已在 .gitignore，勿入库
-- 发布：本地 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\Publish.ps1`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`-Version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 或在 Actions 页手动触发 `.github/workflows/release.yml` 发 GitHub Release（tag 版本去 `v` 写程序集版本；dispatch 填 `version` 直接在所选分支 HEAD 自动建 tag 发版、可勾 prerelease，留空仅构建出工件不发 Release）；main 分支每次 push 自动打包并发 prerelease Release（挂在固定滚动 tag `nightly` 上，先删旧 Release 再把 tag 强制挪到该提交重发，不新增 tag），CI 产物为 zip（内含固定名 `WindowMerger.exe`，不随版本改名），版本号 `0.0.1.<提交hash前8位>` 体现在 zip 文件名与 Release 标题（本地 Publish.ps1 仍产裸 exe，不变）；**带 hash 的版本不能直接喂 `-p:Version`**——NuGet restore 把 `$(Version)` 当 PackageVersion 校验，第 4 段非数字即拒收（报“不是有效的版本字符串”，实测炸在 restore 阶段且 MSB4181 无具体日志），CI 与 Publish.ps1 同款拆法：`-p:Version=<数字前缀>` + `-p:InformationalVersion=<显示版本>`（后者进 exe 的 ProductVersion）
+- 发布：本地 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish\Publish.ps1`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`-Version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 或在 Actions 页手动触发 `.github/workflows/release.yml` 发 GitHub Release（tag 版本去 `v` 写程序集版本；dispatch 填 `version` 直接在所选分支 HEAD 自动建 tag 发版、可勾 prerelease，留空仅构建出工件不发 Release）；main 分支每次 push 自动打包并发 prerelease Release（挂在固定滚动 tag `nightly` 上，先删旧 Release 再把 tag 强制挪到该提交重发，不新增 tag），CI 产物为 zip（内含固定名 `WindowMerger.exe`，不随版本改名），版本号 `0.0.1.<提交hash前8位>` 体现在 zip 文件名与 Release 标题（本地 Publish.ps1 仍产裸 exe，不变）；**带 hash 的版本不能直接喂 `-p:Version`**——NuGet restore 把 `$(Version)` 当 PackageVersion 校验，第 4 段非数字即拒收（报“不是有效的版本字符串”，实测炸在 restore 阶段且 MSB4181 无具体日志），CI 与 Publish.ps1 同款拆法：`-p:Version=<数字前缀>` + `-p:InformationalVersion=<显示版本>`（后者进 exe 的 ProductVersion）
 
 ## 本仓库踩过的真坑（违反必炸，全部实测）
 
@@ -28,7 +28,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ### WPF / Win32 语义
 - `SetWindowPos` 的 `hWndInsertAfter` = "放到目标窗口**下方**"。子窗口吸附 z 序 = 子窗口永远插在宿主**正下方**（宿主不透明部分盖住子窗口隐形边，分隔条才可点击；透明格子透出子窗口）
-- **拉起子窗口 z 序不要用 `HWND_TOP`**：Alt+Tab 切回宿主后它是**静默无效调用**（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住，实测必现）；z 序修复一律相对插入 `hWndInsertAfter = 宿主`，自愈校验用"宿主正下方连续子窗口块"（见 `FixZOrder`）。复现/回归：`tools\AltTabZRepro.ps1`
+- **拉起子窗口 z 序不要用 `HWND_TOP`**：Alt+Tab 切回宿主后它是**静默无效调用**（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住，实测必现）；z 序修复一律相对插入 `hWndInsertAfter = 宿主`，自愈校验用"宿主正下方连续子窗口块"（见 `FixZOrder`）。复现/回归：`tools\tests\AltTabZRepro.ps1`
 - 吸附子窗口设为 `WS_EX_TOOLWINDOW`（无任务栏/Alt+Tab）→ **最小化或独立最大化后无法手动恢复**，维护定时器（250ms）会自动拉回：子窗口没有"自己最大化"的概念
 - Win11 DWM 自动圆角是格子四角"圆角缝"的根源：吸附时设 `DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND`，释放还原 `DEFAULT`
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
@@ -39,7 +39,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - UIPI：管理员权限窗口（如任务管理器）**无法**被普通权限程序吸附，`SetWindowPos` 静默失败——失败时必须状态回滚 + 状态栏报因
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）
 - **窗口几何持久化 = 正常态矩形物理像素 + 是否最大化**（config.json WinLeft/Top/Right/Bottom/WinMaximized）：存时 DIP × 关闭时窗口所在屏 DPI（最大化/最小化关闭取 RestoreBounds），恢复按目标屏 DPI 换算并钳制到最近可见显示器工作区（`MonitorFromPoint(NEAREST)` + `GetDpiForMonitor`）——DIP 直存会跨屏漂移，跨屏拼接会存出超屏值。**WPF 在 hwnd 建好前设 Left/Top/Width/Height 一律按初始主屏 DPI 解释**（跨屏落位漂移/被居中覆盖，实测）——跨屏落位必须在 `OnSourceInitialized` 用 `SetWindowPos` 写物理像素，且**两步走**：先移动触发 WM_DPICHANGED 收敛目标屏缩放、再设尺寸（WPF 跨 DPI 保 DIP 不保物理，一步到位会被改写，实测 S1 场景）；测试脚本起的宿主一律 `SetWindowPos` 缩小并停到左侧 100% 屏，别占用户 4K 主屏
-- **强杀宿主 = 孤儿**：吸附子窗口残留 `WS_EX_TOOLWINDOW`（任务栏消失，宿主最小化期间被强杀还会停在屏幕外 -32000）。孤儿清理必须**按配置记录的 HWND 精确匹配**（PID 仅作句柄复用校验），**绝不能按 PID 枚举该进程全部窗口**——进程的隐藏辅助窗口（`CiceroUIWndFrame` 等，实测 opera/Listary/RepositoryTree 都带 TOOLWINDOW）会被误显示成"点不出来的任务栏幽灵按钮"。吸附成功立即 SaveConfig 落盘（强杀时才有记录可循）。救援 `tools\OrphanRescue.ps1`，回归 `tools\OrphanE2ETest.ps1`
+- **强杀宿主 = 孤儿**：吸附子窗口残留 `WS_EX_TOOLWINDOW`（任务栏消失，宿主最小化期间被强杀还会停在屏幕外 -32000）。孤儿清理必须**按配置记录的 HWND 精确匹配**（PID 仅作句柄复用校验），**绝不能按 PID 枚举该进程全部窗口**——进程的隐藏辅助窗口（`CiceroUIWndFrame` 等，实测 opera/Listary/RepositoryTree 都带 TOOLWINDOW）会被误显示成"点不出来的任务栏幽灵按钮"。吸附成功立即 SaveConfig 落盘（强杀时才有记录可循）。救援 `tools\utils\OrphanRescue.ps1`，回归 `tools\tests\OrphanE2ETest.ps1`
 
 ### 字体与资源（Font Awesome Free，SIL OFL；全部内嵌进程序集）
 - 字体/图标在 `assets\`，以 `<Resource>` 内嵌（csproj），输出目录不落散资源文件
@@ -60,19 +60,19 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 - 无 POSIX 命令（`ls`/`grep`/`timeout` 均不可用）；延时用 `ping -n N 127.0.0.1 >nul`
 - PowerShell 内联单行命令经 CMD 双层转义极易损坏（`$null` 转义、嵌套表达式不展开、中文参数变乱码）——**复杂逻辑一律写 `tools\*.ps1` 脚本文件**再执行，参数传数字/ASCII
-- **锁屏会话（前台 = LockApp）时注入点击/键盘全部落在锁屏上，GDI 全屏截图报"句柄无效"**——远程交互验证会静默失败。此时 UIA `InvokePattern` 仍可用（进程内直调 Click，不走输入注入），可作为替代验证路径（见 `tools\ThemeMenuTest.ps1`）
+- **锁屏会话（前台 = LockApp）时注入点击/键盘全部落在锁屏上，GDI 全屏截图报"句柄无效"**——远程交互验证会静默失败。此时 UIA `InvokePattern` 仍可用（进程内直调 Click，不走输入注入），可作为替代验证路径（见 `tools\visual\ThemeMenuTest.ps1`）
 - 验证脚本截图后**必须还原层级**（`HWND_NOTOPMOST`），不得给用户正在运行的实例残留置顶
 
 ## 验证流程
 
 - **清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 是 Stop-Process 强杀，未保存内容丢失）。跑之前先确认没有正在使用的窗口，这是实测踩过的坑
-- 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）
-- 跨 DPI 缝隙回归（4K+100% 双屏）：`tools\CrossDpiSeamTest.ps1`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
-- 快捷方式生成回归：`tools\ShortcutCreateTest.ps1`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
-- 拉起吸附回归：`tools\LaunchAttachTest.ps1`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径先用 (Get-Process).Path 现场解析、不硬编码版本号路径）
-- 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
-- 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`ManualDragTest.ps1`（环境准备 + 每 150ms 采样打印时间线）、`CoveredDragTest.ps1`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
-- 主题/悬停类视觉验证：`TooltipShot.ps1`（悬停截 Tooltip 弹层 + 像素采样对调色板；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**）、`ZoomPng.ps1`（PNG 区域放大，检字形/像素）、`ThemeMenuShot.ps1`（真实点击截展开的主题菜单）
+- 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）
+- 跨 DPI 缝隙回归（4K+100% 双屏）：`tools\tests\CrossDpiSeamTest.ps1`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
+- 快捷方式生成回归：`tools\tests\ShortcutCreateTest.ps1`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
+- 拉起吸附回归：`tools\tests\LaunchAttachTest.ps1`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径先用 (Get-Process).Path 现场解析、不硬编码版本号路径）
+- 单项工具（`tools\utils\`）：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
+- 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`tools\manual\ManualDragTest.ps1`（环境准备 + 每 150ms 采样打印时间线）、`tools\manual\CoveredDragTest.ps1`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
+- 主题/悬停类视觉验证：`tools\visual\TooltipShot.ps1`（悬停截 Tooltip 弹层 + 像素采样对调色板；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**）、`tools\utils\ZoomPng.ps1`（PNG 区域放大，检字形/像素）、`tools\visual\ThemeMenuShot.ps1`（真实点击截展开的主题菜单）
 - CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）。参数**纯数字 = PID、否则 = 进程名**；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用经别名 stub 启动，`Start-Process -PassThru` 返回的 stub 没有窗口，真实窗口属于其后代进程，Toolhelp 快照走树匹配）→ 同名进程（stub 已退出的交接场景兜底）
 - Win11 记事本是单实例多标签：同名目标会去重只吸一个，属预期
 - 悬停任务栏弹窗的远程截图时机不稳定，最终视觉验收交给用户
