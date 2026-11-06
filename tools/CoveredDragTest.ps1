@@ -6,6 +6,7 @@
 #   STEP 2: drag notepad over the free LEFT pane, release.
 #           Expected: glow + attach into left pane.
 # Press Enter after each step; the script prints the verdict (TOOLWINDOW + pane fit).
+Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;

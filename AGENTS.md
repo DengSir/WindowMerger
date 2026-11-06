@@ -32,6 +32,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - 吸附子窗口设为 `WS_EX_TOOLWINDOW`（无任务栏/Alt+Tab）→ **最小化或独立最大化后无法手动恢复**，维护定时器（250ms）会自动拉回：子窗口没有"自己最大化"的概念
 - Win11 DWM 自动圆角是格子四角"圆角缝"的根源：吸附时设 `DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND`，释放还原 `DEFAULT`
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
+- **宿主格子区域 alpha=0 在 OS 层点击穿透**（分层窗口全透明像素，拖入吸附因此走全局 WinEvent+光标坐标而非 WPF 鼠标事件）。推论：`WindowFromPoint(光标)` 在格子处返回的是宿主**后面**的窗口，"光标处最顶层是否本宿主"不能直判——必须用 z 序走到宿主为止的遍历、跳过被拖窗口与 `WS_EX_TRANSPARENT` 穿透层（`IsCoveredAtCursor`），直判会把拖入空格子（吸附主入口）误杀
 - UIPI：管理员权限窗口（如任务管理器）**无法**被普通权限程序吸附，`SetWindowPos` 静默失败——失败时必须状态回滚 + 状态栏报因
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）
 - **强杀宿主 = 孤儿**：吸附子窗口残留 `WS_EX_TOOLWINDOW`（任务栏消失，宿主最小化期间被强杀还会停在屏幕外 -32000）。孤儿清理必须**按配置记录的 HWND 精确匹配**（PID 仅作句柄复用校验），**绝不能按 PID 枚举该进程全部窗口**——进程的隐藏辅助窗口（`CiceroUIWndFrame` 等，实测 opera/Listary/RepositoryTree 都带 TOOLWINDOW）会被误显示成"点不出来的任务栏幽灵按钮"。吸附成功立即 SaveConfig 落盘（强杀时才有记录可循）。救援 `tools\OrphanRescue.ps1`，回归 `tools\OrphanE2ETest.ps1`
@@ -60,9 +61,11 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 验证流程
 
+- **清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 是 Stop-Process 强杀，未保存内容丢失）。跑之前先确认没有正在使用的窗口，这是实测踩过的坑
 - 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 启动吸附 → 命中/矩形偏差 → 还原置顶状态）
 - 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
-- 拖动类交互（最大化拖动还原等）用 `ManualDragTest.ps1` 交互式验证：脚本只准备环境 + 每 150ms 采样窗口状态，**人工实际拖动**、回车后打印时间线——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
+- 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`ManualDragTest.ps1`（环境准备 + 每 150ms 采样打印时间线）、`CoveredDragTest.ps1`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
+- 主题/悬停类视觉验证：`TooltipShot.ps1`（悬停截 Tooltip 弹层 + 像素采样对调色板；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**）、`ZoomPng.ps1`（PNG 区域放大，检字形/像素）、`ThemeMenuShot.ps1`（真实点击截展开的主题菜单）
 - CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）。参数**纯数字 = PID、否则 = 进程名**；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用经别名 stub 启动，`Start-Process -PassThru` 返回的 stub 没有窗口，真实窗口属于其后代进程，Toolhelp 快照走树匹配）→ 同名进程（stub 已退出的交接场景兜底）
 - Win11 记事本是单实例多标签：同名目标会去重只吸一个，属预期
 - 悬停任务栏弹窗的远程截图时机不稳定，最终视觉验收交给用户
