@@ -63,7 +63,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 ## 验证流程
 
 - **清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 是 Stop-Process 强杀，未保存内容丢失）。跑之前先确认没有正在使用的窗口，这是实测踩过的坑
-- 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 启动吸附 → 命中/矩形偏差 → 还原置顶状态）
+- 全流程回归：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\RunTestFlow.ps1`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）
+- 跨 DPI 缝隙回归（4K+100% 双屏）：`tools\CrossDpiSeamTest.ps1`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
 - 单项工具：`Rect/Hit/Shot/Drag/WinCmd/Atomic.ps1`（Atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
 - 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`ManualDragTest.ps1`（环境准备 + 每 150ms 采样打印时间线）、`CoveredDragTest.ps1`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
 - 主题/悬停类视觉验证：`TooltipShot.ps1`（悬停截 Tooltip 弹层 + 像素采样对调色板；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**）、`ZoomPng.ps1`（PNG 区域放大，检字形/像素）、`ThemeMenuShot.ps1`（真实点击截展开的主题菜单）
