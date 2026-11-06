@@ -53,7 +53,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 ## 源码修改纪律
 
 - **禁止用 PowerShell 正则批量改源文件**：PS 5.1 按系统 ANSI（GBK）读 UTF-8 文件，中文源文件会整文件乱码损毁（本次 HostWindow.cs 曾因此整体重写）。源码修改只用 Edit 工具
-- **tools 脚本 = Python 3.14**（`tools\lib\wm.py` 公共库：ctypes Win32/截图/进程/config；`wm_uia.py`：comtypes UIA；依赖 `py -m pip install pillow comtypes`；脚本一律 `sys.path.insert(0, .../lib)` 后 `import wm`，调用 `py tools\<目录>\<脚本>.py`）。中文注释可用（lib 已重配 stdout UTF-8）；诊断输出标记保持英文（NO_HOST / LEFT_HIT=...）。仅 `tools\archive\*.ps1` 是历史留档：内容 ASCII-only（PS 5.1 把 UTF-8 无 BOM 当 ANSI 读，中文会破坏解析），不再维护勿新增
+- **tools 脚本 = Python 3.14**（`tools\lib\wm.py` 公共库：ctypes Win32/截图/进程/config；`wm_uia.py`：UIA 层用 **uiautomation 包**（comtypes 自动生成桩在 Py3.14 退化不可靠，勿回退）；依赖 `py -m pip install pillow comtypes uiautomation`；脚本一律 `sys.path.insert(0, .../lib)` 后 `import wm`，调用 `py tools\<目录>\<脚本>.py`）。中文注释可用（lib 已重配 stdout UTF-8）；诊断输出标记保持英文（NO_HOST / LEFT_HIT=...）。仅 `tools\archive\*.ps1` 是历史留档：内容 ASCII-only（PS 5.1 把 UTF-8 无 BOM 当 ANSI 读，中文会破坏解析），不再维护勿新增
 - 注释与 UI 文案用中文；异常直接抛出，不吞（唯一例外：配置文件损坏回退默认值、UIPI/DWM 属性调用失败按设计降级）
 
 ## 运行环境注意（Bash 工具 = CMD）

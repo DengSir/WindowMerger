@@ -10,9 +10,9 @@
 | `visual/` | 视觉/主题/字形/截图验证（出 PNG，判定人工看） | 12 |
 | `utils/` | 单项工具：查询/控制/截图/配置 | 18 |
 | `archive/` | 一次性历史脚本（**PowerShell 留档，不再维护**） | 6 |
-| `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config）、`wm_uia.py`（comtypes UIA） | 2 |
+| `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config）、`wm_uia.py`（uiautomation UIA） | 2 |
 
-**依赖**：`py -m pip install pillow comtypes`（截图存 PNG、UI Automation）。应用本身不需要 Python。
+**依赖**：`py -m pip install pillow comtypes uiautomation`（截图存 PNG、UI Automation——UIA 层用 uiautomation 包，comtypes 仅作其底层与 WScript.Shell 动态调度）。应用本身不需要 Python。
 
 **警告**：清理/回归脚本会无差别关闭所有 WindowMerger/Notepad/mspaint——**包括你自己开着的实例**（Notepad 是强杀，未保存内容丢失）。跑之前确认没有正在使用的窗口。
 

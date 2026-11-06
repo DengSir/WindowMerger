@@ -13,3 +13,6 @@ publish/
 
 # 运行期杂项
 *.log
+
+# Python 工具脚本
+__pycache__/

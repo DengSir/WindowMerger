@@ -93,4 +93,4 @@ tools/      开发/验证/发布脚本（Python），按用途分目录（publis
             清单见 tools/README.md；lib/ 为公共库（ctypes Win32 + UIA）
 ```
 
-**开发脚本依赖**：应用本身不需要 Python；跑 `tools/` 脚本需要 Python 3.14 + `py -m pip install pillow comtypes`（截图与 UI Automation）。
+**开发脚本依赖**：应用本身不需要 Python；跑 `tools/` 脚本需要 Python 3.14 + `py -m pip install pillow comtypes uiautomation`（截图与 UI Automation）。
