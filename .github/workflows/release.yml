@@ -87,8 +87,16 @@ jobs:
             $shouldRelease = 'false'
           }
           if (-not $version) { throw 'Cannot resolve version (tag name, input or csproj).' }
-          Write-Output "Version: $version | Tag: $tag | Release: $shouldRelease | Prerelease: $prerelease"
+          # NuGet (restore) validates $(Version) as a NuGetVersion: a 4th numeric
+          # segment is fine, a hash suffix like "0.0.1.a242d884" is NOT and fails
+          # restore with "is not a valid version string". So pass msbuild_version
+          # (numeric prefix) as -p:Version and keep the display version on
+          # -p:InformationalVersion (ProductVersion in Explorer).
+          if ($version -notmatch '^(\d+(?:\.\d+){0,3})') { throw "Version '$version' has no numeric prefix." }
+          $msbuildVersion = $Matches[0]
+          Write-Output "Version: $version | MSBuild: $msbuildVersion | Tag: $tag | Release: $shouldRelease | Prerelease: $prerelease"
           "version=$version" >> $env:GITHUB_OUTPUT
+          "msbuild_version=$msbuildVersion" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
@@ -97,9 +105,11 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          MSBUILD_VERSION: ${{ steps.ver.outputs.msbuild_version }}
         run: |
           dotnet publish WindowMerger.csproj -c Release -p:PublishProfile=FolderProfile `
-            -p:TreatWarningsAsErrors=true -p:Version=$env:VERSION
+            -p:TreatWarningsAsErrors=true -p:Version=$env:MSBUILD_VERSION `
+            -p:InformationalVersion=$env:VERSION
 
       - name: Stage artifact (zip containing the fixed-name WindowMerger.exe)
         shell: pwsh

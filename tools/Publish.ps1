@@ -17,7 +17,15 @@ if (-not $Version) {
     $Version = @($doc.Project.PropertyGroup)[0].Version
     if (-not $Version) { throw 'Cannot read <Version> from WindowMerger.csproj; pass -Version explicitly.' }
 }
-Write-Output ("Version: {0}" -f $Version)
+# hash-suffixed display versions like "0.0.1.a242d884" are not NuGetVersions:
+# restore rejects them ("is not a valid version string"). Pass the numeric
+# prefix as -p:Version and the display form as -p:InformationalVersion.
+$Version = $Version -replace '^v', ''
+if ($Version -notmatch '^(\d+(?:\.\d+){0,3})') {
+    throw ("Version '{0}' has no numeric prefix; cannot derive -p:Version." -f $Version)
+}
+$msbuildVersion = $Matches[0]
+Write-Output ("Version: {0} (msbuild: {1})" -f $Version, $msbuildVersion)
 
 # --- close running instances gracefully (exe file lock would break the build) ---
 Add-Type -Namespace PM -Name U32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);'
@@ -44,7 +52,7 @@ if ($procs.Count -gt 0) {
 $pubProfile = Join-Path $root 'Properties\PublishProfiles\FolderProfile.pubxml'
 if (-not (Test-Path $pubProfile)) { throw "Publish profile not found: $pubProfile" }
 dotnet publish $csproj -c $Configuration -p:PublishProfile=FolderProfile `
-    -p:TreatWarningsAsErrors=true -p:Version=$Version
+    -p:TreatWarningsAsErrors=true -p:Version=$msbuildVersion -p:InformationalVersion=$Version
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE." }
 
 # profile's relative PublishDir (publish\) resolves against the project dir
