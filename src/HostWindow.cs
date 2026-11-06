@@ -710,9 +710,33 @@ public sealed partial class HostWindow : Window
         if (hIcon == IntPtr.Zero) return null;
 
         var src = Imaging.CreateBitmapSourceFromHIcon(hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-        Native.DestroyIcon(hIcon);
+        // WM_GETICON/GetClassLong 返回的是子窗口自有的图标句柄（非副本），绝不能 DestroyIcon
         src.Freeze();
         return src;
+    }
+
+    /// <summary>任务栏大图标目标尺寸：PMv2 进程下随 DPI 缩放（32px@100% ↔ 48px@150%）。
+    /// 固定 32px 画布在高 DPI 上比 shell 要的小一圈——HICON 按本征尺寸绘制、不放大。</summary>
+    private (int W, int H) TaskbarIconSize()
+    {
+        int w = Native.GetSystemMetrics(Native.SM_CXICON);
+        int h = Native.GetSystemMetrics(Native.SM_CYICON);
+        return (w > 0 ? w : 32, h > 0 ? h : 32);
+    }
+
+    /// <summary>把图标源拉伸绘制到任务栏尺寸画布（小源放大保持可见面积，shell 不再缩水）。</summary>
+    private BitmapSource OnTaskbarCanvas(BitmapSource src)
+    {
+        var (w, h) = TaskbarIconSize();
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.DrawImage(src, new Rect(0, 0, w, h));
+        }
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        rtb.Freeze();
+        return rtb;
     }
 
     private void UpdateHostIcon()
@@ -726,23 +750,27 @@ public sealed partial class HostWindow : Window
         }
         if (l == null)
         {
-            Icon = r;
+            Icon = OnTaskbarCanvas(r!);
             return;
         }
         if (r == null)
         {
-            Icon = l;
+            Icon = OnTaskbarCanvas(l);
             return;
         }
 
-        // 两枚图标对角叠放：右窗右上靠后（先画在下），左窗左下靠前（后画盖在上面）
+        // 两枚图标对角叠放：右窗右上靠后（先画在下），左窗左下靠前（后画盖在上面）；
+        // 画布随任务栏 DPI（比例同旧版 32 画布：子图标 3/4、偏移 1/4）
+        var (w, h) = TaskbarIconSize();
+        double cell = Math.Min(w, h);
+        double iconSize = cell * 3 / 4;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawImage(r, new Rect(8, 0, 24, 24));
-            dc.DrawImage(l, new Rect(0, 8, 24, 24));
+            dc.DrawImage(r, new Rect(cell / 4, 0, iconSize, iconSize));
+            dc.DrawImage(l, new Rect(0, cell / 4, iconSize, iconSize));
         }
-        var rtb = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
         rtb.Freeze();
         Icon = rtb;

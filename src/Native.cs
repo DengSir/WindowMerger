@@ -54,6 +54,13 @@ internal static partial class Native
     public const int GW_OWNER = 4;
     public const int GW_HWNDNEXT = 2;
 
+    // 任务栏大图标尺寸（PMv2 进程返回随 DPI 缩放的值：32px@100% ↔ 48px@150%）
+    public const int SM_CXICON = 11;
+    public const int SM_CYICON = 12;
+
+    [LibraryImport("user32.dll")]
+    public static partial int GetSystemMetrics(int nIndex);
+
     // ShowWindow
     public const int SW_HIDE = 0;
     public const int SW_MINIMIZE = 6;
