@@ -25,10 +25,17 @@ TESTS = [
     ("orphan_e2e_test",     TOOLS / "tests" / "orphan_e2e_test.py",           90),
     ("geometry_persistence_test", TOOLS / "tests" / "geometry_persistence_test.py", 150),
     ("cursor_drop_test",    TOOLS / "tests" / "cursor_drop_test.py",          90),
+    ("covered_drag_test",   TOOLS / "tests" / "covered_drag_test.py",         90),
+    ("maximize_drag_test",  TOOLS / "tests" / "maximize_drag_test.py",        90),
     ("cross_dpi_seam_test", TOOLS / "tests" / "cross_dpi_seam_test.py",       90),
     ("alt_tab_z_repro",     TOOLS / "tests" / "alt_tab_z_repro.py",          120),
     ("ghost_cycle_test",    TOOLS / "tests" / "ghost_cycle_test.py",         300),
     ("theme_menu_test",     TOOLS / "visual" / "theme_menu_test.py",          90),
+    ("theme_toggle_visual_test", TOOLS / "visual" / "theme_toggle_visual_test.py", 90),
+    ("tooltip_shot",        TOOLS / "visual" / "tooltip_shot.py",            120),
+    ("hover_visual_test",   TOOLS / "visual" / "hover_visual_test.py",        90),
+    ("divider_hover_test",  TOOLS / "visual" / "divider_hover_test.py",       90),
+    ("hint_pane_shot",      TOOLS / "visual" / "hint_pane_shot.py",          120),
 ]
 
 

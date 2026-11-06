@@ -69,7 +69,7 @@ def main() -> int:
     for i, it in enumerate(items):
         print(f"ITEM[{i}] {name_codepoints(it)}")
 
-    dark_ok = restored_ok = False
+    dark_ok = light_ok = restored_ok = False
     if len(items) >= 3:
         wm_uia.invoke(items[1])  # 深色
         time.sleep(0.6)
@@ -85,14 +85,25 @@ def main() -> int:
             first = name_codepoints(it).strip().split(" ")[0]
             print(f"ITEM2[{i}] first={first}")
 
-        # 恢复原模式：0=Auto 1=Dark 2=Light
-        idx = {"Auto": 0, "Dark": 1, "Light": 2}.get(orig_theme, 0)
+        # 亮色（items2[2]）
         if len(items2) >= 3:
-            wm_uia.invoke(items2[idx])
+            wm_uia.invoke(items2[2])
             time.sleep(0.6)
-            restored = read_cfg_theme()
-            restored_ok = restored == orig_theme
-            print(f"THEME_RESTORED={restored}")
+            after_light = read_cfg_theme()
+            light_ok = after_light == "Light"
+            print(f"THEME_AFTER_LIGHT={after_light}")
+
+            # 恢复原模式：0=Auto 1=Dark 2=Light
+            idx = {"Auto": 0, "Dark": 1, "Light": 2}.get(orig_theme, 0)
+            wm_uia.invoke(theme_btn)
+            time.sleep(0.8)
+            items3 = wm_uia.menu_items_of_pid_windows(pid)
+            if len(items3) >= 3:
+                wm_uia.invoke(items3[idx])
+                time.sleep(0.6)
+                restored = read_cfg_theme()
+                restored_ok = restored == orig_theme
+                print(f"THEME_RESTORED={restored}")
     else:
         print("MENU_NOT_FOUND")
 
@@ -101,7 +112,7 @@ def main() -> int:
     time.sleep(1.2)
     print("APP_STILL_RUNNING" if wm.pids_by_name("WindowMerger") else "APP_CLOSED")
     print("THEME_UIA_TEST_DONE")
-    ok = dark_ok and restored_ok
+    ok = dark_ok and light_ok and restored_ok
     print(f"RESULT {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

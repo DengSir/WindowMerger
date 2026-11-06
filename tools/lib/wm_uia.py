@@ -75,10 +75,12 @@ def find_windows_of_pid(pid: int) -> list:
 
 
 def menu_items_of_pid_windows(pid: int) -> list:
-    """该进程全部顶层窗口内的 MenuItem（打开中的下拉菜单项）。"""
+    """该进程全部顶层窗口内的 MenuItem（打开中的下拉菜单项）。
+    顶层窗口走 Win32 枚举：UIA root children 会漏 owned 弹层（菜单/对话框，实测）。"""
+    import wm as _wm
     items = []
-    for w in find_windows_of_pid(pid):
-        items.extend(find_all_menu_items(w))
+    for h in _wm.all_windows_of_pid(pid):
+        items.extend(find_all_menu_items(element_from_handle(h)))
     return items
 
 

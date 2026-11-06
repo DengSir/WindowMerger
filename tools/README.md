@@ -6,12 +6,12 @@
 |---|---|---|
 | `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单） | 1 |
 | `publish/` | 本地打包发布 | 1 |
-| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 14 |
-| `manual/` | 人工交互验证（脚本准备环境+采样，**人操作**） | 2 |
-| `visual/` | 视觉/主题/字形/截图验证（出 PNG，判定人工看） | 12 |
+| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 16 |
+| `manual/` | 人工交互排查工具（对应场景已有自动版在 tests/，此处留作诊断） | 2 |
+| `visual/` | 视觉/主题/字形/截图验证——**5 个带像素断言已入 run_all**，其余出 PNG 人工看 | 12 |
 | `utils/` | 单项工具：查询/控制/截图/配置 | 18 |
 | `archive/` | 一次性历史脚本（**PowerShell 留档，不再维护**） | 6 |
-| `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config）、`wm_uia.py`（uiautomation UIA） | 2 |
+| `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config/调色板）、`wm_uia.py`（uiautomation UIA） | 2 |
 
 **依赖**：`py -m pip install pillow comtypes uiautomation`（截图存 PNG、UI Automation——UIA 层用 uiautomation 包，comtypes 仅作其底层与 WScript.Shell 动态调度）。应用本身不需要 Python。
 
@@ -45,8 +45,21 @@
 | `pid_mode_test.py` | CLI PID 模式：PID/名字混合吸附 + 无窗口 PID 的报因路径（PidModeTest） |
 | `exclude_self_test.py` | 排除自身：另一个 WindowMerger 实例的宿主不可被 CLI 吸附（ExcludeSelfTest） |
 | `cursor_drop_test.py` | 光标落点判定（注入拖动，固定布局）：光标在格外/窗口中心在格内 → 不吸附；拖到左格中心 → 吸附（CursorDropTest） |
+| `covered_drag_test.py` | 遮挡格拒收（自动化）：置顶遮罩盖右格，注入拖到遮罩内 → 拒吸；拖到左格 → 吸附（原 manual/CoveredDragTest 自动化，2026-11） |
+| `maximize_drag_test.py` | 最大化拖顶条还原（自动化）：最大化 → 注入拖顶条 → 还原落位=占比锚点公式期望值（原 manual/ManualDragTest 自动化，2026-11） |
 | `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
+
+**visual/ 中已入 run_all 的像素断言测试**（调色板期望值见 `lib/wm.py` PALETTES）：
+
+| 脚本 | 自动断言 |
+|---|---|
+| `theme_menu_test.py` | UIA 逐项选 深色/浅色/恢复，校验 config Theme（自定义 Header 的 MenuItem UIA Name 为空，只能按索引 Invoke） |
+| `theme_toggle_visual_test.py` | UIA 切浅/深色，顶条像素 = 调色板 Bar 色 + 配置持久化 |
+| `tooltip_shot.py` | 悬停主题按钮（UIA 取真实按钮矩形定位，写死偏移会落到别的按钮）Tooltip 底色 = Bar 色，深浅各一轮 |
+| `hover_visual_test.py` | 分隔条悬停蓝/基态灰、最大化悬停灰（采样取按钮顶部无字形区）、关闭悬停红 |
+| `divider_hover_test.py` | 分隔条 基态/悬停/移开 三态像素（snap 探针不得动光标，否则全变悬停色——原 PS 缺陷） |
+| `hint_pane_shot.py` | 空格填充=Bar 色、吸附断言成立（notepad 深色编辑器底色≈ThemeBar，"透出"不能靠像素比对）、右格填充保留 |
 
 ## manual/（人工交互验证）
 

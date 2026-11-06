@@ -639,6 +639,21 @@ def config_path() -> str:
     return os.path.join(os.environ["APPDATA"], "WindowMerger", "config.json")
 
 
+# 主题调色板（与 src/Theme.cs 同步；像素断言期望值来源）
+PALETTES = {
+    "Dark": {"Bar": (32, 32, 32), "Border": (58, 58, 58), "Divider": (60, 60, 60),
+             "DividerHover": (43, 91, 143), "Text": (216, 216, 216),
+             "ButtonHover": (60, 60, 60), "DangerHover": (196, 43, 28)},
+    "Light": {"Bar": (243, 243, 243), "Border": (192, 192, 192), "Divider": (192, 192, 192),
+              "DividerHover": (169, 199, 232), "Text": (31, 31, 31),
+              "ButtonHover": (220, 220, 220), "DangerHover": (209, 52, 56)},
+}
+
+
+def color_close(actual: tuple[int, int, int], expected: tuple[int, int, int], tol: int = 12) -> bool:
+    return all(abs(a - e) <= tol for a, e in zip(actual[:3], expected))
+
+
 def load_config() -> dict:
     with open(config_path(), encoding="utf-8") as f:
         return json.load(f)
