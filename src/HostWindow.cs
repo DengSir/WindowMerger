@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -118,6 +120,7 @@ public sealed partial class HostWindow : Window
         _pickRightButton.Click += (_, _) => ToggleSide(AttachSide.Right);
         _swapButton.Click += (_, _) => SwapSides();
         _releaseButton.Click += (_, _) => ReleaseAll();
+        _shortcutButton.Click += (_, _) => CreateShortcutForCurrent();
         _themeButton.Content = ThemeGlyph();
         _themeButton.Click += (_, _) => OpenThemeMenu();
         _minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
@@ -244,8 +247,88 @@ public sealed partial class HostWindow : Window
         _themeButton.ToolTip = ThemeTooltip();
     }
 
-    private void SaveConfig()
+    // ---------- 快捷方式 ----------
+
+    /// <summary>按当前吸附生成桌面快捷方式：参数用进程名（重启后仍能复现组合），PID 易失不入参。</summary>
+    private void CreateShortcutForCurrent()
     {
+        string? left = ProcessNameOfChild(_left);
+        string? right = ProcessNameOfChild(_right);
+        if (left is null && right is null)
+        {
+            ShowNotice("未吸附窗口：先吸附再创建快捷方式");
+            return;
+        }
+
+        var argv = new List<string>();
+        if (left is not null) argv.Add($"--left \"{left}\"");
+        if (right is not null) argv.Add($"--right \"{right}\"");
+        string display = string.Join(" + ", new[] { left, right }.Where(n => n is not null));
+
+        // 文件名剔除非法字符（进程名源自 exe 文件名，防御性处理）
+        string safe = string.Concat(display.Split(Path.GetInvalidFileNameChars()));
+        string path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            $"窗口合并 - {safe}.lnk");
+        try
+        {
+            CreateShortcut(path, string.Join(" ", argv), $"窗口合并：{display}");
+            ShowNotice($"已创建桌面快捷方式：{display}");
+        }
+        catch (Exception ex)
+        {
+            // 用户触发的动作失败不上抛崩宿主，状态栏报因
+            ShowNotice($"创建快捷方式失败：{ex.Message}");
+        }
+    }
+
+    private static string? ProcessNameOfChild(AttachedChild? child)
+    {
+        if (child is null || !child.IsAlive) return null;
+        try
+        {
+            return Process.GetProcessById((int)child.Pid).ProcessName;
+        }
+        catch (ArgumentException)
+        {
+            return null; // 进程已退出
+        }
+    }
+
+    /// <summary>经 WScript.Shell COM 写 .lnk（反射调用，不走 dynamic，免去 Microsoft.CSharp 依赖）。</summary>
+    private static void CreateShortcut(string path, string arguments, string description)
+    {
+        var shellType = Type.GetTypeFromProgID("WScript.Shell")
+            ?? throw new InvalidOperationException("WScript.Shell COM 不可用");
+        object shell = Activator.CreateInstance(shellType)!;
+        try
+        {
+            object link = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path })!;
+            try
+            {
+                string exe = Environment.ProcessPath ?? throw new InvalidOperationException("取 exe 路径失败");
+                SetComProp(link, "TargetPath", exe);
+                SetComProp(link, "Arguments", arguments);
+                SetComProp(link, "WorkingDirectory", Path.GetDirectoryName(exe)!);
+                SetComProp(link, "Description", description);
+                SetComProp(link, "IconLocation", exe + ",0");
+                link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(link);
+            }
+        }
+        finally
+        {
+            Marshal.FinalReleaseComObject(shell);
+        }
+    }
+
+    private static void SetComProp(object target, string name, object value)
+        => target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value });
+
+    private void SaveConfig()    {
         var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
         cfg.AttachedPids = new[] { _left, _right }
             .Where(c => c is not null)
