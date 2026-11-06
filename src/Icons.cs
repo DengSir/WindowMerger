@@ -1,20 +1,20 @@
-using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 
 namespace WindowMerger;
 
 /// <summary>
-/// Font Awesome Free 双字体加载与图标码位。
+/// Font Awesome Free 双字体加载。
 /// Solid（fa-solid-900.ttf）：菜单图标、分隔条把手、关闭 ✕；
 /// Regular（fa-regular-400.ttf）：最大化/还原按钮的空心方块与空心 clone。
 /// 字体以 WPF Resource 内嵌进程序集，FontFamily 必须在 App.xaml 里以
 /// "pack://application:,,,/assets/<文件>#<完整家族名>" 声明（XAML 类型转换器路径）。
 /// 实测坑（.NET 10 WPF）：代码里 new FontFamily(同样的 pack 字符串) 能构造、
-/// GetResourceStream/Fonts.GetFontFamilies 也正常，但 DWrite 渲染不解析——
-/// 全部回退缺字；只有 XAML 声明的实例渲染正常。
-/// 校验用渲染宽度对比（探针码位 vs 确定缺失的私用区码位）——GlyphTypeface/
-/// TryGetGlyphTypeface/GetTypefaces 对 pack 字体均不可用。失败回退 Unicode 字形，
+/// GetResourceStream/GetFontFamilies 也正常，但 DWrite 渲染不解析（全部回退缺字）——
+/// 只有 XAML 声明的实例渲染正常。
+/// 校验用渲染宽度对比（探针码位 vs 确定缺失的私用区码位 U+F8FF，宽度不同 = 字形真实）——
+/// GlyphTypeface/TryGetGlyphTypeface/GetTypefaces 对 pack 字体均不可用。失败回退 Unicode 字形，
 /// 失败结果一并缓存，避免每次访问重复解析。
 /// </summary>
 internal static class Icons
@@ -46,28 +46,6 @@ internal static class Icons
         return cache;
     }
 
-    // 窗口控制按钮（字体不可用时回退原 Unicode 字形）
-    public static string Minimize => Family != null ? "\uF068" : "\u2500"; // minus（Solid）
-    public static string Maximize => FamilyRegular != null || Family != null ? "\uF096" : "\u25A1"; // square 空心（Regular）
-    public static string Restore  => FamilyRegular != null || Family != null ? "\uF24D" : "\u25A1"; // clone 空心（Regular）
-    public static string Close    => Family != null ? "\uF00D" : "\u2715"; // xmark（Solid）
-
-    /// <summary>侧格已吸附时，左右按钮翻转为"释放该侧"（window-restore：窗口飞回原位）。</summary>
-    public static string ReleasePane => Family != null ? "\uF2D2" : "\u2715";
-
-    /// <summary>最大化/还原图标用 Regular 空心字体。</summary>
-    public static FontFamily? MaximizeFont => FamilyRegular ?? Family;
-    public static FontFamily? RestoreFont => FamilyRegular ?? Family;
-
-    // 顶条功能按钮图标（Solid 集）
-    public static string? PickLeft  => Family != null ? "\uF060" : null; // arrow-left
-    public static string? PickRight => Family != null ? "\uF061" : null; // arrow-right
-    public static string? Swap      => Family != null ? "\uF0EC" : null; // right-left
-    public static string? Release   => Family != null ? "\uF127" : null; // unlink
-
-    // 分隔条把手
-    public static string? Grip => Family != null ? "\uF338" : null; // grip-lines-vertical
-
     private static FontFamily? TryLoad(string resourceKey, string familyName, int probeCodepoint)
     {
         try
@@ -94,7 +72,7 @@ internal static class Icons
     {
         var ft = new FormattedText(
             ((char)codepoint).ToString(),
-            CultureInfo.InvariantCulture,
+            System.Globalization.CultureInfo.InvariantCulture,
             FlowDirection.LeftToRight,
             new Typeface(f, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
             16,

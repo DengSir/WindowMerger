@@ -120,34 +120,17 @@ public sealed partial class HostWindow : Window
         _appIcon.Source = LoadAppIconFrame();
 
         // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
-        // 字形来自 Icons（字体不可用时回退 Unicode 字形）；左/右按钮状态翻转见 UpdateSideButtons
-        _pickLeftButton.Content = Icons.PickLeft;
+        // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题月亮/太阳、最大化/还原）
         _pickLeftButton.Click += (_, _) => { if (_leftHwnd == IntPtr.Zero) Pick(AttachSide.Left); else ReleaseSide(0); };
-        _pickRightButton.Content = Icons.PickRight;
         _pickRightButton.Click += (_, _) => { if (_rightHwnd == IntPtr.Zero) Pick(AttachSide.Right); else ReleaseSide(1); };
-        _swapButton.Content = Icons.Swap;
         _swapButton.Click += (_, _) => SwapSides();
-        _releaseButton.Content = Icons.Release;
         _releaseButton.Click += (_, _) => ReleaseAll();
         _themeButton.Content = ThemeGlyph();
         _themeButton.Click += (_, _) => OpenThemeMenu();
-        _minimizeButton.Content = Icons.Minimize;
         _minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
-        _maxButton.Content = Icons.Maximize;
         _maxButton.Click += (_, _) => ToggleMaximize();
-        _closeButton.Content = Icons.Close;
         _closeButton.Click += (_, _) => Close();
         UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
-
-        if (Icons.Family is null)
-        {
-            // 字体不可用：回退 Segoe UI + 缩小字号（内容已在上面赋过 Unicode 回退值）
-            foreach (var b in new[] { _pickLeftButton, _pickRightButton, _swapButton, _releaseButton, _themeButton, _minimizeButton, _maxButton, _closeButton })
-            {
-                b.FontFamily = new FontFamily("Segoe UI");
-                b.FontSize = 11;
-            }
-        }
 
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
         _topBar.MouseMove += TopBarOnMouseMove;
@@ -283,16 +266,15 @@ public sealed partial class HostWindow : Window
 
     private void UpdateMaxGlyph()
     {
-        if (_maxButton is null) return;
+        // 字体固定 FaRegular（XAML），只切换字形：f096 空心方块 ↔ f24d 空心 clone
+        // （注意 f096 在 solid 里有同码位实心别名，必须配 Regular 才是空心）
         if (WindowState == WindowState.Maximized)
         {
-            _maxButton.Content = Icons.Restore;
-            _maxButton.FontFamily = Icons.RestoreFont ?? _maxButton.FontFamily;
+            _maxButton.Content = "\uF24D";
         }
         else
         {
-            _maxButton.Content = Icons.Maximize;
-            _maxButton.FontFamily = Icons.MaximizeFont ?? _maxButton.FontFamily;
+            _maxButton.Content = "\uF096";
         }
     }
 
@@ -1127,21 +1109,15 @@ public sealed partial class HostWindow : Window
     private static bool IsCtrlHeld()
         => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
 
-    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择，已吸附=释放该侧。</summary>
+    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（f060/f061），已吸附=释放该侧（f2d2）。</summary>
     private void UpdateSideButtons()
     {
-        if (_pickLeftButton is not null)
-        {
-            bool leftUsed = _leftHwnd != IntPtr.Zero;
-            _pickLeftButton.Content = leftUsed ? Icons.ReleasePane : Icons.PickLeft;
-            _pickLeftButton.ToolTip = leftUsed ? "释放左窗（回到原位）" : "选择左窗…";
-        }
-        if (_pickRightButton is not null)
-        {
-            bool rightUsed = _rightHwnd != IntPtr.Zero;
-            _pickRightButton.Content = rightUsed ? Icons.ReleasePane : Icons.PickRight;
-            _pickRightButton.ToolTip = rightUsed ? "释放右窗（回到原位）" : "选择右窗…";
-        }
+        bool leftUsed = _leftHwnd != IntPtr.Zero;
+        _pickLeftButton.Content = leftUsed ? "\uF2D2" : "\uF060";
+        _pickLeftButton.ToolTip = leftUsed ? "释放左窗（回到原位）" : "选择左窗…";
+        bool rightUsed = _rightHwnd != IntPtr.Zero;
+        _pickRightButton.Content = rightUsed ? "\uF2D2" : "\uF061";
+        _pickRightButton.ToolTip = rightUsed ? "释放右窗（回到原位）" : "选择右窗…";
     }
 
     /// <summary>释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）。</summary>

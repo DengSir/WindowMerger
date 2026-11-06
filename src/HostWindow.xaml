@@ -101,18 +101,18 @@
                     <StackPanel x:Name="_captionButtons" Grid.Column="3"
                                 Orientation="Horizontal" HorizontalAlignment="Right"
                                 VerticalAlignment="Stretch" Background="{x:Null}">
-                        <Button x:Name="_pickLeftButton" Width="30" ToolTip="选择左窗…" />
-                        <Button x:Name="_pickRightButton" Width="30" ToolTip="选择右窗…" />
-                        <Button x:Name="_swapButton" Width="30" ToolTip="交换左右" />
-                        <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）" />
+                        <Button x:Name="_pickLeftButton" Width="30" ToolTip="选择左窗…">&#xF060;</Button>
+                        <Button x:Name="_pickRightButton" Width="30" ToolTip="选择右窗…">&#xF061;</Button>
+                        <Button x:Name="_swapButton" Width="30" ToolTip="交换左右">&#xF0EC;</Button>
+                        <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）">&#xF127;</Button>
                         <Button x:Name="_themeButton" Width="30" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
                                 VerticalAlignment="Stretch" />
-                        <Button x:Name="_minimizeButton" ToolTip="最小化" />
+                        <Button x:Name="_minimizeButton" ToolTip="最小化">&#xF068;</Button>
                         <Button x:Name="_maxButton" ToolTip="最大化"
-                                FontFamily="{StaticResource FaRegular}" />
+                                FontFamily="{StaticResource FaRegular}">&#xF096;</Button>
                         <Button x:Name="_closeButton" Style="{StaticResource DangerCaptionButton}"
-                                FontSize="16" ToolTip="关闭" />
+                                FontSize="16" ToolTip="关闭">&#xF00D;</Button>
                     </StackPanel>
                 </Grid>
             </Border>
