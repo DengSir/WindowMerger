@@ -31,6 +31,9 @@ public sealed partial class HostWindow : Window
     private IntPtr _handle;
     private AttachedChild? _left;    // 左格当前吸附态（null=空格）
     private AttachedChild? _right;   // 右格当前吸附态
+    // 待落位的保存几何（物理像素）：hwnd 建好后 OnSourceInitialized 用 SetWindowPos 写入——
+    // 不能在 hwnd 前设 DIP 属性（WPF 按初始主屏 DPI 解释，跨屏落位漂移）
+    private (double X, double Y, double W, double H, bool Maximized)? _pendingPlacement;
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
@@ -46,12 +49,33 @@ public sealed partial class HostWindow : Window
 
     private IntPtr HwndOf(AttachSide side) => ChildAt(side)?.Hwnd ?? IntPtr.Zero;
 
-    /// <summary>恢复的窗口尺寸钳制到主屏工作区（留 5% 余量），下限 MinWidth/MinHeight。</summary>
-    private double ClampToWorkArea(double v, bool isWidth)
+    /// <summary>解析保存的几何（物理像素）为启动落位矩形；无效（无保存/垃圾值）返回 null（默认居中）。
+    /// 目标屏 = 保存矩形中心最近的可见显示器（断屏/改分辨率时自然回拉），尺寸与位置都钳到其工作区。</summary>
+    private (double X, double Y, double W, double H, bool Maximized)? ResolvePlacement(AppConfig config)
     {
-        double min = isWidth ? MinWidth : MinHeight;
-        double max = Math.Max(min, (isWidth ? SystemParameters.WorkArea.Width : SystemParameters.WorkArea.Height) * 0.95);
-        return Math.Clamp(v, min, max);
+        // 无保存矩形或垃圾值（L>=R / T>=B）
+        if (config.WinLeft is not double l || config.WinTop is not double t
+            || config.WinRight is not double r || config.WinBottom is not double b
+            || r <= l || b <= t)
+        {
+            return null;
+        }
+
+        var center = new Native.POINT { X = (int)((l + r) / 2), Y = (int)((t + b) / 2) };
+        nint hMon = Native.MonitorFromPoint(center, Native.MONITOR_DEFAULTTONEAREST);
+        var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
+        if (!Native.GetMonitorInfo(hMon, ref mi)) return null;
+        var wa = mi.rcWork; // 物理 px
+
+        // 尺寸钳制：小于最小尺寸（按目标屏 DPI 换算）/ 大于工作区都修正
+        double scale = Native.MonitorDpiScale(hMon);
+        double minW = MinWidth * scale, minH = MinHeight * scale;
+        double w = Math.Clamp(r - l, minW, Math.Max(minW, wa.Right - wa.Left));
+        double h = Math.Clamp(b - t, minH, Math.Max(minH, wa.Bottom - wa.Top));
+        // 位置钳制：矩形完整落在工作区内（任何一边都不出屏）
+        double x = Math.Clamp(l, wa.Left, Math.Max(wa.Left, wa.Right - w));
+        double y = Math.Clamp(t, wa.Top, Math.Max(wa.Top, wa.Bottom - h));
+        return (x, y, w, h, config.WinMaximized);
     }
 
     /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
@@ -71,12 +95,13 @@ public sealed partial class HostWindow : Window
 
         InitializeComponent();
 
-        // 尺寸是配置驱动的，必须在 InitializeComponent 之后覆盖；再钳制到主屏工作区——
-        // 尺寸按 DIP 持久化，窗口横跨两屏时（混合 DPI 下 ActualWidth 按最大占比屏换算）
-        // 存出的值可以比任何单屏都大，原样恢复会开出撑爆屏幕的巨型窗口（实测 config 存过
-        // 4284 DIP ≈ 6426 物理px，双屏拼接宽）
-        Width = ClampToWorkArea(config.Width is double w and >= 300 ? w : 1280, true);
-        Height = ClampToWorkArea(config.Height is double h and >= 300 ? h : 800, false);
+        // 几何恢复（Windows 原生惯例）：正常态矩形（物理像素）+ 是否最大化，校验钳制到
+        // 可见显示器工作区后暂存，hwnd 建好后 OnSourceInitialized 落位——显示器断开/
+        // 分辨率变化/配置损坏都不能产生屏外幽灵窗。无有效几何默认 1280×800 主屏居中
+        _pendingPlacement = ResolvePlacement(config);
+        Width = 1280;
+        Height = 800;
+        WindowStartupLocation = _pendingPlacement is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.Manual;
 
         // 位置不持久化，启动一律居中：位置还原曾把窗口开到屏外（任务栏有按钮、桌面上
         // 找不到窗口），多显示器坐标漂移/已断开的显示器时尤其如此
@@ -378,16 +403,17 @@ public sealed partial class HostWindow : Window
             .Where(c => c is not null)
             .Select(c => c!.Hwnd.ToInt64())
             .ToList();
-        if (WindowState == WindowState.Normal)
-        {
-            cfg.Width = ActualWidth;
-            cfg.Height = ActualHeight;
-        }
-        else
-        {
-            cfg.Width = RestoreBounds.Width;
-            cfg.Height = RestoreBounds.Height;
-        }
+        // 几何持久化：正常态矩形（最大化/最小化关闭取 RestoreBounds）× 当前屏 DPI = 物理像素，
+        // 加是否最大化——跨 DPI 启动不漂移，位置也一并恢复（恢复端钳到可见屏防幽灵窗）
+        double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        Rect normal = WindowState == WindowState.Normal
+            ? new Rect(Left, Top, ActualWidth, ActualHeight)
+            : RestoreBounds;
+        cfg.WinLeft = normal.Left * scale;
+        cfg.WinTop = normal.Top * scale;
+        cfg.WinRight = normal.Right * scale;
+        cfg.WinBottom = normal.Bottom * scale;
+        cfg.WinMaximized = WindowState == WindowState.Maximized;
         ConfigStore.Save(cfg);
     }
 
@@ -415,6 +441,18 @@ public sealed partial class HostWindow : Window
         base.OnSourceInitialized(e);
         _handle = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(_handle)!.AddHook(WndProc);
+        // 保存几何落位：hwnd 已建，直接写物理像素（绕开 WPF 对 DIP 属性的初始主屏 DPI 解释）。
+        // 两步：先移动（触发 WM_DPICHANGED、WPF 收敛到目标屏缩放），再设尺寸——WPF 跨 DPI
+        // 保 DIP 不保物理，一次到位会被它按旧缩放改写
+        if (_pendingPlacement is { } p)
+        {
+            _pendingPlacement = null;
+            Native.SetWindowPos(_handle, IntPtr.Zero, (int)p.X, (int)p.Y, 0, 0,
+                Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            Native.SetWindowPos(_handle, IntPtr.Zero, 0, 0, (int)p.W, (int)p.H,
+                Native.SWP_NOMOVE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            if (p.Maximized) WindowState = WindowState.Maximized;
+        }
         _lastOrigin = PointToScreen(new Point(0, 0));
         _drag = new DragAttach(this);
         _timer.Start();

@@ -38,7 +38,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - **宿主格子区域 alpha=0 在 OS 层点击穿透**（分层窗口全透明像素，拖入吸附因此走全局 WinEvent+光标坐标而非 WPF 鼠标事件）。推论：`WindowFromPoint(光标)` 在格子处返回的是宿主**后面**的窗口，"光标处最顶层是否本宿主"不能直判——必须用 z 序走到宿主为止的遍历、跳过被拖窗口与 `WS_EX_TRANSPARENT` 穿透层（`IsCoveredAtCursor`），直判会把拖入空格子（吸附主入口）误杀。**空格与吸附格的透明性是按占位切换的**：空格以 ThemeBar 填充+提示文案（不穿透，`UpdatePaneHints`）；**吸附格必须回到透明**——子窗口靠透明格子透出、点击穿透下去交互，填实会废掉吸附应用的交互
 - UIPI：管理员权限窗口（如任务管理器）**无法**被普通权限程序吸附，`SetWindowPos` 静默失败——失败时必须状态回滚 + 状态栏报因
 - 分隔条/格子几何一律用窗口 `ActualWidth` 直算，**不要读 `_content.ActualWidth`**（StateChanged 早于尺寸回缩完成，旧值会把分隔条顶偏）
-- **窗口尺寸按 DIP 持久化（config.json = ActualWidth/ActualHeight）**：横跨双屏（混合 DPI）时 ActualWidth 按最大占比屏换算，会存出比任何单屏都大的值（实测 4284 DIP ≈ 6426 物理px，双屏拼接宽），原样恢复 = 每次启动开巨型窗。构造时恢复尺寸一律经 `ClampToWorkArea` 钳制到主屏工作区 95%（下限 MinWidth/MinHeight）；测试脚本起的宿主一律 `SetWindowPos` 缩小并停到左侧 100% 屏，别占用户 4K 主屏
+- **窗口几何持久化 = 正常态矩形物理像素 + 是否最大化**（config.json WinLeft/Top/Right/Bottom/WinMaximized）：存时 DIP × 关闭时窗口所在屏 DPI（最大化/最小化关闭取 RestoreBounds），恢复按目标屏 DPI 换算并钳制到最近可见显示器工作区（`MonitorFromPoint(NEAREST)` + `GetDpiForMonitor`）——DIP 直存会跨屏漂移，跨屏拼接会存出超屏值。**WPF 在 hwnd 建好前设 Left/Top/Width/Height 一律按初始主屏 DPI 解释**（跨屏落位漂移/被居中覆盖，实测）——跨屏落位必须在 `OnSourceInitialized` 用 `SetWindowPos` 写物理像素，且**两步走**：先移动触发 WM_DPICHANGED 收敛目标屏缩放、再设尺寸（WPF 跨 DPI 保 DIP 不保物理，一步到位会被改写，实测 S1 场景）；测试脚本起的宿主一律 `SetWindowPos` 缩小并停到左侧 100% 屏，别占用户 4K 主屏
 - **强杀宿主 = 孤儿**：吸附子窗口残留 `WS_EX_TOOLWINDOW`（任务栏消失，宿主最小化期间被强杀还会停在屏幕外 -32000）。孤儿清理必须**按配置记录的 HWND 精确匹配**（PID 仅作句柄复用校验），**绝不能按 PID 枚举该进程全部窗口**——进程的隐藏辅助窗口（`CiceroUIWndFrame` 等，实测 opera/Listary/RepositoryTree 都带 TOOLWINDOW）会被误显示成"点不出来的任务栏幽灵按钮"。吸附成功立即 SaveConfig 落盘（强杀时才有记录可循）。救援 `tools\OrphanRescue.ps1`，回归 `tools\OrphanE2ETest.ps1`
 
 ### 字体与资源（Font Awesome Free，SIL OFL；全部内嵌进程序集）

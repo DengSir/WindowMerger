@@ -283,6 +283,28 @@ internal static partial class Native
     [LibraryImport("user32.dll")]
     public static partial IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
 
+    // MonitorFromPoint 的兜底语义：MONITOR_DEFAULTTONEAREST 见常量区（=2）
+    public const int MONITOR_DEFAULTTOPRIMARY = 1;
+
+    [LibraryImport("user32.dll")]
+    public static partial IntPtr MonitorFromPoint(POINT pt, int dwFlags);
+
+    /// <summary>显示器的有效 DPI（PMv2 进程返回真实缩放）。窗口未建 hwnd 时按目标屏换算几何用。</summary>
+    public static double MonitorDpiScale(IntPtr hMonitor)
+    {
+        if (GetDpiForMonitor(hMonitor, 0 /* MDT_EFFECTIVE_DPI */, out uint dpiX, out _) != 0 || dpiX == 0) return SystemDpiScale();
+        return dpiX / 96.0;
+    }
+
+    [LibraryImport("shcore.dll")]
+    private static partial int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    /// <summary>系统 DPI（PMv2 进程 = 会话启动时主屏 DPI）。无目标屏可查时的兜底缩放。</summary>
+    public static double SystemDpiScale() => GetDpiForSystem() / 96.0;
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetDpiForSystem();
+
     [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
