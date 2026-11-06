@@ -4,11 +4,11 @@
 
 ## 功能
 
-- **透明格子 + 可见边框**：宿主窗口由 2px 边框、28px 顶条（拖动/双击最大化）、左右两个透明格子、中间 8px 分隔条组成；格子透明，空格直接看到桌面，吸附后透出子窗口
+- **透明格子 + 可见边框**：宿主窗口由 2px 边框、28px 顶条（拖动/双击最大化）、左右两个透明格子、中间 6px 分隔条组成；格子透明，空格直接看到桌面，吸附后透出子窗口
 - **拖入吸附**：把任意窗口拖到宿主格子上，目标格高亮，松手吸附；拖到另一侧即换侧；替换时原窗口自动回到吸附前位置
-- **顶条功能按钮**：选择左窗/右窗（候选列表 + 过滤）、交换左右、全部释放、─ □ ✕ 一字排开，悬停显示 tooltip；全部功能一个顶条搞定，无右键菜单
+- **顶条功能按钮**：选择左窗/右窗（候选列表 + 过滤）、交换左右、全部释放、◐ 主题（下拉直接选择）、─ □ ✕ 一字排开，悬停显示 tooltip；全部功能一个顶条搞定，无右键菜单
 - **分隔条**：拖动实时调整左右比例（20%~80%），双击复位 50/50
-- **窗口控制**：最大化只放大格子布局，不连坐子窗口的系统最大化；最小化/还原/切走切回全程联动，子窗口不会丢失
+- **窗口控制**：最大化只放大格子布局，不连坐子窗口的系统最大化，最大化状态下拖动顶条可还原并跟手移动；最小化/还原/切走切回全程联动，子窗口不会丢失
 - **任务栏合成**：吸附的子窗口隐藏任务栏按钮与 Alt+Tab 项，宿主图标为两枚子窗口图标的叠加
 - **配置持久化**：比例与宿主位置尺寸存于 `%APPDATA%\WindowMerger\config.json`
 
@@ -20,7 +20,7 @@
 dotnet build -c Release
 ```
 
- 产物：`bin\Release\net10.0-windows\WindowMerger.exe`（字体/图标已内嵌进程序集，输出目录无散落资源文件）。
+产物：`bin\Release\net10.0-windows\WindowMerger.exe`（字体/图标已内嵌进程序集，输出目录无散落资源文件）。
 
 ## 发布
 
@@ -48,25 +48,27 @@ git push origin v1.2.3
 ## 命令行
 
 ```cmd
-WindowMerger.exe [--left 左进程名] [--right 右进程名]
+WindowMerger.exe [--left 左进程名|PID] [--right 右进程名|PID]
 WindowMerger.exe Code ZCode          :: 位置参数（左、右）
 WindowMerger.exe --right mspaint     :: 只指定右格
+WindowMerger.exe 12345 mspaint       :: 纯数字参数按 PID 匹配
 ```
 
 - 启动即自动吸附对应进程的窗口；命名参数 `--left/-l`、`--right/-r` 可分别指定、任意顺序、只给一侧
 - 进程名带不带 `.exe` 都可以，大小写不敏感
+- 纯数字参数按 PID 匹配，三级回退：精确 PID → 后代进程树（Win11 打包应用经 stub 启动，真实窗口属后代进程）→ 同名进程兜底
 - 同名多窗口取当前面积最大的；最小化的会先还原再吸附
 - 未找到的进程跳过并在状态栏提示；已吸附的窗口自动去重
 
 ## 主题
 
-顶条 ◐ 按钮循环 **跟随系统 → 深色 → 浅色**（悬停 tooltip 显示当前状态），选择持久化到配置；
+顶条 ◐ 按钮弹出下拉菜单，**跟随系统 / 深色 / 浅色** 直接选择（悬停 tooltip 显示当前状态），选择持久化到配置；
 跟随系统模式下 Windows 切换深浅色时实时刷新（WM_SETTINGCHANGE）。
 
 ## 架构注记
 
 - **外扩补偿**：Win11/DWM 给带框窗口留了约 7px 的隐形边，`GetWindowRect` 比可见窗口大。吸附时按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩目标矩形，可见内容才能与格子齐平
-- **z 序（关键）**：`SetWindowPos` 的 `hWndInsertAfter` 语义是"放到目标**下方**"。子窗口压在宿主**上方**（`HWND_TOP`，精确贴合无外扩——隐形边不会劫持分隔条，点击直达子窗口）；分隔条/边框/顶条是宿主的不透明部分，不受影响。宿主激活后立即+低优先级重拉子窗口，250ms 维护定时器负责 z 序（精确 z 遍历）/布局自愈与样式补挂
+- **z 序（关键）**：`SetWindowPos` 的 `hWndInsertAfter` 语义是"放到目标**下方**"。子窗口永远插在宿主**正下方**（不能用 `HWND_TOP`——Alt+Tab 切回宿主后是静默无效调用）：宿主的不透明部分（边框/分隔条/顶条）盖住子窗口的隐形边，分隔条才可点击，透明格子则透出子窗口。宿主激活后立即+低优先级重拉子窗口，250ms 维护定时器按"宿主正下方连续子窗口块"精确遍历自愈 z 序、修布局与样式补挂
 - **字体**：FA 双字体（Solid/Regular）以 `Resource` 内嵌进程序集（pack 字体经 XAML 声明）；可解析的家族名是完整名 `Font Awesome 6 Free Solid/Regular`；Regular 集不含 xmark，关闭按钮用 Segoe UI 的 ✕（WPF 字体回退）
 - **P/Invoke**：`LibraryImport` 源生成器不会自动补 W 后缀，**自定义方法名也必须显式 `EntryPoint` 指向真实导出名**（`GetMonitorInfoW`/`GetWindowTextLengthW`/`DwmSetWindowAttributePointer` 均为此踩坑），且不支持 `StringBuilder` 参数（走经典 `DllImport`）；.NET Core 的 `GlyphTypeface` 不支持 pack:// URI
 
@@ -77,6 +79,8 @@ WindowMerger.exe --right mspaint     :: 只指定右格
 ## 目录
 
 ```
-src/        源码（App.xaml 入口；HostWindow/DragAttach/PickerWindow/WindowLocator/Config/Icons/Native）
-tools/      开发期验证脚本（截图/命中测试/窗口控制，PowerShell）
+src/        源码（App.xaml 入口；HostWindow.xaml + HostWindow.cs/Attach/Drag 三个 partial、
+            AttachedChild 吸附态、DragAttach 拖入吸附、PickerWindow 选窗、WindowLocator 候选、
+            Config 持久化、Theme 主题、Native Win32）
+tools/      开发/验证/发布脚本（截图、命中测试、窗口控制、孤儿救援、发布打包，PowerShell）
 ```
