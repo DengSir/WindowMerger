@@ -19,7 +19,8 @@
         <SolidColorBrush x:Key="ThemeButtonHoverBrush" Color="#3C3C3C" />
         <SolidColorBrush x:Key="ThemeDangerHoverBrush" Color="#C42B1C" />
 
-        <!-- 顶条按钮共用外观（极简模板：Border + Content）；字形内容/悬停由 code-behind 补齐 -->
+        <!-- 顶条按钮共用外观（极简模板：Border + Content）；悬停刷色走 Trigger + DynamicResource
+             （实测 .NET 10 WPF 可用），切主题由资源替换自动传播 -->
         <Style TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
@@ -38,6 +39,30 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonHoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 关闭按钮：悬停红色系（其余继承隐式按钮样式） -->
+        <Style x:Key="DangerCaptionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeDangerHoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 分隔条：悬停高亮（取代旧 MouseEnter/MouseLeave 事件刷色） -->
+        <Style x:Key="DividerStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ThemeDividerBrush}" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeDividerHoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
 
@@ -86,7 +111,8 @@
                         <Button x:Name="_minimizeButton" ToolTip="最小化" />
                         <Button x:Name="_maxButton" ToolTip="最大化"
                                 FontFamily="{StaticResource FaRegular}" />
-                        <Button x:Name="_closeButton" Tag="danger" FontSize="16" ToolTip="关闭" />
+                        <Button x:Name="_closeButton" Style="{StaticResource DangerCaptionButton}"
+                                FontSize="16" ToolTip="关闭" />
                     </StackPanel>
                 </Grid>
             </Border>
@@ -106,7 +132,7 @@
                     </Grid>
                 </Border>
                 <Border x:Name="_divider" Grid.Column="1" Width="8" Cursor="SizeWE"
-                        Background="{DynamicResource ThemeDividerBrush}">
+                        Style="{StaticResource DividerStyle}">
                     <TextBlock x:Name="_gripText" Text="&#xF338;"
                                FontFamily="{StaticResource FaSolid}" FontSize="9"
                                Foreground="#70FFFFFF" HorizontalAlignment="Center"

@@ -110,8 +110,6 @@ public sealed partial class HostWindow : Window
     /// <summary>视觉树在 HostWindow.xaml；这里只补齐动态部分：字形内容、点击、悬停刷色、条件可见性。</summary>
     private void WireUi()
     {
-        _divider.MouseEnter += (_, _) => _divider.Background = AppTheme.Brush(AppTheme.Current().DividerHover);
-        _divider.MouseLeave += (_, _) => _divider.ClearValue(Border.BackgroundProperty); // 回落主题资源
         _divider.MouseLeftButtonDown += DividerOnMouseDown;
         _divider.MouseMove += DividerOnMouseMove;
         _divider.MouseLeftButtonUp += DividerOnMouseUp;
@@ -140,18 +138,6 @@ public sealed partial class HostWindow : Window
         _closeButton.Content = Icons.Close;
         _closeButton.Click += (_, _) => Close();
         UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
-
-        // 悬停刷色：进入时局部覆盖（危险按钮红色系），离开 ClearValue 回退样式/主题资源
-        foreach (var (b, danger) in new (Button, bool)[]
-        {
-            (_pickLeftButton, false), (_pickRightButton, false), (_swapButton, false),
-            (_releaseButton, false), (_themeButton, false), (_minimizeButton, false),
-            (_maxButton, false), (_closeButton, true),
-        })
-        {
-            b.MouseEnter += (_, _) => b.Background = AppTheme.Brush(danger ? AppTheme.Current().DangerHover : AppTheme.Current().ButtonHover);
-            b.MouseLeave += (_, _) => b.ClearValue(Button.BackgroundProperty);
-        }
 
         if (Icons.Family is null)
         {

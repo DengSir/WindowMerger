@@ -2,7 +2,7 @@
 
 把任意两个独立窗口合并进同一个带边框宿主窗口（透明格子 + 子窗口吸附，**不用 SetParent**）。
 技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，宿主视觉树在 `src/HostWindow.xaml`——`x:Name` 生成字段供 code-behind 引用，动态逻辑全在 `HostWindow.xaml.cs`；构造顺序 = InitializeComponent → WireUi（事件/字形内容/悬停挂接）→ ApplyTheme（换主题资源，XAML 只带深色初值）→ 配置尺寸覆盖）。
-主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值（按钮悬停 = 局部赋值 + MouseLeave `ClearValue` 回落）；**Trigger Setter 里不能写 DynamicResource**，悬停/离开走事件。顶条按钮是 XAML 实例 + 隐式 Button 样式（模板/默认外观），字形内容/点击/提示由 WireUi 补（字体缺失回退逻辑在 WireUi）。
+主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值；**悬停刷色也在 XAML**（Button 隐式样式/DangerCaptionButton/DividerStyle 的 `IsMouseOver` Trigger + DynamicResource，实测 .NET 10 WPF 完全可用——早前"Trigger 不能用 DynamicResource"的记录是错误结论）。**陷阱**：对 DynamicResource 属性做局部赋值（如事件里刷悬停色）会销毁资源引用表达式，之后 `ClearValue` 不会恢复引用而是落到 null（实测分隔条变透明）——悬停一律走 Trigger，不要用事件刷色。顶条按钮是 XAML 实例 + 隐式 Button 样式，字形内容/点击/提示由 WireUi 补（字体缺失回退逻辑在 WireUi）。
 
 ## 构建 / 运行 / 提交
 
