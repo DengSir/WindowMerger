@@ -1,10 +1,10 @@
 # AGENTS.md — WindowMerger 项目约定
 
 把任意两个独立窗口合并进同一个带边框宿主窗口（透明格子 + 子窗口吸附，**不用 SetParent**）。
-技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，宿主视觉树与布局尺寸常量在 `src/HostWindow.xaml`——`x:Name` 生成字段供 code-behind 引用，动态逻辑全在 `HostWindow.xaml.cs`；构造顺序 = InitializeComponent → WireUi（事件挂接 + 从 UI 读入布局尺寸 + 动态字形）→ ApplyTheme（换主题资源，XAML 只带深色初值）→ 配置尺寸覆盖）。
+技术栈：C# WPF，`net10.0-windows`，单项目（`WindowMerger.csproj`，入口 `src/App.xaml`，宿主视觉树与布局尺寸常量在 `src/HostWindow.xaml`——`x:Name` 生成字段供 code-behind 引用，动态逻辑在 `HostWindow.cs` 与两个 partial（`HostWindow.Drag.cs` 交互拖拽 / `HostWindow.Attach.cs` 吸附编排）；构造顺序 = InitializeComponent → 配置尺寸覆盖（W/H/位置，只碰窗口自身、不碰 XAML 布局常量）→ WireUi（事件挂接 + 从 UI 读入布局尺寸 + 动态字形）→ ApplyTheme（换主题资源，XAML 只带深色初值）；窗口级事件（LocationChanged/StateChanged/Activated/250ms 定时器）在构造函数挂，WireUi 只挂 UI 元素）。
 吸附态封装在 `src/AttachedChild.cs`（Hwnd/吸附前矩形/隐形边 + 全部自身 hwnd 的 Win32 操作：`Attach` 捕获、`PlaceInPane` 放置含隐形边外扩与已就位跳过、`PrepareForDock`/`Undock`/`Restore`、`EnsureDockedState`、`MoveBy`/`MoveOffscreen`/`PlaceBelowHost`），与左右/几何/UI 完全解耦、可在格间整体交换；构造时持有宿主句柄（子窗口插入点 = 宿主正下方）。宿主以 `_left/_right` 两个引用持有，`SwapSides` = 引用交换。几何计算与吸附编排（TryAttach 分支、格子矩形、FixZOrder 遍历）留在宿主。
 **布局尺寸单一来源 = XAML**（`_outer` BorderThickness / `_topBar` Height / 分隔条列宽），WireUi 读入 `_borderW/_topBarH/_dividerW` 字段，几何公式用字段；不能直接把 BorderThickness 当基准读——最大化时会写 0，恢复时形成循环（曾因此设计过分步写回）。最小窗口尺寸 = XAML `MinWidth/MinHeight`（WndProc 的 ptMinTrackSize 读它们）。
-主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值；**悬停刷色也在 XAML**（Button 隐式样式/DangerCaptionButton/DividerStyle 的 `IsMouseOver` Trigger + DynamicResource，实测 .NET 10 WPF 完全可用——早前"Trigger 不能用 DynamicResource"的记录是错误结论）。**陷阱**：对 DynamicResource 属性做局部赋值（如事件里刷悬停色）会销毁资源引用表达式，之后 `ClearValue` 不会恢复引用而是落到 null（实测分隔条变透明）——悬停一律走 Trigger，不要用事件刷色。顶条按钮是 XAML 实例 + 隐式 Button 样式，静态字形直接写在按钮文本里，点击/动态字形（主题月亮/太阳、最大化还原、左右翻转）由 WireUi/UpdateSideButtons 补。
+主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值；**悬停刷色也在 XAML**（Button 隐式样式/DangerCaptionButton/DividerStyle 的 `IsMouseOver` Trigger + DynamicResource，实测 .NET 10 WPF 完全可用——早前"Trigger 不能用 DynamicResource"的记录是错误结论）。**陷阱**：对 DynamicResource 属性做局部赋值（如事件里刷悬停色）会销毁资源引用表达式，之后 `ClearValue` 不会恢复引用而是落到 null（实测分隔条变透明）——悬停一律走 Trigger，不要用事件刷色。顶条按钮是 XAML 实例 + 隐式 Button 样式，静态字形直接写在按钮文本里，点击/动态字形（主题月亮/太阳/半圆、最大化还原、左右选窗按钮的方向/空格字形）由 WireUi/UpdateSideButtons 补。
 
 ## 构建 / 运行 / 提交
 
@@ -16,7 +16,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 ```
 
 - **重建前必须先关闭运行中的实例**（exe 被运行实例锁定会构建失败）。优雅关闭 = PostMessage `WM_CLOSE (0x0010)`，走正常退出流程（保存配置 + 释放子窗口回原位）；`taskkill /F` 会跳过这些清理，仅在卡死时用
-- 功能迭代单独 commit；`bin/`、`obj/`、`.zcode/` 已在 .gitignore，勿入库
+- 功能迭代单独 commit；`bin/`、`obj/`、`publish/`、`.zcode/` 已在 .gitignore，勿入库
+- 发布：本地 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\Publish.ps1`（自动 WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源，VS 发布对话框里改、脚本与 CI 自动跟随）→ copy 改名替换产出 `publish\WindowMerger-<版本>-win-x64.exe`，版本默认取 csproj、`-Version` 可覆盖，产物为框架依赖单文件 exe、目标机器需 .NET 10 Desktop Runtime x64）；推 `v*` tag 触发 `.github/workflows/release.yml` 自动构建并发 GitHub Release（tag 版本去 `v` 写程序集版本；workflow_dispatch 仅构建出工件不发 Release）
 
 ## 本仓库踩过的真坑（违反必炸，全部实测）
 
