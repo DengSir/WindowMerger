@@ -46,11 +46,11 @@ internal sealed class DragAttach : IDisposable
         {
             _poll.Stop();
             _dragHwnd = IntPtr.Zero;
-            int slot = HitTestSlot(hwnd);
-            _host.SetDragHighlight(-1);
-            if (slot >= 0)
+            var side = HitTestSlot(hwnd);
+            _host.SetDragHighlight(null);
+            if (side is not null)
             {
-                _host.TryAttach(slot == 0 ? AttachSide.Left : AttachSide.Right, hwnd);
+                _host.TryAttach(side.Value, hwnd);
             }
         }
     }
@@ -65,15 +65,15 @@ internal sealed class DragAttach : IDisposable
         _host.SetDragHighlight(HitTestSlot(_dragHwnd));
     }
 
-    private int HitTestSlot(IntPtr hwnd)
+    private AttachSide? HitTestSlot(IntPtr hwnd)
     {
         // 已吸附子窗口拖动也亮框（归位语义），其余窗口走常规吸附判定
-        if (!_host.IsAttachable(hwnd) && !_host.IsAttachedChild(hwnd)) return -1;
+        if (!_host.IsAttachable(hwnd) && !_host.IsAttachedChild(hwnd)) return null;
         // 光标位置为准（MOVESIZEEND 时即松手点），物理设备像素与窗口矩形同坐标系
-        if (!Native.GetCursorPos(out var p)) return -1;
-        int slot = _host.HitTestPaneAt(p.X, p.Y);
-        if (slot < 0) return -1;
-        return _host.IsDropAllowed(hwnd, slot) ? slot : -1; // 不允许就不显示高亮
+        if (!Native.GetCursorPos(out var p)) return null;
+        var side = _host.HitTestPaneAt(p.X, p.Y);
+        if (side is null) return null;
+        return _host.IsDropAllowed(hwnd, side.Value) ? side : null; // 不允许就不显示高亮
     }
 
     public void Dispose()

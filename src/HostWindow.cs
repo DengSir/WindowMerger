@@ -29,11 +29,10 @@ public sealed partial class HostWindow : Window
     private IntPtr _handle;
     private AttachedChild? _left;    // 左格当前吸附态（null=空格）
     private AttachedChild? _right;   // 右格当前吸附态
-    private readonly HashSet<long> _attachedPids = new();
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
-    private int _highlightSlot = -1;
+    private AttachSide? _highlight;   // 当前拖放高亮的槽位（null=无）
     private string? _notice;
     private DateTime _noticeUntil;
 
@@ -41,15 +40,15 @@ public sealed partial class HostWindow : Window
     private double CurBorderW => WindowState == WindowState.Maximized ? 0 : _borderW;
 
     /// <summary>槽位 → 吸附态（null=空格）。</summary>
-    private AttachedChild? ChildAt(int slot) => slot == 0 ? _left : _right;
+    private AttachedChild? ChildAt(AttachSide side) => side == AttachSide.Left ? _left : _right;
 
-    private IntPtr HwndOf(int slot) => ChildAt(slot)?.Hwnd ?? IntPtr.Zero;
+    private IntPtr HwndOf(AttachSide side) => ChildAt(side)?.Hwnd ?? IntPtr.Zero;
 
     /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
-    private void ToggleSide(int slot)
+    private void ToggleSide(AttachSide side)
     {
-        if (HwndOf(slot) == IntPtr.Zero) Pick(slot == 0 ? AttachSide.Left : AttachSide.Right);
-        else ReleaseSide(slot);
+        if (HwndOf(side) == IntPtr.Zero) Pick(side);
+        else ReleaseSide(side);
     }
 
     public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null)
@@ -121,8 +120,8 @@ public sealed partial class HostWindow : Window
 
         // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
         // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题月亮/太阳、最大化/还原）
-        _pickLeftButton.Click += (_, _) => ToggleSide(0);
-        _pickRightButton.Click += (_, _) => ToggleSide(1);
+        _pickLeftButton.Click += (_, _) => ToggleSide(AttachSide.Left);
+        _pickRightButton.Click += (_, _) => ToggleSide(AttachSide.Right);
         _swapButton.Click += (_, _) => SwapSides();
         _releaseButton.Click += (_, _) => ReleaseAll();
         _themeButton.Content = ThemeGlyph();
@@ -241,7 +240,10 @@ public sealed partial class HostWindow : Window
     private void SaveConfig()
     {
         var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
-        cfg.AttachedPids = _attachedPids.ToList();
+        cfg.AttachedPids = new[] { _left, _right }
+            .Where(c => c is not null)
+            .Select(c => (long)c!.Pid)
+            .ToList();
         cfg.AttachedHwnds = new[] { _left, _right }
             .Where(c => c is not null)
             .Select(c => c!.Hwnd.ToInt64())
@@ -406,29 +408,30 @@ public sealed partial class HostWindow : Window
     private void ApplyLayout()
     {
         if (_handle == IntPtr.Zero || !IsLoaded) return;
-        ApplyLayoutTo(_left, 0);
-        ApplyLayoutTo(_right, 1);
+        ApplyLayoutTo(_left, AttachSide.Left);
+        ApplyLayoutTo(_right, AttachSide.Right);
     }
 
-    private bool ApplyLayoutTo(AttachedChild? child, int slot)
+    private bool ApplyLayoutTo(AttachedChild? child, AttachSide side)
     {
         if (child is null || !child.CanPlace) return false;
         if (ActualWidth < 50 || ActualHeight < 50) return false;
 
-        var (x, y, w, h) = PaneRectDevice(slot);
+        var (x, y, w, h) = PaneRectDevice(side);
 
         // 外扩自身隐形边 + 插到宿主正下方，都在 child 内部完成
         return child.PlaceInPane(x, y, w, h);
     }
 
-    private (int X, int Y, int W, int H) PaneRectDevice(int slot)
+    private (int X, int Y, int W, int H) PaneRectDevice(AttachSide side)
     {
         double bw = CurBorderW;
+        bool isLeft = side == AttachSide.Left;
         double availDip = Math.Max(0, ActualWidth - 2 * bw - _dividerW);
         double contentHDip = Math.Max(0, ActualHeight - 2 * bw - _topBarH);
         double leftWDip = availDip * _ratio;
-        double xDip = slot == 0 ? bw : bw + leftWDip + _dividerW;
-        double wDip = slot == 0 ? leftWDip : availDip - leftWDip;
+        double xDip = isLeft ? bw : bw + leftWDip + _dividerW;
+        double wDip = isLeft ? leftWDip : availDip - leftWDip;
 
         var tl = PointToScreen(new Point(xDip, bw + _topBarH));
         var br = PointToScreen(new Point(xDip + wDip, bw + _topBarH + contentHDip));
@@ -483,7 +486,7 @@ public sealed partial class HostWindow : Window
 
         if (WindowState == WindowState.Minimized) return; // 最小化时不布局；最大化也要自愈
         bool dragging = _drag is { IsBusy: true };
-        if (!dragging && _highlightSlot != -1) SetDragHighlight(-1); // 拖动事件丢失时兜底熄灭高亮
+        if (!dragging && _highlight is not null) SetDragHighlight(null); // 拖动事件丢失时兜底熄灭高亮
         if (dragging) return; // 有窗口正在被拖动，不对抗
 
         // 应用自身可能被外部改回普通样式（个别框架会重写样式），丢失时补上；
@@ -660,33 +663,34 @@ public sealed partial class HostWindow : Window
         => hwnd != IntPtr.Zero && (hwnd == (_left?.Hwnd ?? IntPtr.Zero) || hwnd == (_right?.Hwnd ?? IntPtr.Zero));
 
     /// <summary>拖放是否被允许：空格、拖回自己、或按住 Ctrl 替换。不允许则不显示高亮。</summary>
-    internal bool IsDropAllowed(IntPtr hwnd, int slot)
+    internal bool IsDropAllowed(IntPtr hwnd, AttachSide side)
     {
-        IntPtr cur = HwndOf(slot);
+        IntPtr cur = HwndOf(side);
         if (cur == IntPtr.Zero || cur == hwnd) return true;
         return IsCtrlHeld();
     }
 
-    internal int HitTestPaneAt(int deviceX, int deviceY)
+    /// <summary>命中检测：返回命中的槽位（null=不在任何格子内）。</summary>
+    internal AttachSide? HitTestPaneAt(int deviceX, int deviceY)
     {
-        if (_handle == IntPtr.Zero || !IsLoaded || WindowState == WindowState.Minimized) return -1;
+        if (_handle == IntPtr.Zero || !IsLoaded || WindowState == WindowState.Minimized) return null;
         var p = PointFromScreen(new Point(deviceX, deviceY));
         double bw = CurBorderW;
         double x0 = bw;
         double x1 = ActualWidth - bw;
         double y0 = bw + _topBarH;
         double y1 = ActualHeight - bw;
-        if (p.X < x0 || p.X > x1 || p.Y < y0 || p.Y > y1) return -1;
+        if (p.X < x0 || p.X > x1 || p.Y < y0 || p.Y > y1) return null;
         double avail = Math.Max(1, _content.ActualWidth - _dividerW);
         double split = x0 + avail * _ratio + _dividerW / 2;
-        return p.X < split ? 0 : 1;
+        return p.X < split ? AttachSide.Left : AttachSide.Right;
     }
 
-    internal void SetDragHighlight(int slot)
+    internal void SetDragHighlight(AttachSide? side)
     {
-        _highlightSlot = slot;
-        _leftGlow.Visibility = slot == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _rightGlow.Visibility = slot == 1 ? Visibility.Visible : Visibility.Collapsed;
+        _highlight = side;
+        _leftGlow.Visibility = side == AttachSide.Left ? Visibility.Visible : Visibility.Collapsed;
+        _rightGlow.Visibility = side == AttachSide.Right ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---------- 任务栏隐藏与图标叠加 ----------
@@ -745,15 +749,15 @@ public sealed partial class HostWindow : Window
     internal void TryAttach(AttachSide side, IntPtr hwnd)
     {
         if (!IsAttachable(hwnd)) return;
-        int slot = side == AttachSide.Left ? 0 : 1;
-        var child = ChildAt(slot);
-        var other = ChildAt(1 - slot);
+        var otherSide = side == AttachSide.Left ? AttachSide.Right : AttachSide.Left;
+        var child = ChildAt(side);
+        var other = ChildAt(otherSide);
         IntPtr cur = child?.Hwnd ?? IntPtr.Zero;
         IntPtr otherHwnd = other?.Hwnd ?? IntPtr.Zero;
 
         if (hwnd == cur)
         {
-            ApplyLayoutTo(child, slot); // 拖走又拖回来：吸附回原格
+            ApplyLayoutTo(child, side); // 拖走又拖回来：吸附回原格
             return;
         }
         if (cur != IntPtr.Zero && !IsCtrlHeld())
@@ -765,22 +769,21 @@ public sealed partial class HostWindow : Window
         if (hwnd == otherHwnd)
         {
             // 拖到另一侧 = 换到另一侧（吸附态整体搬家）
-            if (slot == 0) { _right = _left; _left = null; }
+            if (side == AttachSide.Left) { _right = _left; _left = null; }
             else { _left = _right; _right = null; }
-            ApplyLayoutTo(ChildAt(slot), slot);
+            ApplyLayoutTo(ChildAt(side), side);
             UpdateStatus();
             return;
         }
 
         if (child is not null) child.Restore(); // 替换：原窗口回到吸附前位置
         var attached = AttachedChild.Attach(_handle, hwnd);
-        if (slot == 0) _left = attached; else _right = attached;
+        if (side == AttachSide.Left) _left = attached; else _right = attached;
         attached.PrepareForDock();
-        _attachedPids.Add(Native.GetPid(hwnd));
-        if (!ApplyLayoutTo(attached, slot))
+        if (!ApplyLayoutTo(attached, side))
         {
             // SetWindowPos 被拒：最常见是目标窗口以更高权限运行（UIPI 拦截跨完整性级别操作）
-            DetachStateOnly(slot, attached);
+            DetachStateOnly(side, attached);
             ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
             return;
         }
@@ -791,11 +794,11 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>吸附失败时只清理状态，不尝试恢复窗口几何（窗口从未被移动过）。</summary>
-    private void DetachStateOnly(int slot, AttachedChild child)
+    private void DetachStateOnly(AttachSide side, AttachedChild child)
     {
-        if (ChildAt(slot) == child)
+        if (ChildAt(side) == child)
         {
-            if (slot == 0) _left = null; else _right = null;
+            if (side == AttachSide.Left) _left = null; else _right = null;
         }
         child.Undock();
         UpdateStatus();
@@ -991,20 +994,20 @@ public sealed partial class HostWindow : Window
     /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（f060/f061），已吸附=释放该侧（f2d2）。</summary>
     private void UpdateSideButtons()
     {
-        var sides = new[] { (_pickLeftButton, HwndOf(0)), (_pickRightButton, HwndOf(1)) };
-        foreach (var (btn, hwnd) in sides)
+        var sides = new[] { (_pickLeftButton, ChildAt(AttachSide.Left)), (_pickRightButton, ChildAt(AttachSide.Right)) };
+        foreach (var (btn, child) in sides)
         {
-            bool used = hwnd != IntPtr.Zero;
+            bool used = child is not null;
             btn.Content = used ? "\uF2D2" : "\uF060";
             btn.ToolTip = used ? "释放该侧（回到原位）" : "选择该侧…";
         }
     }
 
     /// <summary>释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）。</summary>
-    private void ReleaseSide(int slot)
+    private void ReleaseSide(AttachSide side)
     {
-        ChildAt(slot)?.Restore();
-        if (slot == 0) _left = null; else _right = null;
+        ChildAt(side)?.Restore();
+        if (side == AttachSide.Left) _left = null; else _right = null;
         UpdateStatus();
         UpdateHostIcon();
     }

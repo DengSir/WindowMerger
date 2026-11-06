@@ -14,21 +14,24 @@ internal sealed class AttachedChild
     private readonly IntPtr _host;  // 宿主句柄：子窗口插入点（宿主正下方）
 
     public IntPtr Hwnd;                                // 当前子窗口
+    public uint Pid;                                   // 子窗口所属进程（孤儿清理的句柄复用校验）
     public Native.RECT PreAttachRect;                  // 吸附前矩形（释放还原用）
     public (int L, int T, int R, int B) FrameMargins;  // 隐形边（吸附时实测）
 
     private static readonly IntPtr HwndNotTopmost = new(-2);
 
-    private AttachedChild(IntPtr host, IntPtr hwnd)
+    private AttachedChild(IntPtr host, IntPtr hwnd, uint pid)
     {
         _host = host;
         Hwnd = hwnd;
+        Pid = pid;
     }
 
-    /// <summary>吸附时捕获吸附态：吸附前矩形（最小化中则取还原矩形）+ 隐形边实测。</summary>
+    /// <summary>吸附时捕获吸附态：吸附前矩形（最小化中则取还原矩形）+ 隐形边实测 + 所属 PID。</summary>
     public static AttachedChild Attach(IntPtr host, IntPtr hwnd)
     {
-        var child = new AttachedChild(host, hwnd);
+        Native.GetWindowThreadProcessId(hwnd, out var pid);
+        var child = new AttachedChild(host, hwnd, pid);
         if (Native.IsIconic(hwnd))
         {
             var pl = new Native.WINDOWPLACEMENT { length = Marshal.SizeOf<Native.WINDOWPLACEMENT>() };
