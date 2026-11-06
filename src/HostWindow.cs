@@ -27,10 +27,8 @@ public sealed partial class HostWindow : Window
     private double _ratio;
 
     private IntPtr _handle;
-    private IntPtr _leftHwnd;
-    private IntPtr _rightHwnd;
-    private readonly Dictionary<IntPtr, Native.RECT> _preAttachRects = new();
-    private readonly Dictionary<IntPtr, (int L, int T, int R, int B)> _frameMargins = new();
+    private AttachedChild? _left;    // 左格当前吸附态（null=空格）
+    private AttachedChild? _right;   // 右格当前吸附态
     private readonly HashSet<long> _attachedPids = new();
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
@@ -39,10 +37,20 @@ public sealed partial class HostWindow : Window
     private string? _notice;
     private DateTime _noticeUntil;
 
-    private static readonly IntPtr HwndNotTopmost = new(-2);
-
     /// <summary>当前生效的边框宽度：最大化时边框隐藏，格子铺满窗口。</summary>
     private double CurBorderW => WindowState == WindowState.Maximized ? 0 : _borderW;
+
+    /// <summary>槽位 → 吸附态（null=空格）。</summary>
+    private AttachedChild? ChildAt(int slot) => slot == 0 ? _left : _right;
+
+    private IntPtr HwndOf(int slot) => ChildAt(slot)?.Hwnd ?? IntPtr.Zero;
+
+    /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
+    private void ToggleSide(int slot)
+    {
+        if (HwndOf(slot) == IntPtr.Zero) Pick(slot == 0 ? AttachSide.Left : AttachSide.Right);
+        else ReleaseSide(slot);
+    }
 
     public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null)
     {
@@ -124,15 +132,6 @@ public sealed partial class HostWindow : Window
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
         _topBar.MouseMove += TopBarOnMouseMove;
         _topBar.MouseLeftButtonUp += TopBarOnMouseUp;
-    }
-
-    private IntPtr HwndOf(int slot) => slot == 0 ? _leftHwnd : _rightHwnd;
-
-    /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
-    private void ToggleSide(int slot)
-    {
-        if (HwndOf(slot) == IntPtr.Zero) Pick(slot == 0 ? AttachSide.Left : AttachSide.Right);
-        else ReleaseSide(slot);
     }
 
     // ---------- 主题 ----------
@@ -240,9 +239,9 @@ public sealed partial class HostWindow : Window
     {
         var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
         cfg.AttachedPids = _attachedPids.ToList();
-        cfg.AttachedHwnds = new[] { _leftHwnd, _rightHwnd }
-            .Where(h => h != IntPtr.Zero)
-            .Select(h => h.ToInt64())
+        cfg.AttachedHwnds = new[] { _left, _right }
+            .Where(c => c is not null)
+            .Select(c => c!.Hwnd.ToInt64())
             .ToList();
         if (WindowState == WindowState.Normal)
         {
@@ -395,11 +394,11 @@ public sealed partial class HostWindow : Window
         _lastOrigin = now;
         if (dx == 0 && dy == 0) return;
 
-        foreach (var h in new[] { _leftHwnd, _rightHwnd })
+        foreach (var child in new[] { _left, _right })
         {
-            if (h == IntPtr.Zero || !Native.IsWindow(h) || Native.IsIconic(h)) continue;
-            if (!Native.GetWindowRect(h, out var r)) continue;
-            Native.SetWindowPos(h, IntPtr.Zero, r.Left + dx, r.Top + dy, 0, 0,
+            if (child is null || !child.IsAlive || Native.IsIconic(child.Hwnd)) continue;
+            if (!Native.GetWindowRect(child.Hwnd, out var r)) continue;
+            Native.SetWindowPos(child.Hwnd, IntPtr.Zero, r.Left + dx, r.Top + dy, 0, 0,
                 Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
         }
     }
@@ -407,19 +406,20 @@ public sealed partial class HostWindow : Window
     private void ApplyLayout()
     {
         if (_handle == IntPtr.Zero || !IsLoaded) return;
-        ApplyLayoutTo(_leftHwnd, 0);
-        ApplyLayoutTo(_rightHwnd, 1);
+        ApplyLayoutTo(_left, 0);
+        ApplyLayoutTo(_right, 1);
     }
 
-    private bool ApplyLayoutTo(IntPtr hwnd, int slot)
+    private bool ApplyLayoutTo(AttachedChild? child, int slot)
     {
-        if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd) || Native.IsIconic(hwnd) || Native.IsZoomed(hwnd)) return false;
+        if (child is null || !Native.IsWindow(child.Hwnd) || Native.IsIconic(child.Hwnd) || Native.IsZoomed(child.Hwnd)) return false;
         if (ActualWidth < 50 || ActualHeight < 50) return false;
+        IntPtr hwnd = child.Hwnd;
 
         var (x, y, w, h) = PaneRectDevice(slot);
 
         // 外扩 DWM 隐形边，可见内容才能精确填满格子
-        var m = _frameMargins.TryGetValue(hwnd, out var fm) ? fm : default;
+        var m = child.FrameMargins;
         x -= m.L;
         y -= m.T;
         w += m.L + m.R;
@@ -466,10 +466,10 @@ public sealed partial class HostWindow : Window
         if (_handle == IntPtr.Zero) return;
         // 插到宿主正下方（先右后左，最终顺序上→下：宿主、左、右）。
         // 不用 HWND_TOP：实测 Alt+Tab 切回宿主后它是静默无效调用（返回 true 但 z 序不变）
-        foreach (var h in new[] { _rightHwnd, _leftHwnd })
+        foreach (var child in new[] { _right, _left })
         {
-            if (h == IntPtr.Zero || !Native.IsWindow(h) || Native.IsIconic(h)) continue;
-            Native.SetWindowPos(h, _handle, 0, 0, 0, 0,
+            if (child is null || !Native.IsWindow(child.Hwnd) || Native.IsIconic(child.Hwnd)) continue;
+            Native.SetWindowPos(child.Hwnd, _handle, 0, 0, 0, 0,
                 Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
         }
     }
@@ -483,34 +483,20 @@ public sealed partial class HostWindow : Window
         bool leftOk = false, rightOk = false;
         for (int i = 0; i < 2 && below != IntPtr.Zero; i++)
         {
-            if (below == _leftHwnd) leftOk = true;
-            if (below == _rightHwnd) rightOk = true;
+            if (_left is not null && below == _left.Hwnd) leftOk = true;
+            if (_right is not null && below == _right.Hwnd) rightOk = true;
             below = Native.GetWindow(below, Native.GW_HWNDNEXT);
         }
-        bool needLeft = _leftHwnd != IntPtr.Zero && Native.IsWindow(_leftHwnd)
-            && !Native.IsIconic(_leftHwnd) && !leftOk;
-        bool needRight = _rightHwnd != IntPtr.Zero && Native.IsWindow(_rightHwnd)
-            && !Native.IsIconic(_rightHwnd) && !rightOk;
+        bool needLeft = _left is not null && _left.IsAlive && !Native.IsIconic(_left.Hwnd) && !leftOk;
+        bool needRight = _right is not null && _right.IsAlive && !Native.IsIconic(_right.Hwnd) && !rightOk;
         if (needLeft || needRight) RaiseChildrenBelow();
     }
 
     private void Maintain()
     {
         bool childLost = false;
-        if (_leftHwnd != IntPtr.Zero && !Native.IsWindow(_leftHwnd))
-        {
-            _preAttachRects.Remove(_leftHwnd);
-            _frameMargins.Remove(_leftHwnd);
-            _leftHwnd = IntPtr.Zero;
-            childLost = true;
-        }
-        if (_rightHwnd != IntPtr.Zero && !Native.IsWindow(_rightHwnd))
-        {
-            _preAttachRects.Remove(_rightHwnd);
-            _frameMargins.Remove(_rightHwnd);
-            _rightHwnd = IntPtr.Zero;
-            childLost = true;
-        }
+        if (_left is not null && !_left.IsAlive) { _left = null; childLost = true; }
+        if (_right is not null && !_right.IsAlive) { _right = null; childLost = true; }
         UpdateStatus();
         if (childLost) { UpdateHostIcon(); }
 
@@ -519,22 +505,12 @@ public sealed partial class HostWindow : Window
         if (!dragging && _highlightSlot != -1) SetDragHighlight(-1); // 拖动事件丢失时兜底熄灭高亮
         if (dragging) return; // 有窗口正在被拖动，不对抗
 
-        // 应用自身可能被外部改回普通样式（个别框架会重写样式），丢失时补上
-        foreach (var h in new[] { _leftHwnd, _rightHwnd })
-        {
-            if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-            if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TOOLWINDOW) == 0)
-            {
-                SetToolWindowStyle(h, tool: true);
-            }
-        }
-
+        // 应用自身可能被外部改回普通样式（个别框架会重写样式），丢失时补上；
         // 吸附子窗口没有任务栏按钮，最小化后无从手动还原；独立最大化则摧毁合并布局——
         // 宿主可见期间两种状态一律拉回格子自愈（子窗口自身没有"最大化"概念）
-        foreach (var h in new[] { _leftHwnd, _rightHwnd })
+        foreach (var child in new[] { _left, _right })
         {
-            if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-            if (Native.IsIconic(h) || Native.IsZoomed(h)) Native.ShowWindow(h, Native.SW_RESTORE);
+            child?.EnsureDockedState();
         }
 
         UpdatePaneWidths(); // 分隔条视觉位置与 _ratio 的持续对账（自愈任何布局漂移）
@@ -551,10 +527,10 @@ public sealed partial class HostWindow : Window
             case WindowState.Minimized:
                 // 子窗口是 tool window，最小化会缩成标题条留在桌面左下——直接移出屏幕外
                 // （对所有窗口类型有效，还原时 ApplyLayout 按格子矩形拉回）
-                foreach (var h in new[] { _leftHwnd, _rightHwnd })
+                foreach (var child in new[] { _left, _right })
                 {
-                    if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-                    Native.SetWindowPos(h, IntPtr.Zero, -32000, -32000, 0, 0,
+                    if (child is null || !Native.IsWindow(child.Hwnd)) continue;
+                    Native.SetWindowPos(child.Hwnd, IntPtr.Zero, -32000, -32000, 0, 0,
                         Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
                 }
                 break;
@@ -583,16 +559,16 @@ public sealed partial class HostWindow : Window
     /// </summary>
     private void ShowAttachedChildren()
     {
-        foreach (var h in new[] { _leftHwnd, _rightHwnd })
+        foreach (var child in new[] { _left, _right })
         {
-            if (h == IntPtr.Zero || !Native.IsWindow(h)) continue;
-            if (Native.IsIconic(h) || Native.IsZoomed(h))
+            if (child is null || !Native.IsWindow(child.Hwnd)) continue;
+            if (Native.IsIconic(child.Hwnd) || Native.IsZoomed(child.Hwnd))
             {
-                Native.ShowWindow(h, Native.SW_RESTORE);
+                Native.ShowWindow(child.Hwnd, Native.SW_RESTORE);
             }
-            else if (!Native.IsWindowVisible(h))
+            else if (!Native.IsWindowVisible(child.Hwnd))
             {
-                Native.ShowWindow(h, Native.SW_SHOWNA);
+                Native.ShowWindow(child.Hwnd, Native.SW_SHOWNA);
             }
         }
     }
@@ -698,7 +674,7 @@ public sealed partial class HostWindow : Window
         foreach (var c in candidates)
         {
             if (!match(c)) continue;
-            if (c.Hwnd == _leftHwnd || c.Hwnd == _rightHwnd) continue; // 已吸附的跳过
+            if (c.Hwnd == (_left?.Hwnd ?? IntPtr.Zero) || c.Hwnd == (_right?.Hwnd ?? IntPtr.Zero)) continue; // 已吸附的跳过
             if (!Native.GetWindowRect(c.Hwnd, out var r)) continue;
             long area = (long)r.Width * r.Height;
             if (area > bestArea)
@@ -721,12 +697,12 @@ public sealed partial class HostWindow : Window
     }
 
     internal bool IsAttachedChild(IntPtr hwnd)
-        => hwnd != IntPtr.Zero && (hwnd == _leftHwnd || hwnd == _rightHwnd);
+        => hwnd != IntPtr.Zero && (hwnd == (_left?.Hwnd ?? IntPtr.Zero) || hwnd == (_right?.Hwnd ?? IntPtr.Zero));
 
     /// <summary>拖放是否被允许：空格、拖回自己、或按住 Ctrl 替换。不允许则不显示高亮。</summary>
     internal bool IsDropAllowed(IntPtr hwnd, int slot)
     {
-        IntPtr cur = slot == 0 ? _leftHwnd : _rightHwnd;
+        IntPtr cur = HwndOf(slot);
         if (cur == IntPtr.Zero || cur == hwnd) return true;
         return IsCtrlHeld();
     }
@@ -753,28 +729,7 @@ public sealed partial class HostWindow : Window
         _rightGlow.Visibility = slot == 1 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>
-    /// 直角化子窗口（Win11 DWM 圆角是"圆角缝"的根源）：吸附时 DONOTROUND，
-    /// 释放时还原 DEFAULT。Win10 无此属性，调用失败无副作用。
-    /// </summary>
-    private static void SetSquareCorners(IntPtr hwnd, bool square)
-    {
-        int pref = square ? Native.DWMWCP_DONOTROUND : Native.DWMWCP_DEFAULT;
-        Native.DwmSetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
-    }
-
     // ---------- 任务栏隐藏与图标叠加 ----------
-
-    private static void SetToolWindowStyle(IntPtr hwnd, bool tool)
-    {
-        int ex = Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE);
-        int desired = tool ? ex | Native.WS_EX_TOOLWINDOW : ex & ~Native.WS_EX_TOOLWINDOW;
-        if (desired == ex) return;
-        Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, desired);
-        // 任务栏按钮在显示状态翻转时才刷新
-        Native.ShowWindow(hwnd, Native.SW_HIDE);
-        Native.ShowWindow(hwnd, Native.SW_SHOWNA);
-    }
 
     private BitmapSource? TryGetIconSource(IntPtr hwnd)
     {
@@ -796,8 +751,8 @@ public sealed partial class HostWindow : Window
 
     private void UpdateHostIcon()
     {
-        var l = TryGetIconSource(_leftHwnd);
-        var r = TryGetIconSource(_rightHwnd);
+        var l = TryGetIconSource(_left?.Hwnd ?? IntPtr.Zero);
+        var r = TryGetIconSource(_right?.Hwnd ?? IntPtr.Zero);
         if (l == null && r == null)
         {
             SetFallbackIcon(); // 无吸附窗口时回到应用图标（而非默认 WPF 图标）
@@ -831,12 +786,14 @@ public sealed partial class HostWindow : Window
     {
         if (!IsAttachable(hwnd)) return;
         int slot = side == AttachSide.Left ? 0 : 1;
-        IntPtr cur = slot == 0 ? _leftHwnd : _rightHwnd;
-        IntPtr other = slot == 0 ? _rightHwnd : _leftHwnd;
+        var child = ChildAt(slot);
+        var other = ChildAt(1 - slot);
+        IntPtr cur = child?.Hwnd ?? IntPtr.Zero;
+        IntPtr otherHwnd = other?.Hwnd ?? IntPtr.Zero;
 
         if (hwnd == cur)
         {
-            ApplyLayoutTo(hwnd, slot); // 拖走又拖回来：吸附回原格
+            ApplyLayoutTo(child, slot); // 拖走又拖回来：吸附回原格
             return;
         }
         if (cur != IntPtr.Zero && !IsCtrlHeld())
@@ -845,28 +802,27 @@ public sealed partial class HostWindow : Window
             ShowNotice("该侧已吸附窗口：按住 Ctrl 拖入可替换");
             return;
         }
-        if (hwnd == other)
+        if (hwnd == otherHwnd)
         {
-            // 拖到另一侧 = 换到另一侧
-            if (slot == 0) { _rightHwnd = IntPtr.Zero; _leftHwnd = hwnd; }
-            else { _leftHwnd = IntPtr.Zero; _rightHwnd = hwnd; }
-            ApplyLayoutTo(hwnd, slot);
+            // 拖到另一侧 = 换到另一侧（吸附态整体搬家）
+            if (slot == 0) { _right = _left; _left = null; }
+            else { _left = _right; _right = null; }
+            ApplyLayoutTo(ChildAt(slot), slot);
             UpdateStatus();
             return;
         }
 
-        if (cur != IntPtr.Zero) DetachRestore(cur); // 替换：原窗口回到吸附前位置
-        if (slot == 0) _leftHwnd = hwnd; else _rightHwnd = hwnd;
-        SavePreAttachRect(hwnd);
-        _frameMargins[hwnd] = Native.GetInvisibleFrameMargins(hwnd);
-        SetSquareCorners(hwnd, square: true);
+        if (child is not null) child.Restore(); // 替换：原窗口回到吸附前位置
+        var attached = AttachedChild.Attach(hwnd);
+        if (slot == 0) _left = attached; else _right = attached;
+        Native.SetSquareCorners(hwnd, square: true);
         if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
-        SetToolWindowStyle(hwnd, tool: true);
+        Native.SetToolWindowStyle(hwnd, tool: true);
         _attachedPids.Add(Native.GetPid(hwnd));
-        if (!ApplyLayoutTo(hwnd, slot))
+        if (!ApplyLayoutTo(attached, slot))
         {
             // SetWindowPos 被拒：最常见是目标窗口以更高权限运行（UIPI 拦截跨完整性级别操作）
-            DetachStateOnly(hwnd);
+            DetachStateOnly(slot, attached);
             ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
             return;
         }
@@ -877,62 +833,31 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>吸附失败时只清理状态，不尝试恢复窗口几何（窗口从未被移动过）。</summary>
-    private void DetachStateOnly(IntPtr hwnd)
+    private void DetachStateOnly(int slot, AttachedChild child)
     {
-        if (hwnd == IntPtr.Zero) return;
-        if (_leftHwnd == hwnd) _leftHwnd = IntPtr.Zero;
-        if (_rightHwnd == hwnd) _rightHwnd = IntPtr.Zero;
-        _frameMargins.Remove(hwnd);
-        _preAttachRects.Remove(hwnd);
-        SetSquareCorners(hwnd, square: false);
-        SetToolWindowStyle(hwnd, tool: false);
+        if (ChildAt(slot) == child)
+        {
+            if (slot == 0) _left = null; else _right = null;
+        }
+        Native.SetSquareCorners(child.Hwnd, square: false);
+        Native.SetToolWindowStyle(child.Hwnd, tool: false);
         UpdateStatus();
         UpdateHostIcon();
     }
 
-    private void SavePreAttachRect(IntPtr hwnd)
-    {
-        if (Native.IsIconic(hwnd))
-        {
-            var pl = new Native.WINDOWPLACEMENT { length = Marshal.SizeOf<Native.WINDOWPLACEMENT>() };
-            if (Native.GetWindowPlacement(hwnd, ref pl))
-            {
-                _preAttachRects[hwnd] = pl.rcNormalPosition;
-                return;
-            }
-        }
-        if (Native.GetWindowRect(hwnd, out var r)) _preAttachRects[hwnd] = r;
-    }
-
-    private void DetachRestore(IntPtr hwnd)
-    {
-        if (hwnd == IntPtr.Zero) return;
-        _frameMargins.Remove(hwnd);
-        SetSquareCorners(hwnd, square: false); // 圆角还原
-        SetToolWindowStyle(hwnd, tool: false); // 任务栏/Alt+Tab 恢复
-        if (!_preAttachRects.Remove(hwnd, out var r)) return;
-        if (!Native.IsWindow(hwnd)) return;
-        if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
-        // 摘除可能被外部污染的置顶标记，窗口回到普通层
-        Native.SetWindowPos(hwnd, HwndNotTopmost, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
-        Native.SetWindowPos(hwnd, IntPtr.Zero, r.Left, r.Top, r.Width, r.Height,
-            Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-    }
-
     private void ReleaseAll()
     {
-        DetachRestore(_leftHwnd);
-        DetachRestore(_rightHwnd);
-        _leftHwnd = IntPtr.Zero;
-        _rightHwnd = IntPtr.Zero;
+        _left?.Restore();
+        _right?.Restore();
+        _left = null;
+        _right = null;
         UpdateStatus();
         UpdateHostIcon();
     }
 
     private void SwapSides()
     {
-        (_leftHwnd, _rightHwnd) = (_rightHwnd, _leftHwnd);
+        (_left, _right) = (_right, _left);
         ApplyLayout();
         UpdateStatus();
         UpdateHostIcon();
@@ -1084,13 +1009,13 @@ public sealed partial class HostWindow : Window
         else
         {
             _notice = null;
-            if (_leftHwnd == IntPtr.Zero && _rightHwnd == IntPtr.Zero)
+            if (_left is null && _right is null)
             {
                 _status.Text = "把任意窗口拖进来吸附，或点顶条 ← / → 选择左/右窗";
             }
             else
             {
-                _status.Text = $"左: {PaneTitle(_leftHwnd)}    右: {PaneTitle(_rightHwnd)}";
+                _status.Text = $"左: {PaneTitle(_left?.Hwnd ?? IntPtr.Zero)}    右: {PaneTitle(_right?.Hwnd ?? IntPtr.Zero)}";
             }
         }
         UpdateSideButtons();
@@ -1121,8 +1046,8 @@ public sealed partial class HostWindow : Window
     /// <summary>释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）。</summary>
     private void ReleaseSide(int slot)
     {
-        if (slot == 0) { DetachRestore(_leftHwnd); _leftHwnd = IntPtr.Zero; }
-        else { DetachRestore(_rightHwnd); _rightHwnd = IntPtr.Zero; }
+        ChildAt(slot)?.Restore();
+        if (slot == 0) _left = null; else _right = null;
         UpdateStatus();
         UpdateHostIcon();
     }

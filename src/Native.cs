@@ -267,6 +267,24 @@ internal static partial class Native
     public static bool IsCloaked(IntPtr hwnd)
         => DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
 
+    /// <summary>切换 WS_EX_TOOLWINDOW（任务栏/Alt+Tab 收录开关）。注意：显示状态需翻转一次任务栏按钮才刷新。</summary>
+    public static void SetToolWindowStyle(IntPtr hwnd, bool tool)
+    {
+        int ex = GetWindowLong(hwnd, GWL_EXSTYLE);
+        int desired = tool ? ex | WS_EX_TOOLWINDOW : ex & ~WS_EX_TOOLWINDOW;
+        if (desired == ex) return;
+        SetWindowLong(hwnd, GWL_EXSTYLE, desired);
+        ShowWindow(hwnd, SW_HIDE);
+        ShowWindow(hwnd, SW_SHOWNA);
+    }
+
+    /// <summary>Win11 DWM 圆角开关：吸附时直角化（DONOTROUND）防"圆角缝"，释放还原 DEFAULT。Win10 无此属性，调用失败无副作用。</summary>
+    public static void SetSquareCorners(IntPtr hwnd, bool square)
+    {
+        int pref = square ? DWMWCP_DONOTROUND : DWMWCP_DEFAULT;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
+    }
+
     public static uint GetPid(IntPtr hwnd)
     {
         GetWindowThreadProcessId(hwnd, out uint pid);
