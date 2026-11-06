@@ -52,17 +52,18 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 源码修改纪律
 
-- **禁止用 PowerShell 正则批量改源文件**：PS 5.1 按系统 ANSI（GBK）读 UTF-8 文件，中文源文件会整文件乱码损毁（本次 HostWindow.cs 曾因此整体重写）。源码修改只用 Edit 工具
-- **tools 脚本 = Python 3.14**（`tools\lib\wm.py` 公共库：ctypes Win32/截图/进程/config；`wm_uia.py`：UIA 层用 **uiautomation 包**（comtypes 自动生成桩在 Py3.14 退化不可靠，勿回退）；依赖 `py -m pip install pillow comtypes uiautomation`；脚本一律 `sys.path.insert(0, .../lib)` 后 `import wm`，调用 `py tools\<目录>\<脚本>.py`）。中文注释可用（lib 已重配 stdout UTF-8）；诊断输出标记保持英文（NO_HOST / LEFT_HIT=...）。仅 `tools\archive\*.ps1` 是历史留档：内容 ASCII-only（PS 5.1 把 UTF-8 无 BOM 当 ANSI 读，中文会破坏解析），不再维护勿新增
+- **禁止用任何脚本正则批量改源文件**（历史教训：PowerShell 5.1 按系统 ANSI/GBK 读 UTF-8 文件，中文源文件曾因此整体乱码损毁）。源码修改只用 Edit 工具
+- **tools 脚本 = Python 3.14**（`tools\lib\wm.py` 公共库：ctypes Win32/截图/进程/config；`wm_uia.py`：UIA 层用 **uiautomation 包**（comtypes 自动生成桩在 Py3.14 退化不可靠，勿回退）；依赖 `py -m pip install pillow comtypes uiautomation`；脚本一律 `sys.path.insert(0, .../lib)` 后 `import wm`，调用 `py tools\<目录>\<脚本>.py`）。中文注释可用（lib 已重配 stdout UTF-8）；诊断输出标记保持英文（NO_HOST / LEFT_HIT=...）。仅 `tools\archive\*.ps1` 是历史留档（ASCII-only，PS 5.1 时代产物），冻结不再维护勿新增——**新脚本一律 Python，不再写 PowerShell**
 - 注释与 UI 文案用中文；异常直接抛出，不吞（唯一例外：配置文件损坏回退默认值、UIPI/DWM 属性调用失败按设计降级）
 
-## 运行环境注意（Bash 工具 = CMD）
+## 运行环境注意（Bash 工具 = Git Bash）
 
-- 无 POSIX 命令（`ls`/`grep`/`timeout` 均不可用）；延时用 `ping -n N 127.0.0.1 >nul`
-- PowerShell 内联单行命令经 CMD 双层转义极易损坏（`$null` 转义、嵌套表达式不展开、中文参数变乱码）——**复杂逻辑一律写 `tools\*.py` 脚本文件**再执行，参数传数字/ASCII；本仓库 Bash 工具实为 Git Bash（无 `%TEMP%` 展开，用 `$TEMP`/POSIX 路径）
+- `python` 指向 Windows Store stub（退出码 49）——**Python 一律用 `py` 启动器**（真身在 `AppData\Local\Python\pythoncore-3.14-64`）
+- 无 `%TEMP%` 等 CMD 展开，用 `$TEMP`/POSIX 路径；`tasklist`/`taskkill` 的过滤器斜杠要双写（`//FI`、`//PID`），否则被 Git Bash 当路径改写；`>nul` 是 Git Bash 里的普通文件重定向（会真建名为 nul 的文件），丢弃输出用 `>/dev/null`
+- **复杂逻辑一律写 `tools\*.py` 脚本文件**再执行，不写内联长命令
 - **锁屏会话（前台 = LockApp）时注入点击/键盘全部落在锁屏上，GDI 全屏截图报"句柄无效"**——远程交互验证会静默失败。此时 UIA `InvokePattern` 仍可用（进程内直调 Click，不走输入注入），可作为替代验证路径（见 `tools\visual\theme_menu_test.py`）
 - 验证脚本截图后**必须还原层级**（`HWND_NOTOPMOST`），不得给用户正在运行的实例残留置顶
-- Python 工具链实测坑（2026-11 转换期）：`SystemParametersInfoW(SPI_GETWORKAREA)` 本机 Win11 直接失败（err=0），主屏工作区用 `MonitorFromPoint(NEAREST)+GetMonitorInfo`；`SHGetKnownFolderPath` 第一参数是 **GUID 结构体指针**，传字符串地址不报错但返回未重定向的默认路径（本机桌面重定向 D:\Users）；psapi `GetModuleBaseNameW` 受限句柄查不到提权进程名，进程名一律 Toolhelp 快照；comtypes 1.4.17 对 UIAutomation typelib 生成的桩在 Python 3.14 上退化为 Incomplete（GetCurrentPattern 返回 NULL），UIA 层用 `uiautomation` 包；**打包应用（WindowsApps）进程 StartTime 不可靠**（预创建/挂起唤醒可早于宿主启动），"宿主拉起"判定用父进程链（`wm.launched_by`，stub→后代两层）；`shot.py` 的负坐标参数会被"未指定"哨兵吞掉（原 PS 同款语义），负坐标区域直接调 `wm.capture_screen`
+- Python 工具链实测坑（2026-11 转换期）：`SystemParametersInfoW(SPI_GETWORKAREA)` 本机 Win11 直接失败（err=0），主屏工作区用 `MonitorFromPoint(NEAREST)+GetMonitorInfo`；`SHGetKnownFolderPath` 第一参数是 **GUID 结构体指针**，传字符串地址不报错但返回未重定向的默认路径（本机桌面重定向 D:\Users）；psapi `GetModuleBaseNameW` 受限句柄查不到提权进程名，进程名一律 Toolhelp 快照；comtypes 1.4.17 对 UIAutomation typelib 生成的桩在 Python 3.14 上退化为 Incomplete（GetCurrentPattern 返回 NULL），UIA 层用 `uiautomation` 包；**打包应用（WindowsApps）进程 StartTime 不可靠**（预创建/挂起唤醒可早于宿主启动），"宿主拉起"判定用父进程链（`wm.launched_by`，stub→后代两层）；`shot.py` 的负坐标参数会被"未指定"哨兵吞掉，负坐标区域直接调 `wm.capture_screen`
 
 ## 验证流程
 
