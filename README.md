@@ -27,8 +27,8 @@ dotnet build -c Release
 **本地打包**（框架依赖单文件 exe，win-x64）：
 
 ```cmd
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish\Publish.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish\Publish.ps1 -Version 1.2.3
+py tools\publish\publish.py
+py tools\publish\publish.py --version 1.2.3
 ```
 
 - 打包参数复用 VS 发布配置 `Properties\PublishProfiles\FolderProfile.pubxml`（win-x64 / 框架依赖 / 单文件 / 输出 `publish\`）——在 VS 发布对话框里改设置，脚本与 CI 自动跟随
@@ -88,6 +88,9 @@ src/        源码（App.xaml 入口；HostWindow.xaml + HostWindow.cs/Attach/Dr
             AttachedChild 吸附态、DragAttach 拖入吸附、PickerWindow 选窗、WindowLocator 候选、
             Config 持久化、Theme 主题、Native Win32）
 docs/       FEATURES.md 功能清单（按源码核实）
-tools/      开发/验证/发布脚本，按用途分目录（publish 打包 / tests 自动回归 / manual 人工验证 /
-            visual 视觉验证 / utils 单项工具 / archive 历史留档），清单见 tools/README.md
+tools/      开发/验证/发布脚本（Python），按用途分目录（publish 打包 / tests 自动回归 /
+            manual 人工验证 / visual 视觉验证 / utils 单项工具 / archive 历史留档），
+            清单见 tools/README.md；lib/ 为公共库（ctypes Win32 + UIA）
 ```
+
+**开发脚本依赖**：应用本身不需要 Python；跑 `tools/` 脚本需要 Python 3.14 + `py -m pip install pillow comtypes`（截图与 UI Automation）。
