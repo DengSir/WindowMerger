@@ -60,19 +60,13 @@ public sealed partial class HostWindow : Window
 
         InitializeComponent();
 
-        // 尺寸/位置是配置驱动的，必须在 InitializeComponent 之后覆盖
+        // 尺寸是配置驱动的，必须在 InitializeComponent 之后覆盖
         Width = config.Width is double w and >= 300 ? w : 1280;
         Height = config.Height is double h and >= 300 ? h : 800;
-        if (config.Left is double l && config.Top is double t && Math.Abs(l) < 20000 && Math.Abs(t) < 20000)
-        {
-            WindowStartupLocation = WindowStartupLocation.Manual;
-            Left = l;
-            Top = t;
-        }
-        else
-        {
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        }
+
+        // 位置不持久化，启动一律居中：位置还原曾把窗口开到屏外（任务栏有按钮、桌面上
+        // 找不到窗口），多显示器坐标漂移/已断开的显示器时尤其如此
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         WireUi();
         ApplyTheme(); // XAML 只带深色初值，按配置主题重刷一遍（含按钮前景）
@@ -263,18 +257,13 @@ public sealed partial class HostWindow : Window
             .ToList();
         if (WindowState == WindowState.Normal)
         {
-            cfg.Left = Left;
-            cfg.Top = Top;
             cfg.Width = ActualWidth;
             cfg.Height = ActualHeight;
         }
         else
         {
-            var r = RestoreBounds;
-            cfg.Left = r.Left;
-            cfg.Top = r.Top;
-            cfg.Width = r.Width;
-            cfg.Height = r.Height;
+            cfg.Width = RestoreBounds.Width;
+            cfg.Height = RestoreBounds.Height;
         }
         ConfigStore.Save(cfg);
     }

@@ -9,8 +9,6 @@ public sealed class AppConfig
     public string Theme { get; set; } = "Auto";
     public List<long>? AttachedPids { get; set; }
     public List<long>? AttachedHwnds { get; set; }
-    public double? Left { get; set; }
-    public double? Top { get; set; }
     public double? Width { get; set; }
     public double? Height { get; set; }
 }
