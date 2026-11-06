@@ -1,15 +1,21 @@
-# Release pipeline: publish a framework-dependent single-file exe (win-x64) to
-# GitHub Releases. Publish settings come from the committed VS publish profile
+# Release pipeline: publish a framework-dependent single-file exe (win-x64),
+# packaged as a zip that contains the fixed-name WindowMerger.exe. Publish
+# settings come from the committed VS publish profile
 # (Properties/PublishProfiles/FolderProfile.pubxml).
-# Two release paths:
-#   1. push a v* tag            -> Release from the tag itself
-#   2. workflow_dispatch        -> fill in "version" to release from the current
+# Three trigger paths:
+#   1. push to main             -> prerelease Release on the fixed rolling
+#      'nightly' tag (force-moved to the built commit each run, never
+#      accumulating per-commit tags); version = 0.0.1.<commit sha first 8>
+#   2. push a v* tag            -> Release from the tag itself
+#   3. workflow_dispatch        -> fill in "version" to release from the current
 #      branch HEAD (tag auto-created at the built commit, optional prerelease
 #      flag); leave "version" empty to build the artifact only, no Release.
 name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -26,6 +32,13 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  # the nightly Release is delete/recreate shared state; serialize runs on the
+  # same ref so two quick main pushes cannot race on it (tag pushes each get
+  # their own group)
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -50,11 +63,17 @@ jobs:
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
         run: |
           $prerelease = ($env:INPUT_PRERELEASE -eq 'true')
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_TYPE -eq 'tag') {
             # tag push: release from the tag itself
             $version = $env:GITHUB_REF_NAME -replace '^v', ''
             $tag = $env:GITHUB_REF_NAME
             $shouldRelease = 'true'
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'push') {
+            # main branch push: prerelease Release on the fixed rolling 'nightly' tag
+            $version = '0.0.1.{0}' -f $env:GITHUB_SHA.Substring(0, 8)
+            $tag = 'nightly'
+            $shouldRelease = 'true'
+            $prerelease = $true
           } elseif ($env:INPUT_VERSION) {
             # manual dispatch with a version: release from the branch HEAD
             $version = $env:INPUT_VERSION -replace '^v', ''
@@ -82,20 +101,20 @@ jobs:
           dotnet publish WindowMerger.csproj -c Release -p:PublishProfile=FolderProfile `
             -p:TreatWarningsAsErrors=true -p:Version=$env:VERSION
 
-      - name: Stage artifact
+      - name: Stage artifact (zip containing the fixed-name WindowMerger.exe)
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          $asset = 'publish\WindowMerger-{0}-win-x64.exe' -f $env:VERSION
-          Copy-Item 'publish\WindowMerger.exe' $asset -Force
-          Get-ChildItem 'publish' | Format-Table Name, Length
+          $asset = 'publish\WindowMerger-{0}-win-x64.zip' -f $env:VERSION
+          Compress-Archive -Path 'publish\WindowMerger.exe' -DestinationPath $asset -Force
+          Get-ChildItem $asset, 'publish\WindowMerger.exe' | Format-Table Name, Length
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: WindowMerger-${{ steps.ver.outputs.version }}-win-x64
-          path: publish/WindowMerger-*.exe
+          path: publish/WindowMerger-*.zip
           if-no-files-found: error
 
       - name: Create GitHub Release
@@ -107,14 +126,30 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
           PRERELEASE: ${{ steps.ver.outputs.prerelease }}
         run: |
-          $asset = 'publish\WindowMerger-{0}-win-x64.exe' -f $env:VERSION
-          $ghArgs = @('release', 'create', $env:TAG, $asset,
-            '--title', "WindowMerger $env:TAG", '--generate-notes')
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            $ghArgs += '--verify-tag'
+          $asset = 'publish\WindowMerger-{0}-win-x64.zip' -f $env:VERSION
+          $ghArgs = @('release', 'create', $env:TAG, $asset)
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            # tag push: the tag already exists, verify it points at this commit
+            $ghArgs += @('--verify-tag', '--title', "WindowMerger $env:TAG",
+              '--generate-notes')
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'push') {
+            # main push: roll the fixed 'nightly' tag onto this commit, then
+            # republish its prerelease Release (no per-commit tag accumulation)
+            gh release delete $env:TAG --yes
+            if ($LASTEXITCODE -eq 0) {
+              Write-Output "Existing '$env:TAG' Release deleted"
+            } else {
+              Write-Output "No existing '$env:TAG' Release, skip delete (first run)"
+            }
+            git tag --force $env:TAG $env:GITHUB_SHA
+            git push --force origin $env:TAG
+            Write-Output "Tag '$env:TAG' moved to $env:GITHUB_SHA"
+            $ghArgs += @('--title', "WindowMerger $env:VERSION (nightly)",
+              '--notes', "Automated prerelease build of main at commit $env:GITHUB_SHA")
           } else {
-            # branch release: create the tag at this exact commit
-            $ghArgs += @('--target', $env:GITHUB_SHA)
+            # manual release: create the tag at this exact commit
+            $ghArgs += @('--target', $env:GITHUB_SHA,
+              '--title', "WindowMerger $env:TAG", '--generate-notes')
           }
           if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
           gh @ghArgs
