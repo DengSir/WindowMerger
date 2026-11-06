@@ -72,8 +72,9 @@ if ($hw -eq [IntPtr]::Zero) {
     Write-Output "FAIL_NO_HOST"; exit 1
 }
 
-# 4. park the host at a fixed 4K spot, let the maintain timer settle
-[CT]::SetWindowPos($hw, [IntPtr]::Zero, 400, 150, 0, 0, 0x0001 -bor 0x0004) | Out-Null
+# 4. park the host at a fixed 4K spot at a modest size (config size may be huge),
+#    let the maintain timer settle
+[CT]::SetWindowPos($hw, [IntPtr]::Zero, 400, 150, 1100, 750, 0x0004) | Out-Null
 Start-Sleep -Milliseconds 2500
 
 # 5. expected pane rect in device px (XAML constants: border 2 DIP, topbar 28 DIP,

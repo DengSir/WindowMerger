@@ -8,6 +8,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class LA {
     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int w, int hh, uint f);
 }
 "@
 
@@ -22,6 +23,7 @@ $mp = Start-Process mspaint -PassThru
 Start-Sleep -Milliseconds 1800
 $mp2 = Get-Process mspaint -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if (-not $mp2) { Write-Output "FAIL_NO_MSPAINT"; exit 1 }
+$null = [LA]::SetWindowPos([IntPtr]$mp2.MainWindowHandle, [IntPtr]::Zero, -2300, 200, 900, 650, 0x0004)
 $mpPath = $mp2.Path
 Stop-Process -Id $mp2.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 1200
@@ -32,6 +34,9 @@ Write-Output ("TARGET_PATH=" + $mpPath)
 $hostStart = Get-Date
 Start-Process $exe -ArgumentList "--left", "mspaint", "--left-exe", "`"$mpPath`""
 Start-Sleep -Seconds 4
+# test host shrunk + parked on the left monitor (config size may be huge)
+$hw2 = (Get-Process WindowMerger -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1)
+if ($hw2) { $null = [LA]::SetWindowPos([IntPtr]$hw2.MainWindowHandle, [IntPtr]::Zero, -2460, 120, 1000, 700, 0x0004) }
 
 # poll up to 15s for mspaint reappearing AND being attached (toolwindow style)
 $ok = $false

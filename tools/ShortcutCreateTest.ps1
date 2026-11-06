@@ -4,6 +4,13 @@
 # Deletes the .lnk afterwards. Kills only its own mspaint, never notepad.
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class SCW {
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int w, int hh, uint f);
+}
+"@
 
 $exe = "D:\Develop\WindowMerger\bin\Release\net10.0-windows\WindowMerger.exe"
 
@@ -14,9 +21,11 @@ Get-Process WindowMerger -ErrorAction SilentlyContinue | ForEach-Object { $null 
 Get-Process mspaint -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 1300
 
-# target window
+# target window: parked small on the LEFT 100% monitor (never fill the user's 4K)
 Start-Process mspaint
 Start-Sleep -Milliseconds 1500
+$mpw = Get-Process mspaint -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if ($mpw) { $null = [SCW]::SetWindowPos([IntPtr]$mpw.MainWindowHandle, [IntPtr]::Zero, -2300, 200, 900, 650, 0x0004) }
 
 Start-Process $exe -ArgumentList "--left", "mspaint"
 Start-Sleep -Seconds 4
@@ -24,6 +33,8 @@ Start-Sleep -Seconds 4
 $proc = Get-Process WindowMerger -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if (-not $proc) { Write-Output "FAIL_NO_HOST"; exit 1 }
 $hm = [IntPtr]$proc.MainWindowHandle
+# test host shrunk + parked on the left monitor (config size may be huge, e.g. saved spanning both screens)
+$null = [SCW]::SetWindowPos($hm, [IntPtr]::Zero, -2460, 120, 1000, 700, 0x0004)
 
 # UIA invoke the shortcut button (x:Name -> AutomationId)
 $root = [Windows.Automation.AutomationElement]::FromHandle($hm)

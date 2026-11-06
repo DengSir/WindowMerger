@@ -46,6 +46,14 @@ public sealed partial class HostWindow : Window
 
     private IntPtr HwndOf(AttachSide side) => ChildAt(side)?.Hwnd ?? IntPtr.Zero;
 
+    /// <summary>恢复的窗口尺寸钳制到主屏工作区（留 5% 余量），下限 MinWidth/MinHeight。</summary>
+    private double ClampToWorkArea(double v, bool isWidth)
+    {
+        double min = isWidth ? MinWidth : MinHeight;
+        double max = Math.Max(min, (isWidth ? SystemParameters.WorkArea.Width : SystemParameters.WorkArea.Height) * 0.95);
+        return Math.Clamp(v, min, max);
+    }
+
     /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
     private void ToggleSide(AttachSide side)
     {
@@ -63,9 +71,12 @@ public sealed partial class HostWindow : Window
 
         InitializeComponent();
 
-        // 尺寸是配置驱动的，必须在 InitializeComponent 之后覆盖
-        Width = config.Width is double w and >= 300 ? w : 1280;
-        Height = config.Height is double h and >= 300 ? h : 800;
+        // 尺寸是配置驱动的，必须在 InitializeComponent 之后覆盖；再钳制到主屏工作区——
+        // 尺寸按 DIP 持久化，窗口横跨两屏时（混合 DPI 下 ActualWidth 按最大占比屏换算）
+        // 存出的值可以比任何单屏都大，原样恢复会开出撑爆屏幕的巨型窗口（实测 config 存过
+        // 4284 DIP ≈ 6426 物理px，双屏拼接宽）
+        Width = ClampToWorkArea(config.Width is double w and >= 300 ? w : 1280, true);
+        Height = ClampToWorkArea(config.Height is double h and >= 300 ? h : 800, false);
 
         // 位置不持久化，启动一律居中：位置还原曾把窗口开到屏外（任务栏有按钮、桌面上
         // 找不到窗口），多显示器坐标漂移/已断开的显示器时尤其如此
