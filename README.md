@@ -20,7 +20,30 @@
 dotnet build -c Release
 ```
 
- 产物：`bin\Release\net10.0-windows\WindowMerger.exe`（运行时需要旁边的 `Resources\` 字体，构建自动复制）。
+ 产物：`bin\Release\net10.0-windows\WindowMerger.exe`（字体/图标已内嵌进程序集，输出目录无散落资源文件）。
+
+## 发布
+
+**本地打包**（框架依赖单文件 exe，win-x64）：
+
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Publish.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Publish.ps1 -Version 1.2.3
+```
+
+- 打包参数复用 VS 发布配置 `Properties\PublishProfiles\FolderProfile.pubxml`（win-x64 / 框架依赖 / 单文件 / 输出 `publish\`）——在 VS 发布对话框里改设置，脚本与 CI 自动跟随
+- 产物：`publish\WindowMerger-<版本>-win-x64.exe`，版本默认取自 csproj 的 `<Version>`
+- 脚本先以 `WM_CLOSE` 优雅关闭运行中的实例（保存配置、子窗口回原位），再以 `TreatWarningsAsErrors` 发布（强制 0 警告 0 错误）
+- 目标机器需安装 [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0)
+
+**GitHub 自动发布**：推 tag 即自动构建并发 Release：
+
+```cmd
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+`.github/workflows/release.yml` 在 `windows-latest` 上执行与本地相同的发布命令（同样引用 FolderProfile），把 `WindowMerger-<版本>-win-x64.exe` 附到 [Releases](https://github.com/DengSir/WindowMerger/releases)，Release 说明由提交记录自动生成；tag 版本号（去掉 `v` 前缀）会作为程序集版本写入 exe。也可在 Actions 页手动触发（workflow_dispatch，只构建上传工件、不发 Release）。
 
 ## 命令行
 
@@ -44,12 +67,12 @@ WindowMerger.exe --right mspaint     :: 只指定右格
 
 - **外扩补偿**：Win11/DWM 给带框窗口留了约 7px 的隐形边，`GetWindowRect` 比可见窗口大。吸附时按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩目标矩形，可见内容才能与格子齐平
 - **z 序（关键）**：`SetWindowPos` 的 `hWndInsertAfter` 语义是"放到目标**下方**"。子窗口压在宿主**上方**（`HWND_TOP`，精确贴合无外扩——隐形边不会劫持分隔条，点击直达子窗口）；分隔条/边框/顶条是宿主的不透明部分，不受影响。宿主激活后立即+低优先级重拉子窗口，250ms 维护定时器负责 z 序（精确 z 遍历）/布局自愈与样式补挂
-- **字体**：FA 双字体（Solid/Regular）以 Content 随 exe 分发，按文件路径加载；可解析的家族名是完整名 `Font Awesome 6 Free Solid/Regular`；Regular 集不含 xmark，关闭按钮用 Segoe UI 的 ✕（WPF 字体回退）
+- **字体**：FA 双字体（Solid/Regular）以 `Resource` 内嵌进程序集（pack 字体经 XAML 声明）；可解析的家族名是完整名 `Font Awesome 6 Free Solid/Regular`；Regular 集不含 xmark，关闭按钮用 Segoe UI 的 ✕（WPF 字体回退）
 - **P/Invoke**：`LibraryImport` 源生成器不会自动补 W 后缀，**自定义方法名也必须显式 `EntryPoint` 指向真实导出名**（`GetMonitorInfoW`/`GetWindowTextLengthW`/`DwmSetWindowAttributePointer` 均为此踩坑），且不支持 `StringBuilder` 参数（走经典 `DllImport`）；.NET Core 的 `GlyphTypeface` 不支持 pack:// URI
 
 ## 字体许可
 
- `Resources\fa-solid-900.ttf` 与 `Resources\fa-regular-400.ttf` 来自 [Font Awesome Free](https://fontawesome.com/)（SIL OFL 1.1）。可随应用自由分发；若正式发布建议随附 OFL 许可文本。
+ `assets\fa-solid-900.ttf` 与 `assets\fa-regular-400.ttf` 来自 [Font Awesome Free](https://fontawesome.com/)（SIL OFL 1.1）。可随应用自由分发；发布版请在 Release 说明中注明字体许可。
 
 ## 目录
 
