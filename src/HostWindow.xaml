@@ -59,6 +59,27 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Tooltip：默认样式用系统配色（白底黑字）不随主题，整体替换为极简模板走主题刷色
+             （隐式样式经 Owner 的资源链查到本窗口资源，DynamicResource 随 ApplyTheme 换色） -->
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="{DynamicResource ThemeBarBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="3" Padding="8,5">
+                            <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- 分隔条：悬停高亮（取代旧 MouseEnter/MouseLeave 事件刷色） -->
         <Style x:Key="DividerStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource ThemeDividerBrush}" />
