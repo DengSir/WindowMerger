@@ -427,6 +427,40 @@ def image_path_of_pid(pid: int) -> str | None:
         _kernel32.CloseHandle(wintypes.HANDLE(h))
 
 
+def parent_pid_of(pid: int) -> int:
+    """父进程 PID；查不到返回 0（NtQueryInformationProcess(ProcessBasicInformation)）。"""
+    class PBI(Structure):
+        _fields_ = [("ExitStatus", ctypes.c_size_t), ("PebBaseAddress", ctypes.c_void_p),
+                    ("AffinityMask", ctypes.c_size_t), ("BasePriority", ctypes.c_void_p),
+                    ("UniqueProcessId", ctypes.c_size_t),
+                    ("InheritedFromUniqueProcessId", ctypes.c_size_t)]
+
+    h = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return 0
+    try:
+        pbi = PBI()
+        n = c_int(0)
+        status = ctypes.WinDLL("ntdll").NtQueryInformationProcess(
+            wintypes.HANDLE(h), 0, byref(pbi), sizeof(PBI), byref(n))
+        return pbi.InheritedFromUniqueProcessId if status == 0 else 0
+    finally:
+        _kernel32.CloseHandle(wintypes.HANDLE(h))
+
+
+def launched_by(pid: int, ancestor: int, depth: int = 3) -> bool:
+    """pid 的祖先链（向上 depth 层）里是否含 ancestor——打包应用 stub→后代
+    需要两层；StartTime 判据对 WindowsApps 预创建/挂起唤醒的进程不可靠（实测）。"""
+    cur = pid
+    for _ in range(depth):
+        cur = parent_pid_of(cur)
+        if cur == 0:
+            return False
+        if cur == ancestor:
+            return True
+    return False
+
+
 def proc_start_time(pid: int):
     """进程启动时刻（本地时间）；打不开/失败 None。"""
     import datetime
@@ -570,12 +604,17 @@ def exe_path() -> str:
 
 
 def desktop_dir() -> str:
-    """真实桌面目录（SHGetKnownFolderPath，OneDrive 重定向也正确）。"""
+    """真实桌面目录（SHGetKnownFolderPath，重定向桌面/OneDrive 也正确）。
+    陷阱：第一参数是 KNOWNFOLDERID 结构体指针，传字符串地址会拿到未重定向的默认值
+    （实测本机桌面重定向到 D:\\Users 时返回 C:\\Users）。"""
+    class GUID(Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                    ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+    fid = GUID(0xB4BFCC3A, 0xDB2C, 0x424C,
+               (ctypes.c_ubyte * 8)(0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41))
     buf = ctypes.c_wchar_p()
-    # FOLDERID_Desktop = {B4BFCC3A-DB2C-424C-B029-7FE99A87C641}
-    if _shell32.SHGetKnownFolderPath(
-            ctypes.c_wchar_p("{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"),
-            0, None, ctypes.byref(buf)) != 0:
+    if _shell32.SHGetKnownFolderPath(ctypes.byref(fid), 0, None, ctypes.byref(buf)) != 0:
         return os.path.join(os.environ["USERPROFILE"], "Desktop")
     return buf.value
 

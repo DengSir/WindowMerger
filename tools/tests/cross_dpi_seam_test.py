@@ -57,8 +57,11 @@ def main() -> int:
         return 1
     hw = hws[0]
 
-    # 4. 宿主固定大小停到 4K 固定位（config 尺寸可能巨大），等维护定时器收敛
-    wm.set_window_pos(hw, None, 400, 150, 1100, 750, wm.SWP_NOZORDER)
+    # 4. 宿主固定大小停到 4K 固定位（config 尺寸可能巨大），等维护定时器收敛。
+    #    2200x900 保证 ratio 0.5 时左格物理宽 ≥ mspaint 最小宽——704DIP×1.5=1056px
+    #    （AGENTS 已知边界），左格需 ≥1056+18 外扩=1074 物理 px → 宿主 ≥ 2*1074+16。
+    #    更窄会触发 OS 尺寸钳制（子窗口探出格子），缝隙断言就失去意义了
+    wm.set_window_pos(hw, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
     time.sleep(2.5)
 
     # 5. 期望格子矩形（设备像素；XAML 常量：边框 2 DIP、顶条 28 DIP、分隔条 6 DIP；

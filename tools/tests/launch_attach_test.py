@@ -47,14 +47,16 @@ def main() -> int:
     print(f"TARGET_PATH={mp_path}")
 
     # 名字 + 完整路径：mspaint 已关，宿主必须自己拉起并吸附
-    host_start = datetime.datetime.now()
     host = subprocess.Popen([a.exe, "--left", "mspaint", "--left-exe", mp_path])
     time.sleep(4)
+    host_pid = host.pid
     # 测试宿主缩小 + 停到左显示器（config 尺寸可能巨大）
     for h in wm.host_hwnds():
         wm.set_window_pos(h, None, -2460, 120, 1000, 700, wm.SWP_NOZORDER)
 
-    # 轮询 15s：mspaint 重现 且 已吸附（TOOLWINDOW）
+    # 轮询 15s：mspaint 重现 且 已吸附（TOOLWINDOW）。
+    # 拉起判据 = 父进程链含宿主（打包应用 stub→后代两层）；StartTime 对
+    # WindowsApps 预创建/挂起唤醒的进程不可靠（实测早于宿主启动）
     ok = False
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
@@ -62,7 +64,7 @@ def main() -> int:
         mp_pids = [p for p in wm.pids_by_name("mspaint") if wm.main_windows_of_pid(p)]
         if mp_pids:
             pid = mp_pids[0]
-            launched_by_host = wm.proc_start_time(pid) > host_start
+            launched_by_host = wm.launched_by(pid, host_pid)
             attached = wm.is_toolwindow(wm.main_windows_of_pid(pid)[0])
             print(f"STATE launchedByHost={launched_by_host} attached={attached} "
                   f"path={wm.image_path_of_pid(pid)}")

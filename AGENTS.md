@@ -62,6 +62,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - PowerShell 内联单行命令经 CMD 双层转义极易损坏（`$null` 转义、嵌套表达式不展开、中文参数变乱码）——**复杂逻辑一律写 `tools\*.py` 脚本文件**再执行，参数传数字/ASCII；本仓库 Bash 工具实为 Git Bash（无 `%TEMP%` 展开，用 `$TEMP`/POSIX 路径）
 - **锁屏会话（前台 = LockApp）时注入点击/键盘全部落在锁屏上，GDI 全屏截图报"句柄无效"**——远程交互验证会静默失败。此时 UIA `InvokePattern` 仍可用（进程内直调 Click，不走输入注入），可作为替代验证路径（见 `tools\visual\theme_menu_test.py`）
 - 验证脚本截图后**必须还原层级**（`HWND_NOTOPMOST`），不得给用户正在运行的实例残留置顶
+- Python 工具链实测坑（2026-11 转换期）：`SystemParametersInfoW(SPI_GETWORKAREA)` 本机 Win11 直接失败（err=0），主屏工作区用 `MonitorFromPoint(NEAREST)+GetMonitorInfo`；`SHGetKnownFolderPath` 第一参数是 **GUID 结构体指针**，传字符串地址不报错但返回未重定向的默认路径（本机桌面重定向 D:\Users）；psapi `GetModuleBaseNameW` 受限句柄查不到提权进程名，进程名一律 Toolhelp 快照；comtypes 1.4.17 对 UIAutomation typelib 生成的桩在 Python 3.14 上退化为 Incomplete（GetCurrentPattern 返回 NULL），UIA 层用 `uiautomation` 包；**打包应用（WindowsApps）进程 StartTime 不可靠**（预创建/挂起唤醒可早于宿主启动），"宿主拉起"判定用父进程链（`wm.launched_by`，stub→后代两层）；`shot.py` 的负坐标参数会被"未指定"哨兵吞掉（原 PS 同款语义），负坐标区域直接调 `wm.capture_screen`
 
 ## 验证流程
 

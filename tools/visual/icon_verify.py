@@ -73,12 +73,8 @@ def main() -> int:
         return 1
 
     # 任务栏按钮定位（名字含 WindowMerger），裁图标区 4x 放大
-    root = wm_uia.root_element()
-    cond = wm_uia.property_condition(wm_uia.UIA_CLASSNAME_PROPERTY_ID, "Shell_TrayWnd")
-    taskbar = wm_uia.find_first(root, cond, wm_uia.UIA_TREE_SCOPE_CHILDREN)
-    btn = None
-    if taskbar is not None:
-        btn = wm_uia.find_by_name(taskbar, "WindowMerger")
+    tb = wm_uia.taskbar()
+    btn = wm_uia.find_by_name(tb, "WindowMerger") if tb is not None else None
     if btn is None:
         print("NO_TASKBAR_BUTTON")
         return 1
