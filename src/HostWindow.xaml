@@ -130,7 +130,7 @@
                         <Button x:Name="_pickRightButton" Width="30" ToolTip="选择右窗…">&#xF061;</Button>
                         <Button x:Name="_swapButton" Width="30" ToolTip="交换左右">&#xF0EC;</Button>
                         <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）">&#xF127;</Button>
-                        <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式">&#xF0C1;</Button>
+                        <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式">&#xF360;</Button>
                         <Button x:Name="_themeButton" Width="30" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
                                 VerticalAlignment="Stretch" />

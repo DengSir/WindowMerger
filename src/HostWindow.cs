@@ -748,27 +748,26 @@ public sealed partial class HostWindow : Window
             SetFallbackIcon(); // 无吸附窗口时回到应用图标（而非默认 WPF 图标）
             return;
         }
-        if (l == null)
-        {
-            Icon = OnTaskbarCanvas(r!);
-            return;
-        }
-        if (r == null)
-        {
-            Icon = OnTaskbarCanvas(l);
-            return;
-        }
 
-        // 两枚图标对角叠放：右窗右上靠后（先画在下），左窗左下靠前（后画盖在上面）；
-        // 画布随任务栏 DPI（比例同旧版 32 画布：子图标 3/4、偏移 1/4）
+        // 两枚图标对角叠放：右窗右上（先画在下），左窗左下（后画盖在上面）；
+        // 单侧吸附时空位叠本程序图标占位——一眼能看出还有一格空着。
+        // 画布随任务栏 DPI（比例：子图标 3/4、偏移 1/4）
+        BitmapSource? app = LoadAppIconFrame();
+        if (app is null)
+        {
+            Icon = OnTaskbarCanvas(l ?? r!); // 应用图标资源损坏时退化到现有源
+            return;
+        }
+        var topRight = r ?? app;
+        var bottomLeft = l ?? app;
         var (w, h) = TaskbarIconSize();
         double cell = Math.Min(w, h);
         double iconSize = cell * 3 / 4;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawImage(r, new Rect(cell / 4, 0, iconSize, iconSize));
-            dc.DrawImage(l, new Rect(0, cell / 4, iconSize, iconSize));
+            dc.DrawImage(topRight, new Rect(cell / 4, 0, iconSize, iconSize));
+            dc.DrawImage(bottomLeft, new Rect(0, cell / 4, iconSize, iconSize));
         }
         var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
