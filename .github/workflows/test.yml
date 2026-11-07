@@ -1,0 +1,57 @@
+# GUI regression on a real Windows desktop: windows-latest runners have an
+# interactive session (auto-logon RDP, 1920x1080 @ 100% scale), so injected
+# input / UIA / PrintWindow all work — the repo's whole 32-test suite runs
+# unattended. Dual-monitor tests self-SKIP (cross_dpi_seam). Layout constants
+# adapt via wm.test_layout() (CI narrow-screen layout). Locale-sensitive
+# assertions match both zh/en window titles.
+# Public repo -> Actions minutes are free.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+      PYTHONIOENCODING: utf-8  # CI 控制台 cp1252 会编码不了中文/FA 字形输出
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup uv (Python toolchain)
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build (must be 0 warnings 0 errors)
+        shell: bash
+        run: dotnet build -c Release
+
+      - name: Run full regression suite
+        shell: bash
+        run: uv run --frozen tools/run_all.py
+
+      - name: Upload failure screenshots (tests save wm_*.png to user temp)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: C:\Users\runneradmin\AppData\Local\Temp\wm_*.png
+          if-no-files-found: ignore

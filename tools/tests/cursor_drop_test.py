@@ -19,12 +19,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-# 固定布局（主屏物理 px；150% 下 DIP 常量：边框 3 / 顶条 42 / 分隔条 9）
-HOST_RECT = (400, 150, 2200, 900)   # 左格物理宽 (2200-6-9)/2≈1092 ≥ mspaint 最小宽 1056
-MP_RECT = (400, 1090, 1100, 620)    # mspaint 钉在宿主正下方（PMv2 会被按 DPI 放大，以回读为准；
-                                    # 屏幕高度放不下时自动上移与宿主重叠——透明格点击穿透，
-                                    # 抓点/命中判定均按回读矩形与 WindowFromPoint 计算，不受影响）
-GRAB = (30, 15)                     # 抓点偏移基准；实际抓标题栏中点（避开左图标/右按钮）
+# 固定布局（wm.test_layout() 按工作区自适应：4K 开发机 / CI 1920 屏两套）
+HOST_RECT = wm.test_layout()["host"]   # 大屏左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
+MP_RECT = wm.test_layout()["target"]   # mspaint 靶窗（PMv2 会被按 DPI 放大，以回读为准）
 
 
 def drag(from_x: int, from_y: int, to_x: int, to_y: int, steps: int = 20) -> None:
@@ -97,21 +94,19 @@ def main() -> int:
     pane_b = hy + hh - 3
     pane_cx, pane_cy = (pane_l + pane_r) // 2, (pane_t + pane_b) // 2
 
-    def title_grab(rect) -> tuple[int, int]:
-        """标题栏中点抓点（避开左侧图标与右侧按钮；实测图标抓点拖不动）。"""
-        return (rect.Left + rect.width // 2, rect.Top + GRAB[1])
-
     # 3. CASE B：拖标题栏中点，光标停在宿主上方外侧。抓点 x = 窗口中线 →
-    #    光标 x 即松手后中心 x；光标 y 直接构造为宿主上沿外 10px，中心
-    #    y = cur_y + half_h - GRAB[1] 随之落进左格（旧公式 target_cy + GRAB[1] - half_h
-    #    隐含"半高 > 目标中心距"假设，本机 Paint 11 接受 620px 钉位高度不钳制，
-    #    半高不足 → 光标落进宿主内，构造不成立）
-    grab_x, grab_y = title_grab(r)
+    #    光标 x 即松手后中心 x；抓点 = wm.title_grab_point()（WM_NCHITTEST 探测
+    #    真实 HTCAPTION，几何推算无通用解——商店画图顶部 ~8px 是缩放热区）
+    grab_x, grab_y = wm.title_grab_point(mh)
     if not focus_and_check(grab_x, grab_y, mh):
         print("SKIP_COVERED")
         return 1
     half_w, half_h = r.width // 2, r.height // 2
-    cur_x = 1000  # 左格内横向中线，光标 x 即松手后中心 x
+    target_cx, _ = wm.test_layout()["drop_center"]
+    # 光标 y 直接构造为宿主上沿外 10px，中心 y = cur_y + half_h - 抓点dy 随之落进左格：
+    # 远端公式 target_cy + 抓点dy - half_h 隐含"半高 > 目标中心距"假设，靶窗半高不足时
+    # 光标落进宿主内构造不成立（本机 Paint 11.2605 接受 620px 钉位高度不钳制，实测）
+    cur_x = target_cx
     cur_y = hr.Top - 10
     print(f"CASE_B release cursor=({cur_x},{cur_y}) outsideHost={cur_y < hr.Top}")
     drag(grab_x, grab_y, cur_x, cur_y)
@@ -124,7 +119,7 @@ def main() -> int:
           f"centerInLeftPane={in_left_pane} (构造须成立)")
 
     # 4. CASE A：从新位置抓标题栏中点拖到左格中心 → 必须吸附
-    grab_x, grab_y = title_grab(r)
+    grab_x, grab_y = wm.title_grab_point(mh)
     if not focus_and_check(grab_x, grab_y, mh):
         print("SKIP_CASE_A_COVERED")
         return 1

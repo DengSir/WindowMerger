@@ -7,8 +7,17 @@ SKIP 判定 = 脚本 exit 0 且输出含 SKIP_；判定 = 尾部 RESULT PASS/FAI
 import argparse
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+
+# CI（cp1252 控制台）打印子进程输出的中文/字形会 UnicodeEncodeError——
+# lib/wm.py 的重配只覆盖子测试进程，run_all 自身不 import wm，必须自配
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 TOOLS = Path(__file__).resolve().parent
 
@@ -70,22 +79,36 @@ def main() -> int:
 
     rows: list[tuple[str, str, float, str]] = []  # (名称, 状态, 秒, 结果行)
     for i, (name, path, timeout) in enumerate(tests, 1):
-        print(f"\n===== [{i}/{len(tests)}] {name} =====")
+        print(f"\n===== [{i}/{len(tests)}] {name} =====", flush=True)
         start = time.monotonic()
-        try:
-            proc = subprocess.run(
+        timed_out = False
+        # 输出写临时文件而非管道：测试被超时杀掉时，它拉起的孙进程（拖动靶窗/宿主）
+        # 会继承管道写句柄，subprocess.run 的 communicate() 等 EOF 永久阻塞、
+        # 整条套件卡死（实测 covered_drag 超时后挂死全队）；文件重定向没有句柄
+        # 等待问题，超时后 taskkill /T 树杀顺带清理孤儿
+        with tempfile.TemporaryFile() as out_f:
+            proc = subprocess.Popen(
                 [sys.executable, str(path)],  # uv run 入口下 = venv 解释器，子进程同环境
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=timeout)
-            out = proc.stdout + proc.stderr
-            status = "PASS" if proc.returncode == 0 else "FAIL"
-            if proc.returncode == 0 and "SKIP" in out:
-                status = "SKIP"
-            tail = [ln for ln in out.strip().splitlines() if ln.startswith("RESULT")]
-            verdict = tail[-1] if tail else out.strip().splitlines()[-1] if out.strip() else "(no output)"
-        except subprocess.TimeoutExpired:
-            out = ""
-            status, verdict = "FAIL", f"TIMEOUT ({timeout}s)"
+                stdout=out_f, stderr=subprocess.STDOUT)
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True)
+                try:
+                    proc.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    pass
+            out_f.seek(0)
+            out = out_f.read().decode("utf-8", errors="replace")
+        status = "FAIL" if timed_out else ("PASS" if proc.returncode == 0 else "FAIL")
+        if not timed_out and proc.returncode == 0 and "SKIP" in out:
+            status = "SKIP"
+        tail = [ln for ln in out.strip().splitlines() if ln.startswith("RESULT")]
+        verdict = (f"TIMEOUT ({timeout}s)" if timed_out else
+                   tail[-1] if tail else
+                   out.strip().splitlines()[-1] if out.strip() else "(no output)")
         secs = time.monotonic() - start
         # 流式回显脚本输出（缩进）
         for ln in out.strip().splitlines():

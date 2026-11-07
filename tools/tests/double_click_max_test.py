@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-PIN = (400, 150, 2200, 900)
+PIN = wm.test_layout()["host"]
 
 
 def double_click(x, y):

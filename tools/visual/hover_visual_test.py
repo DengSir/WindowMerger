@@ -74,12 +74,11 @@ def main() -> int:
     snap("max")
     check("MAX_HOVER", w - max_cx, 5, pal["ButtonHover"], True)
 
-    # 关闭按钮（危险悬停：红）。采样 y=6 取按钮顶部无字形区——旧 y=16 按 150% 校准
-    # （顶条 63px、✕ 字形起于 y≈19），100% 下顶条 42px、字形纵跨 y≈13..29 且 x 正压
-    # 字形中心，会采到字形反锯齿混色（"按钮中心正压字形"已知坑）
+    # 关闭按钮（危险悬停：红）。100% 下按钮 36px 宽，(w-22,16) 正压 ✕ 字形会采到
+    # 反锯齿混色（CI 实测 214,198,197）——采样取按钮顶部无字形区
     wm.set_cursor_pos(hr.Right - 22, hr.Top + 16)
     snap("close")
-    check("CLOSE_HOVER", w - 22, 6, pal["DangerHover"], True)
+    check("CLOSE_HOVER", w - 22, 4, pal["DangerHover"], True)
 
     # 再移开
     wm.set_cursor_pos(6, 700)

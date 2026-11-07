@@ -35,14 +35,18 @@ def main() -> int:
     time.sleep(1.5)
 
     # 3. 带命名参数启动宿主 + 固定布局钉位（主屏，命中/矩形断言坐标静态可推）
+    # CI 偶发 4s 起不来（run 6 首见）→ 失败再等 4s 重查一次
     subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)
 
     hm = wm.host_hwnd()
     if not hm:
+        time.sleep(4)
+        hm = wm.host_hwnd()
+    if not hm:
         print("FAIL host-not-running")
         return 1
-    wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
     time.sleep(1.5)  # 维护定时器把子窗口搬进新格子
     hr = wm.get_window_rect(hm)
     print(f"HOST ({hr.Left},{hr.Top})-({hr.Right},{hr.Bottom})")

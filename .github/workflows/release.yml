@@ -4,20 +4,15 @@
 # (Properties/PublishProfiles/FolderProfile.pubxml).
 # All step logic lives in tools/ci/release.py (pure stdlib, same Python stack
 # as the repo's tooling) so it is locally testable with --dry-run.
-# Three trigger paths:
-#   1. push to main             -> prerelease Release on the fixed rolling
-#      'nightly' tag (force-moved to the built commit each run, never
-#      accumulating per-commit tags); version = 0.0.1.<commit sha first 8>
-#   2. push a v* tag            -> Release from the tag itself
-#   3. workflow_dispatch        -> fill in "version" to release from the current
+# Two trigger paths:
+#   1. push a v* tag            -> Release from the tag itself
+#   2. workflow_dispatch        -> fill in "version" to release from the current
 #      branch HEAD (tag auto-created at the built commit, optional prerelease
 #      flag); leave "version" empty to build the artifact only, no Release.
 name: Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -36,9 +31,6 @@ permissions:
   contents: write
 
 concurrency:
-  # the nightly Release is delete/recreate shared state; serialize runs on the
-  # same ref so two quick main pushes cannot race on it (tag pushes each get
-  # their own group)
   group: release-${{ github.ref }}
   cancel-in-progress: false
 

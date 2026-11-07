@@ -61,7 +61,7 @@ def main() -> int:
     if not hm:
         print("NO_HOST")
         return 1
-    wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
     time.sleep(1.5)
     wm.set_topmost(hm, True)
     time.sleep(0.4)
@@ -73,12 +73,13 @@ def main() -> int:
     mid_y = (mp_r0.Top + mp_r0.Bottom) // 2
     print(f"HOST pinned; divider center ~({div_x},{mid_y})")
 
-    # 拖分隔条右移 200px → 左格变宽/右格变窄
-    drag(div_x, mid_y, div_x + 200, mid_y)
+    # 拖分隔条（位移量按布局：大屏 +200；CI -120 向左压 notepad 格，避开 mspaint 最小宽钳制）
+    delta = wm.test_layout()["divider_delta"]
+    drag(div_x, mid_y, div_x + delta, mid_y)
     mp_r1 = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
     moved = mp_r1.Left - mp_r0.Left
-    resize_ok = 180 <= moved <= 220
-    print(f"AFTER_DRAG mspaint Left {mp_r0.Left} -> {mp_r1.Left} (delta={moved}, expect ~+200) "
+    resize_ok = abs(moved - delta) <= 20
+    print(f"AFTER_DRAG mspaint Left {mp_r0.Left} -> {mp_r1.Left} (delta={moved}, expect ~{delta}) "
           f"{'OK' if resize_ok else 'MISMATCH'}")
 
     # 双击复位 0.5（先取新分隔条位置）

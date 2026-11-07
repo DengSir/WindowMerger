@@ -85,10 +85,11 @@ def main() -> int:
     time.sleep(2.5)
     dump_taskbar_buttons("AFTER_KILL")
     print("GHOST_CYCLE2_DONE")
-    # 判定：死应用不得留任务栏按钮（notepad 标题含记事本/wmt、mspaint 含画图）
+    # 判定：死应用不得留任务栏按钮（标题随系统 locale：中文 记事本/画图，英文 Notepad/Paint；
+    # 另按我们的测试文件名匹配——标题必含 wmt1/ghost-r）
     try:
         stale = [n for n in wm_uia.dump_taskbar_buttons()
-                 if any(k in n for k in ("记事本", "画图", "wmt1", "ghost-r"))]
+                 if any(k in n for k in ("记事本", "画图", "Notepad", "Paint", "wmt1", "ghost-r"))]
     except Exception:
         stale = []
     if stale:

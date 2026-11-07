@@ -565,6 +565,64 @@ def left_monitor_work_area() -> RECT:
     return min(ms, key=lambda mi: mi.rcMonitor.Left).rcWork
 
 
+def test_layout() -> dict:
+    """测试固定布局（按主屏工作区自适应，物理像素）：
+    - 主屏宽 ≥2560（4K 开发机）：host (400,150,2200,900)，靶窗宿主正下方 (400,1090,1100,620)
+    - 窄屏（CI RDP 实测只有 1024x720！）：host (20,380,960,320)，靶窗宿主上方 (20,40,500,300)
+      （上方放靶窗才能满足"松手光标在宿主上方且在屏内"的构造；经典版 mspaint 最小宽
+      远小于商店版，472px 格子装得下——CI 实测 514px 格 deviation=0）
+    返回 {host, target, drop_center, covered_drop_center, cover_fx, cover_fw,
+    divider_delta}；其余坐标由各测试按钉位后回读矩形推导，保证一套代码两种屏都能跑。
+    WM_TEST_LAYOUT=ci 环境变量可在任何屏上强制 CI 布局（本地复现 CI 用）。"""
+    wa = primary_work_area()
+    if os.environ.get("WM_TEST_LAYOUT") == "ci":
+        return {"host": (20, 380, 960, 320), "target": (20, 40, 500, 300),
+                "drop_center": (256, 440), "covered_drop_center": (788, 620),
+                "cover_fx": 0.65, "cover_fw": 0.30, "divider_delta": -120}
+    if wa.Right - wa.Left >= 2560:
+        return {"host": (400, 150, 2200, 900), "target": (400, 1090, 1100, 620),
+                "drop_center": (1000, 560), "covered_drop_center": (2050, 830),
+                "cover_fx": 0.55, "cover_fw": 0.40, "divider_delta": 200}
+    # CI 拖 -120（分隔条左移→右格变宽）：472px 右格再压 200 会到 272px，可能触发
+    # 经典 mspaint 最小宽钳制；向左压的是 notepad 格（经典版最小宽更小）且比例 0.37 仍 ≥0.2
+    return {"host": (20, 380, 960, 320), "target": (20, 40, 500, 300),
+            "drop_center": (256, 440), "covered_drop_center": (788, 620),
+            "cover_fx": 0.65, "cover_fw": 0.30, "divider_delta": -120}
+
+
+def park_on_left_or_primary(w: int, h: int) -> tuple[int, int]:
+    """测试窗停放原点：有左侧副屏（开发机）停左侧 100% 屏，否则（CI 单屏）停主屏
+    左上角——经典 notepad/mspaint 在单屏上停负坐标会整个出屏。"""
+    wa = left_monitor_work_area()
+    if wa.Left < 0:
+        return (wa.Left + 100, wa.Top + 200)
+    return (60, 60)
+
+
+def title_grab_point(h: int) -> tuple[int, int]:
+    """标题栏拖动抓点 = efb 水平中点 + 自窗口顶向下找 WM_NCHITTEST==HTCAPTION 的第一个 y
+    （跳过 dy 0..3 的 HTGROWBOX 顶部缩放握把区）。
+    几何推算没有通用解（实测双坑）：PMv2 商店画图 rect.Top 起 ~8px 是 HTTOP 缩放热区
+    （抓成垂直 resize：top 1090→95 bottom 不动 height 930→1925）；CI Ribbon 版画图
+    标题条矮、rect 偏移会落到功能区（点是命令不是拖）。WM_NCHITTEST 直接问窗口本身。
+    血泪教训：HTCAPTION==2（10 是 HTLEFT 左缩放边——写错常量导致全线抓到缩放区）。"""
+    r = ext_frame_bounds(h) or get_window_rect(h)
+    x = r.Left + r.width // 2
+    WM_NCHITTEST, HTCAPTION = 0x0084, 2
+    SMTO_ABORTIFHUNG = 0x0002
+    for dy in range(4, 48, 2):
+        y = r.Top + dy
+        lp = (y & 0xFFFF) << 16 | (x & 0xFFFF)
+        result = wintypes.LPARAM()
+        # SendMessage 会话里目标挂起（商店版 PaintApp 空闲被 MPS 挂起，CI 实测套件卡死）
+        # 会永久阻塞——必须带超时
+        if _user32.SendMessageTimeoutW(wintypes.HWND(h), WM_NCHITTEST, None,
+                                       wintypes.LPARAM(lp), SMTO_ABORTIFHUNG, 1000,
+                                       byref(result)) and result.value == HTCAPTION:
+            return (x, y)
+    return (x, r.Top + 16)
+
+
 def wait_until(fn, timeout_ms: int, interval_ms: int = 100) -> bool:
     """轮询 fn() 直到真或超时（原 PS Start-Sleep 循环）。"""
     deadline = time.monotonic() + timeout_ms / 1000

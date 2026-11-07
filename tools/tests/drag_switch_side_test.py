@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""拖到另一侧换侧回归（注入拖动，固定布局）：mspaint 吸附在左格 → 抓其标题条
+"""拖到另一侧换侧回归（注入拖动，固定布局）：自写 tkinter 靶窗吸附在左格 → 抓其标题条
 （透过透明格子命中子窗口）拖到右格中心松手 → 吸附态整体换侧（TryAttach 换侧分支）。
 用法: uv run tools/\tests\\drag_switch_side_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-HOST_RECT = (400, 150, 2200, 900)
+HOST_RECT = wm.test_layout()["host"]
 
 
 def drag(from_x, from_y, to_x, to_y, steps=20):
@@ -38,9 +38,16 @@ def main() -> int:
     wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
     time.sleep(0.8)
     wm.remove_config()
-    subprocess.Popen(["mspaint"])
+    # 自写靶窗（tkinter，标题 WM_DRAG_TARGET）：零 Ribbon/零 PMv2，标题几何已知
+    target = subprocess.Popen([sys.executable,
+                               str(Path(__file__).resolve().parents[1] / "targets" / "drag_target.py")])
     time.sleep(1.8)
-    subprocess.Popen([a.exe, "--left", "mspaint"])
+    th = wm.find_window_by_title("WM_DRAG_TARGET")
+    if not th:
+        print("FAIL_NO_TARGET")
+        target.kill()
+        return 1
+    subprocess.Popen([a.exe, "--left", str(target.pid)])
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
@@ -57,33 +64,49 @@ def main() -> int:
     right_cx = hx + 3 + pane_w + 9 + pane_w // 2
     mid_y = hy + 45 + (hh - 48) // 2
 
-    pre_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+    for _ in range(3):  # busy 桌面：topmost 别的窗口压住探点时重新置顶宿主再探
+        pre_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+        if pre_l == "python":
+            break
+        wm.set_topmost(hm, True)
+        time.sleep(0.4)
     print(f"PRE LEFT_HIT={pre_l}")
-    if pre_l != "mspaint":
+    if pre_l != "python":
         print("FAIL_NOT_ATTACHED_LEFT")
         return 1
 
-    # 抓 mspaint 标题条（透过透明左格命中子窗口），拖到右格中心 → 换侧
-    mp_r = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
-    grab_x = min(mp_r.Left + 60, hx + 100)  # 标题条内、避开图标
-    grab_y = mp_r.Top + 15
-    if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
+    # 抓靶窗标题条（透过透明左格命中吸附子窗口；WM_NCHITTEST 探测真实 HTCAPTION），
+    # 拖到右格中心 → 换侧
+    t_r = wm.get_window_rect(th)
+    grab_x, grab_y = wm.title_grab_point(th)
+    if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "python":
         print("SKIP_COVERED_GRAB")
         return 1
-    drag(grab_x, grab_y, right_cx, mid_y)
+    swapped = False
+    for attempt in range(3):
+        wm.keybd_event(0x12, 0, 0)
+        wm.set_foreground_window(th)
+        wm.keybd_event(0x12, 0, 2)
+        time.sleep(0.3)
+        drag(grab_x, grab_y, right_cx, mid_y)
+        post_l_try = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+        if post_l_try != "python":
+            swapped = True
+            break
+        print(f"DIAG attempt{attempt}: rect=({t_r.Left},{t_r.Top})-"
+              f"({t_r.Right},{t_r.Bottom}) still attached left")
 
     post_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
     post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
-    mp_h = wm.main_windows_by_name("mspaint")[0][1]
-    still_tool = wm.is_toolwindow(mp_h)
+    still_tool = wm.is_toolwindow(th)
     print(f"POST LEFT_HIT={post_l} RIGHT_HIT={post_r} tool={still_tool}")
     wm.set_topmost(hm, False)
 
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.2)
-    wm.force_kill_by_name("mspaint")
+    target.kill()
     print("DRAG_SWITCH_SIDE_TEST_DONE")
-    ok = post_r == "mspaint" and post_l != "mspaint" and still_tool
+    ok = swapped and post_r == "python" and still_tool
     print(f"RESULT {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

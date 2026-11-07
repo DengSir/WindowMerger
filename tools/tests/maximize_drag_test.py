@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-PIN = (400, 150, 2200, 900)   # 钉位矩形（L,T,W,H 物理 px；RestoreBounds 来源）
+PIN = wm.test_layout()["host"]  # 钉位矩形（物理 px；RestoreBounds 来源）
 
 
 def drag(from_x: int, from_y: int, to_x: int, to_y: int, steps: int = 20) -> None:

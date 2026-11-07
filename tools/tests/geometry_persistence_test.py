@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-R = (400, 150, 2000, 950)  # S1/S2 固定矩形（L,T,R,B 主屏物理 px；即钉 400,150 尺寸 1600x800）
+R = (20, 80, 700, 700)  # S1/S2 固定矩形（L,T,R,B 主屏物理 px；即钉 20,80 尺寸 680x620，CI 1024 屏也放得下）
 
 
 def launch(exe: str) -> int:

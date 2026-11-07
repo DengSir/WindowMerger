@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """交换左右回归：CLI 吸附 notepad(左)+mspaint(右) → UIA Invoke 交换按钮 →
 断言两侧命中互换（LEFT_HIT=mspaint、RIGHT_HIT=notepad）且子窗口矩形跟着搬。
-固定布局：宿主钉主屏 (400,150,2200,900)，钉位后命中坐标静态推导。
+固定布局：宿主钉主屏（wm.test_layout() 按工作区自适应），钉位后命中坐标静态推导。
 用法: uv run tools/\tests\\swap_sides_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 （notepad 仅作 CLI 吸附/命中探针，不参与拖动——拖动类测试一律 mspaint）
@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 import uiautomation as auto
 
-HOST_RECT = (400, 150, 2200, 900)
+HOST_RECT = wm.test_layout()["host"]
 
 
 def main() -> int:

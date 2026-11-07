@@ -29,7 +29,7 @@ def main() -> int:
         print("NO_HOST")
         return 1
     host_pid = wm.pid_of(hm)
-    wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
     time.sleep(1.0)
     hr = wm.get_window_rect(hm)
     w, h = hr.width, hr.height
@@ -50,7 +50,7 @@ def main() -> int:
         for _ in range(3):
             wm.set_topmost(hm, True)
             time.sleep(0.3)
-            if wm.pid_of(wm.window_from_point(div_x, h // 2)) == host_pid:
+            if wm.pid_of(wm.window_from_point(div_x, hr.Top + h // 2)) == host_pid:
                 ok = True
                 break
         if not ok:
@@ -73,7 +73,7 @@ def main() -> int:
     wm.set_cursor_pos(6, 700)
     time.sleep(0.4)
     snap("base")
-    wm.set_cursor_pos(div_x, h // 2)
+    wm.set_cursor_pos(div_x, hr.Top + h // 2)
     time.sleep(0.4)
     snap("hover")
     wm.set_cursor_pos(6, 700)
