@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -323,8 +324,12 @@ public sealed partial class HostWindow : Window
         }
         catch (Exception ex)
         {
-            // 用户触发的动作失败不上抛崩宿主，状态栏报因
-            ShowNotice($"创建快捷方式失败：{ex.Message}");
+            // 用户触发的动作失败不上抛崩宿主，状态栏报因；WScript.Shell 经反射调用，
+            // 真实原因包在 TargetInvocationException.InnerException 里（CI 实测只见外层）
+            var reason = ex is System.Reflection.TargetInvocationException tie
+                && tie.InnerException is not null
+                ? tie.InnerException.Message : ex.Message;
+            ShowNotice($"创建快捷方式失败：{reason}");
         }
     }
 
@@ -356,29 +361,38 @@ public sealed partial class HostWindow : Window
         }
     }
 
-    /// <summary>经 IShellLinkW 原生 COM 写 .lnk。不用 WScript.Shell：其反射 dispatch 在
-    /// en-US 系统（CP1252）会把中文路径经 ANSI 转成字面 "????" 导致保存失败（CI 实测，
-    /// zh-CN 开发机 GBK 可编码故从未暴露）；IShellLinkW 全 Unicode 无此问题，也不再依赖 WSH。</summary>
+    /// <summary>经 WScript.Shell COM 写 .lnk（反射调用，不走 dynamic，免去 Microsoft.CSharp 依赖）。</summary>
     private static void CreateShortcut(string path, string arguments, string description)
     {
-        string exe = Environment.ProcessPath ?? throw new InvalidOperationException("取 exe 路径失败");
-        var link = (Native.IShellLinkW)new Native.ShellLinkCom();
+        var shellType = Type.GetTypeFromProgID("WScript.Shell")
+            ?? throw new InvalidOperationException("WScript.Shell COM 不可用");
+        object shell = Activator.CreateInstance(shellType)!;
         try
         {
-            link.SetPath(exe);
-            link.SetArguments(arguments);
-            link.SetWorkingDirectory(Path.GetDirectoryName(exe)!);
-            link.SetDescription(description);
-            link.SetIconLocation(exe, 0);
-            var persistFile = (Native.IPersistFile)link;
-            persistFile.Save(path, fRemember: true);
-            Marshal.FinalReleaseComObject(persistFile);
+            object link = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path })!;
+            try
+            {
+                string exe = Environment.ProcessPath ?? throw new InvalidOperationException("取 exe 路径失败");
+                SetComProp(link, "TargetPath", exe);
+                SetComProp(link, "Arguments", arguments);
+                SetComProp(link, "WorkingDirectory", Path.GetDirectoryName(exe)!);
+                SetComProp(link, "Description", description);
+                SetComProp(link, "IconLocation", exe + ",0");
+                link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(link);
+            }
         }
         finally
         {
-            Marshal.FinalReleaseComObject(link);
+            Marshal.FinalReleaseComObject(shell);
         }
     }
+
+    private static void SetComProp(object target, string name, object value)
+        => target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value });
 
     private void SaveConfig()    {
         var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };

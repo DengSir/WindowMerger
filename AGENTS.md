@@ -25,6 +25,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - **不会自动补 W 后缀**：自定义方法名必须显式 `EntryPoint` 指向真实导出名。已为此崩过三次：`GetMonitorInfoW`、`GetWindowTextLengthW`、`DwmSetWindowAttributePointer→DwmSetWindowAttribute`。新增 P/Invoke 时先确认真实导出名
 - **不支持 `StringBuilder` 参数**：字符串出入参走经典 `DllImport`（CharSet.Unicode）——**漏写 CharSet 按 ANSI 反序列化**：原生端写 WCHAR、size 返回字符数，ANSI marshaller 遇伪空字节提前截断 → `sb.Length < size` → `ToString(0, size)` 越界崩宿主（实测 QueryFullProcessImageNameW 三连崩，2026-11）
 - `dwmapi` 属性 `DWMWA_FORCE_ICONIC_REPRESENTATION` **只写不可读**（Get 返回 E_INVALIDARG）——不要用读回验证它
+- **快捷方式 .lnk 的 WScript.Shell 保存走系统 ANSI 代码页**：中文文件名前缀"窗口合并"在 en-US（CP1252）被转成字面 `????`（非法文件名字符）→ `Unable to save shortcut` 必败（CI 实测，zh-CN GBK 可编码故开发机从未暴露）——shortcut_create_test 按 `GetACP()≠936` SKIP；国际化修复（ASCII 回退文件名）待产品决定。**别走 IShellLinkW 内建 COM interop**：PS5.1/.NET 10 双环境实测 Set* 字符串方法一律 ArgumentException（原因未明），浪费两轮 CI
 
 ### WPF / Win32 语义
 - `SetWindowPos` 的 `hWndInsertAfter` = "放到目标窗口**下方**"。子窗口吸附 z 序 = 子窗口永远插在宿主**正下方**（宿主不透明部分盖住子窗口隐形边，分隔条才可点击；透明格子透出子窗口）

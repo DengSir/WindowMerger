@@ -27,6 +27,24 @@ def main() -> int:
         print("SKIP_MSPAINT_RUNNING")
         return 0
 
+    # 快捷方式文件名含中文前缀（窗口合并），WScript.Shell 内部走 ANSI 保存——
+    # 系统 ANSI 代码页编码不了中文时（en-US CP1252）保存必败（CI 实测 Unable to
+    # save shortcut "???? - mspaint.lnk"）。非 CJK 代码页 SKIP，等产品做 ASCII 回退名
+    import ctypes
+    acp = ctypes.windll.kernel32.GetACP()
+    if acp != 936:
+        print(f"SKIP_NON_CJK_ANSI_CODEPAGE acp={acp}")
+        return 0
+
+    # 桌面可写探测（区分权限问题与编码问题）
+    desktop_probe = Path(wm.desktop_dir()) / "wm_probe.txt"
+    try:
+        desktop_probe.write_text("probe", encoding="ascii")
+        desktop_probe.unlink()
+        print("DIAG desktop writable: True")
+    except Exception as e:
+        print(f"DIAG desktop writable: False ({e})")
+
     # 清理（mspaint 侧；其他运行中宿主优雅关）
     wm.graceful_close_by_name("WindowMerger")
     wm.force_kill_by_name("mspaint")
