@@ -572,8 +572,13 @@ def test_layout() -> dict:
       （上方放靶窗才能满足"松手光标在宿主上方且在屏内"的构造；经典版 mspaint 最小宽
       远小于商店版，472px 格子装得下——CI 实测 514px 格 deviation=0）
     返回 {host, target, drop_center, covered_drop_center, cover_fx, cover_fw,
-    divider_delta}；其余坐标由各测试按钉位后回读矩形推导，保证一套代码两种屏都能跑。"""
+    divider_delta}；其余坐标由各测试按钉位后回读矩形推导，保证一套代码两种屏都能跑。
+    WM_TEST_LAYOUT=ci 环境变量可在任何屏上强制 CI 布局（本地复现 CI 用）。"""
     wa = primary_work_area()
+    if os.environ.get("WM_TEST_LAYOUT") == "ci":
+        return {"host": (20, 380, 960, 320), "target": (20, 40, 500, 300),
+                "drop_center": (256, 440), "covered_drop_center": (788, 620),
+                "cover_fx": 0.65, "cover_fw": 0.30, "divider_delta": -120}
     if wa.Right - wa.Left >= 2560:
         return {"host": (400, 150, 2200, 900), "target": (400, 1090, 1100, 620),
                 "drop_center": (1000, 560), "covered_drop_center": (2050, 830),

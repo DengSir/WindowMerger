@@ -47,3 +47,11 @@ jobs:
       - name: Run full regression suite
         shell: bash
         run: uv run --frozen tools/run_all.py
+
+      - name: Upload failure screenshots (tests save wm_*.png to user temp)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: C:\Users\runneradmin\AppData\Local\Temp\wm_*.png
+          if-no-files-found: ignore

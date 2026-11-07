@@ -324,8 +324,12 @@ public sealed partial class HostWindow : Window
         }
         catch (Exception ex)
         {
-            // 用户触发的动作失败不上抛崩宿主，状态栏报因
-            ShowNotice($"创建快捷方式失败：{ex.Message}");
+            // 用户触发的动作失败不上抛崩宿主，状态栏报因；WScript.Shell 经反射调用，
+            // 真实原因包在 TargetInvocationException.InnerException 里（CI 实测只见外层）
+            var reason = ex is System.Reflection.TargetInvocationException tie
+                && tie.InnerException is not null
+                ? tie.InnerException.Message : ex.Message;
+            ShowNotice($"创建快捷方式失败：{reason}");
         }
     }
 

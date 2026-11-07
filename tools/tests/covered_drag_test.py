@@ -135,6 +135,11 @@ def main() -> int:
         print(f"DIAG attempt{attempt}: rect unchanged at ({r2.Left},{r2.Top}) "
               f"probe={wm.proc_name_of(wm.window_from_point(grab_x, grab_y))} "
               f"fg={wm.proc_name_of(wm.get_foreground_window())}")
+        try:  # 失败现场截图（CI 上传 artifact 供人工看桌面）
+            wm.capture_screen(0, 0, 1024, 720).save(
+                str(Path(tempfile.gettempdir(), f"wm_ci_covered_diag{attempt}.png")))
+        except Exception:
+            pass
         time.sleep(0.5)
     step2_ok = wm.is_toolwindow(mh)
     left_hit = wm.proc_name_of(wm.window_from_point(pane_cx, pane_cy)).lower()
