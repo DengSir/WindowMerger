@@ -565,6 +565,31 @@ def left_monitor_work_area() -> RECT:
     return min(ms, key=lambda mi: mi.rcMonitor.Left).rcWork
 
 
+def test_layout() -> dict:
+    """测试固定布局（按主屏工作区自适应，物理像素）：
+    - 主屏宽 ≥2560（4K 开发机）：host (400,150,2200,900)，靶窗宿主正下方 (400,1090,1100,620)，
+      CASE_B 落点 (1000,560)
+    - 窄屏（CI 1920x1080）：host (60,520,1500,500)，靶窗宿主上方 (60,60,1000,420)
+      （上方放靶窗才能满足"松手光标在宿主上方且在屏内"的构造），CASE_B 落点 (434,640)
+    返回 {host, target, drop_center}；其余坐标由各测试按钉位后回读矩形推导，
+    保证一套代码两种屏都能跑。"""
+    wa = primary_work_area()
+    if wa.Right - wa.Left >= 2560:
+        return {"host": (400, 150, 2200, 900), "target": (400, 1090, 1100, 620),
+                "drop_center": (1000, 560)}
+    return {"host": (60, 520, 1500, 500), "target": (60, 60, 1000, 420),
+            "drop_center": (434, 640)}
+
+
+def park_on_left_or_primary(w: int, h: int) -> tuple[int, int]:
+    """测试窗停放原点：有左侧副屏（开发机）停左侧 100% 屏，否则（CI 单屏）停主屏
+    左上角——经典 notepad/mspaint 在单屏上停负坐标会整个出屏。"""
+    wa = left_monitor_work_area()
+    if wa.Left < 0:
+        return (wa.Left + 100, wa.Top + 200)
+    return (60, 60)
+
+
 def wait_until(fn, timeout_ms: int, interval_ms: int = 100) -> bool:
     """轮询 fn() 直到真或超时（原 PS Start-Sleep 循环）。"""
     deadline = time.monotonic() + timeout_ms / 1000

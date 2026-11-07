@@ -42,7 +42,7 @@ def main() -> int:
     if not hm:
         print("FAIL host-not-running")
         return 1
-    wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
     time.sleep(1.5)  # 维护定时器把子窗口搬进新格子
     hr = wm.get_window_rect(hm)
     print(f"HOST ({hr.Left},{hr.Top})-({hr.Right},{hr.Bottom})")

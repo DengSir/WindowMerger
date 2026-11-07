@@ -19,9 +19,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-# 固定布局（主屏物理 px；150% 下 DIP 常量：边框 3 / 顶条 42 / 分隔条 9）
-HOST_RECT = (400, 150, 2200, 900)   # 左格物理宽 (2200-6-9)/2≈1092 ≥ mspaint 最小宽 1056
-MP_RECT = (400, 1090, 1100, 620)    # mspaint 钉在宿主正下方（PMv2 会被按 DPI 放大，以回读为准）
+# 固定布局（wm.test_layout() 按工作区自适应：4K 开发机 / CI 1920 屏两套）
+HOST_RECT = wm.test_layout()["host"]   # 大屏左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
+MP_RECT = wm.test_layout()["target"]   # mspaint 靶窗（PMv2 会被按 DPI 放大，以回读为准）
 GRAB = (30, 15)                     # 抓点偏移基准；实际抓标题栏中点（避开左图标/右按钮）
 
 
@@ -104,7 +104,7 @@ def main() -> int:
         print("SKIP_COVERED")
         return 1
     half_w, half_h = r.width // 2, r.height // 2
-    target_cx, target_cy = 1000, 560
+    target_cx, target_cy = wm.test_layout()["drop_center"]
     cur_x = target_cx
     cur_y = target_cy + GRAB[1] - half_h
     print(f"CASE_B release cursor=({cur_x},{cur_y}) outsideHost={cur_y < hr.Top}")

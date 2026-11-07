@@ -19,8 +19,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-HOST_RECT = (400, 150, 2200, 900)   # 左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
-MP_RECT = (400, 1090, 1100, 620)    # mspaint 钉在宿主正下方
+HOST_RECT = wm.test_layout()["host"]   # 左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
+MP_RECT = wm.test_layout()["target"]
 GRAB_Y = 15                         # 标题栏内 y 偏移（x 取标题栏中点）
 
 

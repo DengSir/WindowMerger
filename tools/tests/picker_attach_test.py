@@ -2,7 +2,7 @@
 """顶条选窗吸附回归（PickerWindow 全链路，纯 UIA 不注入输入）：
 mspaint 已运行未吸附 → UIA Invoke 顶条 ← 按钮 → 选窗对话框输入过滤 "mspaint" →
 选中第一行 → 点【吸附】→ 断言 mspaint 进入左格（TOOLWINDOW + LEFT_HIT）。
-固定布局：宿主钉主屏 (400,150,2200,900)。
+固定布局：宿主钉主屏（wm.test_layout() 按工作区自适应）。
 用法: uv run tools/\tests\\picker_attach_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 import uiautomation as auto
 
-HOST_RECT = (400, 150, 2200, 900)
+HOST_RECT = wm.test_layout()["host"]
 
 
 def main() -> int:

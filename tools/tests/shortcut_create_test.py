@@ -37,8 +37,9 @@ def main() -> int:
     time.sleep(1.5)
     mp_pids = [p for p in wm.pids_by_name("mspaint") if wm.main_windows_of_pid(p)]
     if mp_pids:
+        px, py = wm.park_on_left_or_primary(900, 650)  # 单屏（CI）停主屏左上，不出屏
         wm.set_window_pos(wm.main_windows_of_pid(mp_pids[0])[0], None,
-                          -2300, 200, 900, 650, wm.SWP_NOZORDER)
+                          px, py, 900, 650, wm.SWP_NOZORDER)
 
     subprocess.Popen([a.exe, "--left", "mspaint"])
     time.sleep(4)
@@ -49,7 +50,8 @@ def main() -> int:
         return 1
     hm = hosts[0]
     # 测试宿主缩小 + 停到左显示器（config 尺寸可能巨大，如存过跨双屏拼接）
-    wm.set_window_pos(hm, None, -2460, 120, 1000, 700, wm.SWP_NOZORDER)
+    px, py = wm.park_on_left_or_primary(1000, 700)
+    wm.set_window_pos(hm, None, px, py, 1000, 700, wm.SWP_NOZORDER)
 
     # UIA Invoke 快捷方式按钮（x:Name → AutomationId）
     root_el = wm_uia.element_from_handle(hm)

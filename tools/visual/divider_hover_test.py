@@ -29,7 +29,7 @@ def main() -> int:
         print("NO_HOST")
         return 1
     host_pid = wm.pid_of(hm)
-    wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
     time.sleep(1.0)
     hr = wm.get_window_rect(hm)
     w, h = hr.width, hr.height

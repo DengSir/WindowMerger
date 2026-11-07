@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-HOST_RECT = (400, 150, 2200, 900)
+HOST_RECT = wm.test_layout()["host"]
 
 
 def drag(from_x, from_y, to_x, to_y, steps=20):

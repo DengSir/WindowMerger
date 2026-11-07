@@ -39,7 +39,7 @@ def main() -> int:
             continue
         hm = hosts[0]
         # 固定布局钉位（主屏），采样坐标静态可推
-        wm.set_window_pos(hm, None, 400, 150, 2200, 900, wm.SWP_NOZORDER)
+        wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
         time.sleep(1.0)
         hr = wm.get_window_rect(hm)
 

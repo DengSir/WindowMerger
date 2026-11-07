@@ -37,7 +37,8 @@ def main() -> int:
         return 1
     mp_pid = mp_pids[0]
     mph = wm.main_windows_of_pid(mp_pid)[0]
-    wm.set_window_pos(mph, None, -2300, 200, 900, 650, wm.SWP_NOZORDER)
+    px, py = wm.park_on_left_or_primary(900, 650)  # 单屏（CI）停主屏左上，不出屏
+    wm.set_window_pos(mph, None, px, py, 900, 650, wm.SWP_NOZORDER)
     mp_path = wm.image_path_of_pid(mp_pid)
     wm.force_kill_pid(mp_pid)
     time.sleep(1.2)
@@ -51,8 +52,9 @@ def main() -> int:
     time.sleep(4)
     host_pid = host.pid
     # 测试宿主缩小 + 停到左显示器（config 尺寸可能巨大）
+    hx, hy = wm.park_on_left_or_primary(1000, 700)
     for h in wm.host_hwnds():
-        wm.set_window_pos(h, None, -2460, 120, 1000, 700, wm.SWP_NOZORDER)
+        wm.set_window_pos(h, None, hx, hy, 1000, 700, wm.SWP_NOZORDER)
 
     # 轮询 15s：mspaint 重现 且 已吸附（TOOLWINDOW）。
     # 拉起判据 = 父进程链含宿主（打包应用 stub→后代两层）；StartTime 对

@@ -5,11 +5,10 @@
 子命令：
   resolve   解析版本/tag/是否发版 → 写 GITHUB_OUTPUT（key=value 行）
   stage     把 publish\\WindowMerger.exe 打包成 zip
-  release   gh 发版（tag 推送 / nightly 滚动 / dispatch 三路），--dry-run 只打印
+  release   gh 发版（tag 推送 / dispatch 两路），--dry-run 只打印
 
-环境变量：与原 pwsh 相同（GITHUB_EVENT_NAME / GITHUB_REF_TYPE / GITHUB_REF_NAME /
-GITHUB_SHA / INPUT_VERSION / INPUT_PRERELEASE / GITHUB_OUTPUT / VERSION / TAG /
-PRERELEASE）。
+环境变量：GITHUB_EVENT_NAME / GITHUB_REF_TYPE / GITHUB_REF_NAME / GITHUB_SHA /
+INPUT_VERSION / INPUT_PRERELEASE / GITHUB_OUTPUT / VERSION / TAG / PRERELEASE。
 """
 import os
 import re
@@ -51,11 +50,6 @@ def resolve() -> int:
         version = ref_name.removeprefix("v")           # tag 推送：从 tag 本身发版
         tag = ref_name
         should_release = True
-    elif event == "push":
-        version = f"0.0.1.{sha[:8]}"                   # main push：固定滚动 tag nightly
-        tag = "nightly"
-        should_release = True
-        prerelease = True
     elif input_version:
         version = input_version.removeprefix("v")      # dispatch 带版本：分支 HEAD 发版
         tag = f"v{version}"
@@ -110,18 +104,6 @@ def release(dry: bool) -> int:
     if event == "push" and ref_type == "tag":
         # tag 推送：tag 已存在，校验指向本次构建的提交
         args += ["--verify-tag", "--title", f"WindowMerger {tag}", "--generate-notes"]
-    elif event == "push":
-        # main push：nightly 固定 tag 强挪到本提交，删旧 Release 重发（不累积 tag）
-        if _run(["gh", "release", "delete", tag, "--yes"], dry) == 0:
-            print(f"Existing '{tag}' Release deleted")
-        else:
-            print(f"No existing '{tag}' Release, skip delete (first run)")
-        if not dry:
-            subprocess.run(["git", "tag", "--force", tag, sha], cwd=ROOT, check=True)
-            subprocess.run(["git", "push", "--force", "origin", tag], cwd=ROOT, check=True)
-        print(f"Tag '{tag}' moved to {sha}")
-        args += ["--title", f"WindowMerger {version} (nightly)",
-                 "--notes", f"Automated prerelease build of main at commit {sha}"]
     else:
         # dispatch 发版：tag 建在本次构建的确切提交
         args += ["--target", sha, "--title", f"WindowMerger {tag}", "--generate-notes"]
