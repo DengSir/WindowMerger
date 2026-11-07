@@ -60,7 +60,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 运行环境注意（Bash 工具 = Git Bash）
 
-- `python` 指向 Windows Store stub（退出码 49）——**Python 一律用 `py` 启动器**（真身在 `AppData\Local\Python\pythoncore-3.14-64`）
+- `python` 指向 Windows Store stub（退出码 49）——Python 一律 `uv run`（`.venv` 由 uv 自管、`.python-version` 钉 3.14，不碰系统 python/py）
 - 无 `%TEMP%` 等 CMD 展开，用 `$TEMP`/POSIX 路径；`tasklist`/`taskkill` 的过滤器斜杠要双写（`//FI`、`//PID`），否则被 Git Bash 当路径改写；`>nul` 是 Git Bash 里的普通文件重定向（会真建名为 nul 的文件），丢弃输出用 `>/dev/null`
 - **复杂逻辑一律写 `tools\*.py` 脚本文件**再执行，不写内联长命令
 - **锁屏会话（前台 = LockApp）时注入点击/键盘全部落在锁屏上，GDI 全屏截图报"句柄无效"**——远程交互验证会静默失败。此时 UIA `InvokePattern` 仍可用（进程内直调 Click，不走输入注入），可作为替代验证路径（见 `tools\visual\theme_menu_test.py`）
