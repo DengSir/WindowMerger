@@ -71,10 +71,11 @@ def main() -> int:
     snap("max")
     check("MAX_HOVER", w - 84, 5, pal["ButtonHover"], True)
 
-    # 关闭按钮（危险悬停：红）
+    # 关闭按钮（危险悬停：红）。100% 下按钮 36px 宽，(w-22,16) 正压 ✕ 字形会采到
+    # 反锯齿混色（CI 实测 214,198,197）——采样取按钮顶部无字形区
     wm.set_cursor_pos(hr.Right - 22, hr.Top + 16)
     snap("close")
-    check("CLOSE_HOVER", w - 22, 16, pal["DangerHover"], True)
+    check("CLOSE_HOVER", w - 22, 4, pal["DangerHover"], True)
 
     # 再移开
     wm.set_cursor_pos(6, 700)

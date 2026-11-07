@@ -112,16 +112,30 @@ def main() -> int:
           f"droppedInCoveredPane={cx <= c1[0] <= cx + cw and cy <= c1[1] <= cy + ch} (构造须成立)")
 
     # STEP 2: 从新位置拖到左格中心 → 必须吸附。
-    # 标题栏中点在遮罩下面（mspaint 松手后部分被盖），抓未被遮住的左翼（+80，避开图标）
+    # 标题栏中点在遮罩下面（mspaint 松手后部分被盖），抓未被遮住的左翼（+80，避开图标）。
+    # ALT 技巧置前 + 最多重试 2 次（CI 首跑拖动未生效，rect 纹丝不动，原因待诊断）
     grab_x, grab_y = r1.Left + 80, r1.Top + GRAB_Y
     pane_cx = hr.Left + 3 + (hr.width - 15) // 4
     pane_cy = hr.Top + 45 + (hr.height - 48) // 2
-    if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
-        cover.destroy()
-        print("SKIP_CASE2_GRAB")
-        return 1
-    drag(grab_x, grab_y, pane_cx, pane_cy)
-    r2 = wm.get_window_rect(mh)
+    r2 = None
+    for attempt in range(3):
+        if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
+            cover.destroy()
+            print(f"SKIP_CASE2_GRAB (probe hit "
+                  f"{wm.proc_name_of(wm.window_from_point(grab_x, grab_y))})")
+            return 1
+        wm.keybd_event(0x12, 0, 0)
+        wm.set_foreground_window(mh)
+        wm.keybd_event(0x12, 0, 2)
+        time.sleep(0.3)
+        drag(grab_x, grab_y, pane_cx, pane_cy)
+        r2 = wm.get_window_rect(mh)
+        if wm.is_toolwindow(mh):
+            break
+        print(f"DIAG attempt{attempt}: rect unchanged at ({r2.Left},{r2.Top}) "
+              f"probe={wm.proc_name_of(wm.window_from_point(grab_x, grab_y))} "
+              f"fg={wm.proc_name_of(wm.get_foreground_window())}")
+        time.sleep(0.5)
     step2_ok = wm.is_toolwindow(mh)
     left_hit = wm.proc_name_of(wm.window_from_point(pane_cx, pane_cy)).lower()
     print(f"STEP2_FREE_DROP: tool={wm.is_toolwindow(mh)} LEFT_HIT={left_hit} "

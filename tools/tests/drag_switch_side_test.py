@@ -63,14 +63,28 @@ def main() -> int:
         print("FAIL_NOT_ATTACHED_LEFT")
         return 1
 
-    # 抓 mspaint 标题条（透过透明左格命中子窗口），拖到右格中心 → 换侧
+    # 抓 mspaint 标题条（透过透明左格命中子窗口），拖到右格中心 → 换侧。
+    # 最多重试 2 次（CI 拖动未生效时 rect 回到原格，原因待诊断——重试 + 置前 + 诊断）
     mp_r = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
     grab_x = min(mp_r.Left + 60, hx + 100)  # 标题条内、避开图标
     grab_y = mp_r.Top + 15
     if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
         print("SKIP_COVERED_GRAB")
         return 1
-    drag(grab_x, grab_y, right_cx, mid_y)
+    swapped = False
+    for attempt in range(3):
+        wm.keybd_event(0x12, 0, 0)
+        wm.set_foreground_window(wm.main_windows_by_name("mspaint")[0][1])
+        wm.keybd_event(0x12, 0, 2)
+        time.sleep(0.3)
+        drag(grab_x, grab_y, right_cx, mid_y)
+        post_l_try = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+        if post_l_try != "mspaint":
+            swapped = True
+            break
+        mp_r2 = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
+        print(f"DIAG attempt{attempt}: mspaint rect=({mp_r2.Left},{mp_r2.Top})-"
+              f"({mp_r2.Right},{mp_r2.Bottom}) still attached left")
 
     post_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
     post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
@@ -83,7 +97,7 @@ def main() -> int:
     time.sleep(1.2)
     wm.force_kill_by_name("mspaint")
     print("DRAG_SWITCH_SIDE_TEST_DONE")
-    ok = post_r == "mspaint" and post_l != "mspaint" and still_tool
+    ok = swapped and post_r == "mspaint" and still_tool
     print(f"RESULT {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

@@ -65,6 +65,22 @@ def main() -> int:
     wm_uia.invoke(btn)
     time.sleep(2)
 
+    # 诊断：读状态栏文本（应用把成功/失败原因写在那里）+ WScript.Shell COM 可用性
+    try:
+        import uiautomation as auto
+        for c, _ in auto.WalkControl(wm_uia.element_from_handle(hm),
+                                     includeTop=False, maxDepth=6):
+            if c.ControlTypeName == "TextControl" and c.Name and len(c.Name) > 6:
+                print(f"DIAG status: {c.Name!r}")
+    except Exception as e:
+        print(f"DIAG status read failed: {e}")
+    try:
+        import comtypes.client
+        shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
+        print("DIAG WScript.Shell COM OK")
+    except Exception as e:
+        print(f"DIAG WScript.Shell COM FAILED: {e}")
+
     # 定位新 .lnk：文件名前缀 = 中文应用名（从码点构造）
     prefix = "".join(chr(c) for c in (0x7A97, 0x53E3, 0x5408, 0x5E76))
     desktop = wm.desktop_dir()
