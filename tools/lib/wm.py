@@ -599,6 +599,23 @@ def park_on_left_or_primary(w: int, h: int) -> tuple[int, int]:
     return (60, 60)
 
 
+def title_grab_point(h: int) -> tuple[int, int]:
+    """标题栏拖动抓点 = efb 水平中点 + 自窗口顶向下找 WM_NCHITTEST==HTCAPTION 的第一个 y。
+    几何推算没有通用解（实测双坑）：PMv2 商店画图 rect.Top 起 ~8px 是 HTTOP 缩放热区
+    （+8px 抓成垂直 resize：top 1090→95 bottom 不动 height 930→1925）；CI Ribbon 版
+    画图标题条又矮、rect 偏移会落到功能区（点是命令不是拖）。WM_NCHITTEST 直接问
+    窗口本身，任何版本/边框都命中真实可拖区。"""
+    r = ext_frame_bounds(h) or get_window_rect(h)
+    x = r.Left + r.width // 2
+    WM_NCHITTEST, HTCAPTION = 0x0084, 10
+    for dy in range(2, 48, 2):
+        y = r.Top + dy
+        lp = (y & 0xFFFF) << 16 | (x & 0xFFFF)
+        if _user32.SendMessageW(wintypes.HWND(h), WM_NCHITTEST, None, wintypes.LPARAM(lp)) == HTCAPTION:
+            return (x, y)
+    return (x, r.Top + 10)
+
+
 def wait_until(fn, timeout_ms: int, interval_ms: int = 100) -> bool:
     """轮询 fn() 直到真或超时（原 PS Start-Sleep 循环）。"""
     deadline = time.monotonic() + timeout_ms / 1000

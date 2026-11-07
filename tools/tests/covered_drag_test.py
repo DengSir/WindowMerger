@@ -21,7 +21,7 @@ import wm
 
 HOST_RECT = wm.test_layout()["host"]   # 左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
 MP_RECT = wm.test_layout()["target"]
-GRAB_Y = 15                         # 标题栏内 y 偏移（x 取标题栏中点）
+
 
 
 def drag(from_x: int, from_y: int, to_x: int, to_y: int, steps: int = 20) -> None:
@@ -90,7 +90,7 @@ def main() -> int:
     cover.update()
     print(f"COVER ({cx},{cy})-({cx + cw},{cy + ch}) over RIGHT pane")
 
-    grab_x, grab_y = r.Left + r.width // 2, r.Top + GRAB_Y
+    grab_x, grab_y = wm.title_grab_point(mh)
     half_w, half_h = r.width // 2, r.height // 2
 
     # STEP 1: 松手后窗口中心落进被遮右格（旧中心逻辑会误吸）、光标留在遮罩内（保证遮挡）。
@@ -101,7 +101,7 @@ def main() -> int:
         return 1
     target_cx, target_cy = layout["covered_drop_center"]
     cur_x = target_cx
-    cur_y = target_cy + GRAB_Y - half_h
+    cur_y = target_cy + (grab_y - r.Top) - half_h  # 抓点相对窗口 rect 的实测 y 偏移
     print(f"STEP1 release cursor=({cur_x},{cur_y}) insideCover="
           f"{cx <= cur_x <= cx + cw and cy <= cur_y <= cy + ch}")
     drag(grab_x, grab_y, cur_x, cur_y)
@@ -114,7 +114,7 @@ def main() -> int:
     # STEP 2: 从新位置拖到左格中心 → 必须吸附。
     # 标题栏中点在遮罩下面（mspaint 松手后部分被盖），抓未被遮住的左翼（+80，避开图标）。
     # ALT 技巧置前 + 最多重试 2 次（CI 首跑拖动未生效，rect 纹丝不动，原因待诊断）
-    grab_x, grab_y = r1.Left + 80, r1.Top + GRAB_Y
+    grab_x, grab_y = r1.Left + 80, wm.title_grab_point(mh)[1]
     pane_cx = hr.Left + 3 + (hr.width - 15) // 4
     pane_cy = hr.Top + 45 + (hr.height - 48) // 2
     r2 = None

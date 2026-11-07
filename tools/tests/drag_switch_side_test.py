@@ -67,7 +67,7 @@ def main() -> int:
     # 最多重试 2 次（CI 拖动未生效时 rect 回到原格，原因待诊断——重试 + 置前 + 诊断）
     mp_r = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
     grab_x = min(mp_r.Left + 60, hx + 100)  # 标题条内、避开图标
-    grab_y = mp_r.Top + 15
+    grab_y = wm.title_grab_point(wm.main_windows_by_name("mspaint")[0][1])[1]
     if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
         print("SKIP_COVERED_GRAB")
         return 1

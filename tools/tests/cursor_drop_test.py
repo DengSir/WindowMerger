@@ -22,7 +22,7 @@ import wm
 # 固定布局（wm.test_layout() 按工作区自适应：4K 开发机 / CI 1920 屏两套）
 HOST_RECT = wm.test_layout()["host"]   # 大屏左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
 MP_RECT = wm.test_layout()["target"]   # mspaint 靶窗（PMv2 会被按 DPI 放大，以回读为准）
-GRAB = (30, 15)                     # 抓点偏移基准；实际抓标题栏中点（避开左图标/右按钮）
+
 
 
 def drag(from_x: int, from_y: int, to_x: int, to_y: int, steps: int = 20) -> None:
@@ -92,21 +92,17 @@ def main() -> int:
     pane_b = hy + hh - 3
     pane_cx, pane_cy = (pane_l + pane_r) // 2, (pane_t + pane_b) // 2
 
-    def title_grab(rect) -> tuple[int, int]:
-        """标题栏中点抓点（避开左侧图标与右侧按钮；实测图标抓点拖不动）。"""
-        return (rect.Left + rect.width // 2, rect.Top + GRAB[1])
-
     # 3. CASE B：拖标题栏中点，光标停在宿主上方外侧。抓点 x = 窗口中线 →
     #    光标 x 即松手后中心 x；光标 y = 目标中心 y + 抓点y偏移 - 半高。
     #    目标中心 (1000, 560) 落进左格，光标 y=110 < hy=150 在宿主外（旧中心逻辑会误吸）
-    grab_x, grab_y = title_grab(r)
+    grab_x, grab_y = wm.title_grab_point(mh)
     if not focus_and_check(grab_x, grab_y, mh):
         print("SKIP_COVERED")
         return 1
     half_w, half_h = r.width // 2, r.height // 2
     target_cx, target_cy = wm.test_layout()["drop_center"]
     cur_x = target_cx
-    cur_y = target_cy + GRAB[1] - half_h
+    cur_y = target_cy + (grab_y - r.Top) - half_h  # 抓点相对窗口 rect 的实测 y 偏移
     print(f"CASE_B release cursor=({cur_x},{cur_y}) outsideHost={cur_y < hr.Top}")
     drag(grab_x, grab_y, cur_x, cur_y)
     r = wm.get_window_rect(mh)
@@ -118,7 +114,7 @@ def main() -> int:
           f"centerInLeftPane={in_left_pane} (构造须成立)")
 
     # 4. CASE A：从新位置抓标题栏中点拖到左格中心 → 必须吸附
-    grab_x, grab_y = title_grab(r)
+    grab_x, grab_y = wm.title_grab_point(mh)
     if not focus_and_check(grab_x, grab_y, mh):
         print("SKIP_CASE_A_COVERED")
         return 1
