@@ -65,16 +65,21 @@ def main() -> int:
     snap("away")
     check("DIVIDER_BASE", div_x - hr.Left, hr.height // 2, pal["Divider"], True)
 
-    # 最大化按钮（普通悬停：浅灰）。150% 下按钮宽 54px：close 占 w-57..w-3，max 中心 w-84；
-    # 采样取按钮顶部无字形区（正中是 □ 字形，会采到反锯齿边）
-    wm.set_cursor_pos(hr.Right - 84, hr.Top + 16)
+    # 最大化按钮（普通悬停：浅灰）。按钮宽 36 DIP：close 占右缘 33 DIP，max 中心 =
+    # w-(3+54·scale)（150% 下即 w-84）；100% 下写死 w-84 会落到左侧相邻按钮上、
+    # 靠悬停色相同侥幸通过。采样取按钮顶部无字形区（正中是 □ 字形，会采到反锯齿边）
+    scale = wm.get_dpi_for_window(hm) / 96.0
+    max_cx = int(3 + 54 * scale)
+    wm.set_cursor_pos(hr.Right - max_cx, hr.Top + 16)
     snap("max")
-    check("MAX_HOVER", w - 84, 5, pal["ButtonHover"], True)
+    check("MAX_HOVER", w - max_cx, 5, pal["ButtonHover"], True)
 
-    # 关闭按钮（危险悬停：红）
+    # 关闭按钮（危险悬停：红）。采样 y=6 取按钮顶部无字形区——旧 y=16 按 150% 校准
+    # （顶条 63px、✕ 字形起于 y≈19），100% 下顶条 42px、字形纵跨 y≈13..29 且 x 正压
+    # 字形中心，会采到字形反锯齿混色（"按钮中心正压字形"已知坑）
     wm.set_cursor_pos(hr.Right - 22, hr.Top + 16)
     snap("close")
-    check("CLOSE_HOVER", w - 22, 16, pal["DangerHover"], True)
+    check("CLOSE_HOVER", w - 22, 6, pal["DangerHover"], True)
 
     # 再移开
     wm.set_cursor_pos(6, 700)

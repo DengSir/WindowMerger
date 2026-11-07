@@ -21,7 +21,9 @@ import wm
 
 # 固定布局（主屏物理 px；150% 下 DIP 常量：边框 3 / 顶条 42 / 分隔条 9）
 HOST_RECT = (400, 150, 2200, 900)   # 左格物理宽 (2200-6-9)/2≈1092 ≥ mspaint 最小宽 1056
-MP_RECT = (400, 1090, 1100, 620)    # mspaint 钉在宿主正下方（PMv2 会被按 DPI 放大，以回读为准）
+MP_RECT = (400, 1090, 1100, 620)    # mspaint 钉在宿主正下方（PMv2 会被按 DPI 放大，以回读为准；
+                                    # 屏幕高度放不下时自动上移与宿主重叠——透明格点击穿透，
+                                    # 抓点/命中判定均按回读矩形与 WindowFromPoint 计算，不受影响）
 GRAB = (30, 15)                     # 抓点偏移基准；实际抓标题栏中点（避开左图标/右按钮）
 
 
@@ -77,6 +79,9 @@ def main() -> int:
     # 2. 钉位：宿主 + mspaint 固定矩形（主屏 app 坐标==物理坐标）
     hx, hy, hw, hh = HOST_RECT
     mx, my, mw, mh2 = MP_RECT
+    scr_h = wm.get_system_metrics(wm.SM_CYSCREEN)  # 导入即 DPI aware → 主屏物理高
+    if my + mh2 > scr_h - 10:
+        my = scr_h - mh2 - 10  # 矮屏（如 2560x1440）放不下时上移，钉位矩形整体留在屏内
     wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
     time.sleep(1.0)  # 维护定时器收敛
     wm.set_window_pos(mh, None, mx, my, mw, mh2, wm.SWP_NOZORDER | wm.SWP_NOACTIVATE)
@@ -97,16 +102,17 @@ def main() -> int:
         return (rect.Left + rect.width // 2, rect.Top + GRAB[1])
 
     # 3. CASE B：拖标题栏中点，光标停在宿主上方外侧。抓点 x = 窗口中线 →
-    #    光标 x 即松手后中心 x；光标 y = 目标中心 y + 抓点y偏移 - 半高。
-    #    目标中心 (1000, 560) 落进左格，光标 y=110 < hy=150 在宿主外（旧中心逻辑会误吸）
+    #    光标 x 即松手后中心 x；光标 y 直接构造为宿主上沿外 10px，中心
+    #    y = cur_y + half_h - GRAB[1] 随之落进左格（旧公式 target_cy + GRAB[1] - half_h
+    #    隐含"半高 > 目标中心距"假设，本机 Paint 11 接受 620px 钉位高度不钳制，
+    #    半高不足 → 光标落进宿主内，构造不成立）
     grab_x, grab_y = title_grab(r)
     if not focus_and_check(grab_x, grab_y, mh):
         print("SKIP_COVERED")
         return 1
     half_w, half_h = r.width // 2, r.height // 2
-    target_cx, target_cy = 1000, 560
-    cur_x = target_cx
-    cur_y = target_cy + GRAB[1] - half_h
+    cur_x = 1000  # 左格内横向中线，光标 x 即松手后中心 x
+    cur_y = hr.Top - 10
     print(f"CASE_B release cursor=({cur_x},{cur_y}) outsideHost={cur_y < hr.Top}")
     drag(grab_x, grab_y, cur_x, cur_y)
     r = wm.get_window_rect(mh)

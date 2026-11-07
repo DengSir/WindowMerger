@@ -62,6 +62,9 @@ def main() -> int:
 
     hx, hy, hw, hh = HOST_RECT
     mx, my, mw, mh2 = MP_RECT
+    # 注意：mspaint 标题栏必须在宿主矩形外（抓点检查是裸 WindowFromPoint，抓进宿主
+    # 空格会命中宿主 → SKIP_COVERED_GRAB），因此矮屏（高 <1500，如 2560x1440）下
+    # 钉位矩形底部必然探出屏幕下缘——纯视觉现象，标题栏在屏内可抓，不影响判定
     wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
     time.sleep(1.0)
     wm.set_window_pos(mh, None, mx, my, mw, mh2, wm.SWP_NOZORDER | wm.SWP_NOACTIVATE)

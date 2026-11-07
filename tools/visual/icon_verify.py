@@ -72,15 +72,19 @@ def main() -> int:
         print("NO_HOST")
         return 1
 
-    # 任务栏按钮定位（名字含 WindowMerger），裁图标区 4x 放大
+    # 任务栏按钮定位（按钮名 = shell 应用识别名：桌面快捷方式显示名优先于窗口标题，
+    # 本机快捷方式叫"窗口合并 - Code + ZCode"、窗口标题以"窗口合并"开头——搜共同前缀），
+    # 裁图标区 4x 放大
     tb = wm_uia.taskbar()
-    btn = wm_uia.find_by_name(tb, "WindowMerger") if tb is not None else None
+    btn = wm_uia.find_by_name(tb, "窗口合并") if tb is not None else None
     if btn is None:
         print("NO_TASKBAR_BUTTON")
         return 1
     x, y, bw, bh = wm_uia.bounding_rect_of(btn)
     print(f"TASKBAR_BTN {bw:.0f}x{bh:.0f} at ({x:.0f},{y:.0f})")
-    big = wm.capture_screen(0, 0, 2560, 1440)
+    scr_w = wm.get_system_metrics(wm.SM_CXSCREEN)  # 导入即 DPI aware → 主屏物理宽高
+    scr_h = wm.get_system_metrics(wm.SM_CYSCREEN)
+    big = wm.capture_screen(0, 0, scr_w, scr_h)
     crop = big.crop((int(x), int(y), int(x) + int(bw), int(y) + int(bh)))
     crop.resize((160, 160), Image.NEAREST).save(
         str(Path(tempfile.gettempdir(), "wm_taskbaricon.png")))
