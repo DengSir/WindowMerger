@@ -36,6 +36,7 @@ TESTS = [
     ("cursor_drop_test",    TOOLS / "tests" / "cursor_drop_test.py",          90),
     ("covered_drag_test",   TOOLS / "tests" / "covered_drag_test.py",         90),
     ("maximize_drag_test",  TOOLS / "tests" / "maximize_drag_test.py",        90),
+    ("max_top_drag_test",   TOOLS / "tests" / "max_top_drag_test.py",         90),
     ("double_click_max_test", TOOLS / "tests" / "double_click_max_test.py",   90),
     ("divider_resize_test", TOOLS / "tests" / "divider_resize_test.py",       90),
     ("minimize_linkage_test", TOOLS / "tests" / "minimize_linkage_test.py",   90),

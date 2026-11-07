@@ -23,8 +23,10 @@ public sealed partial class HostWindow : Window
     private const double MinRatio = 0.2;
     private const double MaxRatio = 0.8;
 
+    private const int WM_NCHITTEST = 0x0084;
     private const int WM_GETMINMAXINFO = 0x0024;
     private const int WM_SETTINGCHANGE = 0x001A;
+    private const int HTCLIENT = 1;
 
     private double _ratio;
 
@@ -502,6 +504,16 @@ public sealed partial class HostWindow : Window
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == WM_NCHITTEST && WindowState == WindowState.Maximized)
+        {
+            // WindowChrome 的 resize 边命中测试不区分最大化状态（WPF _HitTestNca 无该检查）：
+            // 最大化时窗口顶边=屏幕顶边，顶条最上 8 DIP 被判成 HTTOP 缩放区——鼠标按在
+            // 屏幕顶上拖不动（实测，回归 tools/tests/max_top_drag_test.py），四边同理。
+            // 最大化本就不可缩放（Windows 标准行为），整窗一律 HTCLIENT，
+            // 顶条拖动还原走 TopBarOnMouseDown 自己的鼠标事件逻辑。
+            handled = true;
+            return (IntPtr)HTCLIENT;
+        }
         if (msg == WM_GETMINMAXINFO)
         {
             // 无边框窗口最大化越过任务栏的修正：钳制到工作区
