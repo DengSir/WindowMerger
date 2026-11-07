@@ -69,6 +69,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 ## 验证流程
 
 - **一键完整回归**：`uv run tools/run_all.py`（32 项自动测试按依赖顺序跑 + PASS/FAIL/SKIP 汇总表，`--only 名称` 跑子集）——**清理/回归会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 强杀，未保存内容丢失），跑之前先确认没有正在使用的窗口
+- **CI（test.yml）已知限制**：runner 的 RDP 会话分辨率实测仅 **1024x720**（非 1920x1080）；covered_drag/drag_switch 两个注入拖动在 CI 确定性不生效（rect 纹丝不动、GetWindowRect 与可见位置漂移 ~27px、Ribbon 画图激活时功能区自变；四轮复现且本地同代码全 PASS）——两测试按屏宽 <1280 SKIP（`SKIP_CI_RDP_DRAG_NOT_ENGAGING`），拖动语义由本地覆盖；CI 桌面常驻一个浏览器窗口（占顶部），遮挡类断言注意；失败现场截图由 test.yml 上传为 `test-screenshots` artifact
 - **拖动类测试固定布局约定**（2026-11 实测）：除恢复定位测试外，宿主与靶窗口先 `SetWindowPos` 钉到主屏固定矩形（主屏坐标=物理像素，无跨 DPI 换算地雷——钉到 100% 左屏时 WPF 宿主会收 WM_DPICHANGED 自缩放，坐标全歪）；靶窗口一律 **mspaint**（Win11 notepad 自我缩放+最小尺寸钳制，用户确认不可靠）；拖动抓点取**标题栏中点**（左侧图标抓不动，实测）；窗口尺寸一律按**钉位后回读值**推导（PMv2 窗口被系统按 DPI 缩放，写死值不可信）；注入拖动本身可靠，先前失败全是坐标假设过期
 - 全流程回归：`uv run tools/tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）；选窗吸附 `tools\tests\picker_attach_test.py`、交换 `tools\tests\swap_sides_test.py`、几何持久化四场景 `tools\tests\geometry_persistence_test.py`
 - 跨 DPI 缝隙回归（4K+100% 双屏）：`uv run tools/tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
