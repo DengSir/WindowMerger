@@ -52,9 +52,9 @@ def main() -> int:
     time.sleep(4)
     host_pid = host.pid
     # 测试宿主缩小 + 停到左显示器（config 尺寸可能巨大）
-    hx, hy = wm.park_on_left_or_primary(1000, 700)
+    hx, hy = wm.park_on_left_or_primary(900, 600)
     for h in wm.host_hwnds():
-        wm.set_window_pos(h, None, hx, hy, 1000, 700, wm.SWP_NOZORDER)
+        wm.set_window_pos(h, None, hx, hy, 900, 600, wm.SWP_NOZORDER)
 
     # 轮询 15s：mspaint 重现 且 已吸附（TOOLWINDOW）。
     # 拉起判据 = 父进程链含宿主（打包应用 stub→后代两层）；StartTime 对

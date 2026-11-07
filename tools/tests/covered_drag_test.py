@@ -72,15 +72,17 @@ def main() -> int:
           f"MSPAINT ({r.Left},{r.Top})-({r.Right},{r.Bottom})")
 
     # 右格上的置顶遮罩（tkinter 无边框窗）。宿主保持普通层：置顶会把 mspaint 压到
-    # 下面导致 STEP2 抓不到（实测）；遮罩自身 topmost 已保证盖住宿主
+    # 下面导致 STEP2 抓不到（实测）；遮罩自身 topmost 已保证盖住宿主。
+    # 遮罩覆盖范围按布局参数（CI 小屏 0.65/0.30——给 STEP2 左翼抓点留未被遮的空间）
+    layout = wm.test_layout()
     import tkinter
     cover = tkinter.Tk()
     cover.overrideredirect(True)
     cover.attributes("-topmost", True)
     cover.configure(bg="firebrick")
-    cx = int(hr.Left + hr.width * 0.55)
+    cx = int(hr.Left + hr.width * layout["cover_fx"])
     cy = int(hr.Top + 60)
-    cw = int(hr.width * 0.4)
+    cw = int(hr.width * layout["cover_fw"])
     ch = int(hr.height - 80)
     cover.geometry(f"{cw}x{ch}+{cx}+{cy}")
     tkinter.Label(cover, text="COVERED RIGHT PANE - drops here must be refused",
@@ -92,13 +94,12 @@ def main() -> int:
     half_w, half_h = r.width // 2, r.height // 2
 
     # STEP 1: 松手后窗口中心落进被遮右格（旧中心逻辑会误吸）、光标留在遮罩内（保证遮挡）。
-    # 标题栏中点抓取 → 光标 x = 中心 x；光标 y = 中心 y + GRAB_Y - 半高
+    # 落点由布局给定（两种屏各自验证过：中心在遮罩∩右格、光标在遮罩内且在屏上）
     if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
         cover.destroy()
         print("SKIP_COVERED_GRAB")
         return 1
-    target_cx = cx + cw // 2          # 中心目标（右格内、遮罩 x 范围内）
-    target_cy = cy + ch - 200         # 中心目标 y：使光标 y = 目标-450 仍在遮罩内
+    target_cx, target_cy = layout["covered_drop_center"]
     cur_x = target_cx
     cur_y = target_cy + GRAB_Y - half_h
     print(f"STEP1 release cursor=({cur_x},{cur_y}) insideCover="

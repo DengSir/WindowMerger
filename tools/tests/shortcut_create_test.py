@@ -47,17 +47,20 @@ def main() -> int:
     hosts = wm.host_hwnds()
     if not hosts:
         print("FAIL_NO_HOST")
+        wm.force_kill_by_name("mspaint")
         return 1
     hm = hosts[0]
     # 测试宿主缩小 + 停到左显示器（config 尺寸可能巨大，如存过跨双屏拼接）
-    px, py = wm.park_on_left_or_primary(1000, 700)
-    wm.set_window_pos(hm, None, px, py, 1000, 700, wm.SWP_NOZORDER)
+    px, py = wm.park_on_left_or_primary(900, 600)
+    wm.set_window_pos(hm, None, px, py, 900, 600, wm.SWP_NOZORDER)
 
     # UIA Invoke 快捷方式按钮（x:Name → AutomationId）
     root_el = wm_uia.element_from_handle(hm)
     btn = wm_uia.find_by_automation_id(root_el, "_shortcutButton")
     if btn is None:
         print("FAIL_NO_BUTTON")
+        wm.graceful_close_by_name("WindowMerger")
+        wm.force_kill_by_name("mspaint")
         return 1
     wm_uia.invoke(btn)
     time.sleep(2)
@@ -71,7 +74,13 @@ def main() -> int:
         if f.name.startswith(prefix) and now - f.stat().st_mtime < 120:
             candidates.append(f)
     if not candidates:
+        # 诊断：吸附是否成立（应用只在有吸附时写 .lnk）+ 桌面现有 lnk
+        mp = wm.main_windows_by_name("mspaint")
+        print(f"DIAG attached={bool(mp) and wm.is_toolwindow(mp[0][1])} desktop={desktop}")
+        print(f"DIAG desktop_lnk={[f.name for f in Path(desktop).glob('*.lnk')][:10]}")
         print("FAIL_NO_LNK")
+        wm.graceful_close_by_name("WindowMerger")
+        wm.force_kill_by_name("mspaint")
         return 1
     lnk = max(candidates, key=lambda f: f.stat().st_mtime)
 
