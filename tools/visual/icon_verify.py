@@ -72,13 +72,20 @@ def main() -> int:
         print("NO_HOST")
         return 1
 
-    # 任务栏按钮定位（按钮名 = shell 应用识别名：桌面快捷方式显示名优先于窗口标题，
-    # 本机快捷方式叫"窗口合并 - Code + ZCode"、窗口标题以"窗口合并"开头——搜共同前缀），
+    # 任务栏按钮定位（按钮 UIA 名两环境不同，双候选都要搜：
+    # 本机 Win11 = shell 应用识别名，桌面快捷方式显示名"窗口合并 - Code + ZCode"优先于窗口标题；
+    # CI Server 经典任务栏 = 分组名"WindowMerger - 1 running window"，不含"窗口合并"
+    # （单搜任一个都会在另一环境落空——run 12 实测 NO_TASKBAR_BUTTON）。
     # 裁图标区 4x 放大
     tb = wm_uia.taskbar()
-    btn = wm_uia.find_by_name(tb, "窗口合并") if tb is not None else None
+    btn = None
+    if tb is not None:
+        for needle in ("窗口合并", "WindowMerger"):
+            btn = wm_uia.find_by_name(tb, needle)
+            if btn is not None:
+                break
     if btn is None:
-        print("NO_TASKBAR_BUTTON")
+        print(f"NO_TASKBAR_BUTTON buttons={wm_uia.dump_taskbar_buttons()}")
         return 1
     x, y, bw, bh = wm_uia.bounding_rect_of(btn)
     print(f"TASKBAR_BTN {bw:.0f}x{bh:.0f} at ({x:.0f},{y:.0f})")
