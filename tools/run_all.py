@@ -10,6 +10,14 @@ import sys
 import time
 from pathlib import Path
 
+# CI（cp1252 控制台）打印子进程输出的中文/字形会 UnicodeEncodeError——
+# lib/wm.py 的重配只覆盖子测试进程，run_all 自身不 import wm，必须自配
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 TOOLS = Path(__file__).resolve().parent
 
 # 依赖顺序：run_test_flow 留下的吸附组合给 release_test 用；其余各自清理

@@ -27,6 +27,7 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
+      PYTHONIOENCODING: utf-8  # CI 控制台 cp1252 会编码不了中文/FA 字形输出
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,8 +47,3 @@ jobs:
       - name: Run full regression suite
         shell: bash
         run: uv run --frozen tools/run_all.py
-
-      - name: Append summary
-        if: always()
-        shell: bash
-        run: uv run --frozen tools/run_all.py --list > /dev/null && echo "Suite finished (see step log for PASS/FAIL table)" >> "$GITHUB_STEP_SUMMARY"
