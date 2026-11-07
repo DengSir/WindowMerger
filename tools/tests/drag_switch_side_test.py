@@ -35,18 +35,19 @@ def main() -> int:
     ap.add_argument("--exe", default=wm.exe_path())
     a = ap.parse_args()
 
-    # CI RDP 会话（屏宽 <1280）SKIP：注入拖动对透明格内附子窗口确定性不生效
-    # （四轮 CI 复现，rect 不动；本地同代码全 PASS），拖动语义由本地覆盖。
-    if wm.primary_work_area().Right < 1280:
-        print("SKIP_CI_RDP_DRAG_NOT_ENGAGING (see AGENTS CI 已知限制)")
-        return 0
-
     wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
     time.sleep(0.8)
     wm.remove_config()
-    subprocess.Popen(["mspaint"])
+    # 自写靶窗（tkinter，标题 WM_DRAG_TARGET）：零 Ribbon/零 PMv2，标题几何已知
+    target = subprocess.Popen([sys.executable,
+                               str(Path(__file__).resolve().parents[1] / "targets" / "drag_target.py")])
     time.sleep(1.8)
-    subprocess.Popen([a.exe, "--left", "mspaint"])
+    th = wm.find_window_by_title("WM_DRAG_TARGET")
+    if not th:
+        print("FAIL_NO_TARGET")
+        target.kill()
+        return 1
+    subprocess.Popen([a.exe, "--left", str(target.pid)])
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
@@ -63,9 +64,14 @@ def main() -> int:
     right_cx = hx + 3 + pane_w + 9 + pane_w // 2
     mid_y = hy + 45 + (hh - 48) // 2
 
-    pre_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+    for _ in range(3):  # busy 桌面：topmost 别的窗口压住探点时重新置顶宿主再探
+        pre_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
+        if pre_l == "python":
+            break
+        wm.set_topmost(hm, True)
+        time.sleep(0.4)
     print(f"PRE LEFT_HIT={pre_l}")
-    if pre_l != "mspaint":
+    if pre_l != "python":
         print("FAIL_NOT_ATTACHED_LEFT")
         return 1
 
@@ -73,7 +79,7 @@ def main() -> int:
     # 最多重试 2 次（CI 拖动未生效时 rect 回到原格，原因待诊断——重试 + 置前 + 诊断）
     mp_r = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
     grab_x = min(mp_r.Left + 60, hx + 100)  # 标题条内、避开图标
-    grab_y = wm.title_grab_point(wm.main_windows_by_name("mspaint")[0][1])[1]
+    grab_y = wm.title_grab_point(th)[1]
     if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
         print("SKIP_COVERED_GRAB")
         return 1
@@ -88,22 +94,20 @@ def main() -> int:
         if post_l_try != "mspaint":
             swapped = True
             break
-        mp_r2 = wm.get_window_rect(wm.main_windows_by_name("mspaint")[0][1])
-        print(f"DIAG attempt{attempt}: mspaint rect=({mp_r2.Left},{mp_r2.Top})-"
-              f"({mp_r2.Right},{mp_r2.Bottom}) still attached left")
+            print(f"DIAG attempt{attempt}: target rect=({mp_r.Left},{mp_r.Top})-"
+              f"({mp_r.Right},{mp_r.Bottom}) still attached left")
 
     post_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
     post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
-    mp_h = wm.main_windows_by_name("mspaint")[0][1]
-    still_tool = wm.is_toolwindow(mp_h)
+    still_tool = wm.is_toolwindow(th)
     print(f"POST LEFT_HIT={post_l} RIGHT_HIT={post_r} tool={still_tool}")
     wm.set_topmost(hm, False)
 
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.2)
-    wm.force_kill_by_name("mspaint")
+    target.kill()
     print("DRAG_SWITCH_SIDE_TEST_DONE")
-    ok = swapped and post_r == "mspaint" and still_tool
+    ok = swapped and post_r == "python" and still_tool
     print(f"RESULT {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

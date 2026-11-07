@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """遮挡格拒收回归（IsCoveredAtCursor，**自动化**——固定布局 + 注入拖动）：
-宿主钉主屏 + 右格上放置顶红色遮罩窗（tkinter）→ 注入拖 mspaint：
+宿主钉主屏 + 右格上放置顶红色遮罩窗（tkinter）→ 注入拖自写靶窗（WM_DRAG_TARGET）：
 STEP 1 拖到被遮右格松手 → 必须无高亮不吸附（TOOLWINDOW 不置位）；
 STEP 2 拖到空左格松手 → 必须吸附。
 原 manual/CoveredDragTest.ps1 为人工两步拖拽；注入拖动在固定布局下可靠（2026-11 实测），
 升级为自动回归，manual 原版保留作交互排查工具。
 用法: uv run tools/\tests\\covered_drag_test.py [--exe 路径]
-判定: STEP1 tool=False 且 STEP2 tool=True + LEFT_HIT=mspaint → exit 0。
+判定: STEP1 tool=False 且 STEP2 tool=True + LEFT_HIT=python → exit 0。
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse
@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
-HOST_RECT = wm.test_layout()["host"]   # 左格物理宽 ≈1092 ≥ mspaint 最小宽 1056
+HOST_RECT = wm.test_layout()["host"]
 MP_RECT = wm.test_layout()["target"]
 
 
@@ -43,17 +43,14 @@ def main() -> int:
     ap.add_argument("--exe", default=wm.exe_path())
     a = ap.parse_args()
 
-    # CI RDP 会话（屏宽 <1280）SKIP：注入拖动在格内抓点确定性不生效（四轮 CI 复现，
-    # 截图显示 GetWindowRect 与可见位置漂移 ~27px、Ribbon 激活自变；本地同代码全 PASS）。
-    # 拖动语义已由本地覆盖，CI 只跑非拖动项。
-    if wm.primary_work_area().Right < 1280:
-        print("SKIP_CI_RDP_DRAG_NOT_ENGAGING (see AGENTS CI 已知限制)")
-        return 0
-
+    # CI RDP 会话曾对格内抓点吞点击（四轮复现）——改用自写靶窗后待验证，若仍失败
+    # 再恢复屏宽 SKIP 策略（见 AGENTS CI 已知限制）。
     wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
     time.sleep(0.8)
     wm.remove_config()
-    subprocess.Popen(["mspaint"])
+    # 自写靶窗（tkinter，标题 WM_DRAG_TARGET）：零 Ribbon/零 PMv2，标题几何已知
+    target = subprocess.Popen([sys.executable,
+                               str(Path(__file__).resolve().parents[1] / "targets" / "drag_target.py")])
     time.sleep(1.8)
     subprocess.Popen([a.exe])
     time.sleep(4)
@@ -61,11 +58,11 @@ def main() -> int:
     if not hm:
         print("NO_HOST")
         return 1
-    mps = wm.main_windows_by_name("mspaint")
-    if not mps:
-        print("NO_MSPAINT")
+    mh = wm.find_window_by_title("WM_DRAG_TARGET")
+    if not mh:
+        print("NO_TARGET")
+        target.kill()
         return 1
-    mh = mps[0][1]
 
     hx, hy, hw, hh = HOST_RECT
     mx, my, mw, mh2 = MP_RECT
@@ -102,9 +99,15 @@ def main() -> int:
 
     # STEP 1: 松手后窗口中心落进被遮右格（旧中心逻辑会误吸）、光标留在遮罩内（保证遮挡）。
     # 落点由布局给定（两种屏各自验证过：中心在遮罩∩右格、光标在遮罩内且在屏上）
-    if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
+    for _ in range(3):  # busy 桌面：topmost 别的窗口可能压住探点，置前靶窗后重探
+        if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() == "python":
+            break
+        wm.set_foreground_window(mh)
+        time.sleep(0.4)
+    if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "python":
         cover.destroy()
         print("SKIP_COVERED_GRAB")
+        target.kill()
         return 1
     target_cx, target_cy = layout["covered_drop_center"]
     cur_x = target_cx
@@ -119,17 +122,18 @@ def main() -> int:
           f"droppedInCoveredPane={cx <= c1[0] <= cx + cw and cy <= c1[1] <= cy + ch} (构造须成立)")
 
     # STEP 2: 从新位置拖到左格中心 → 必须吸附。
-    # 标题栏中点在遮罩下面（mspaint 松手后部分被盖），抓未被遮住的左翼（+80，避开图标）。
-    # ALT 技巧置前 + 最多重试 2 次（CI 首跑拖动未生效，rect 纹丝不动，原因待诊断）
+    # 标题栏中点在遮罩下面（靶窗松手后部分被盖），抓未被遮住的左翼（+80，避开图标）。
+    # ALT 技巧置前 + 最多重试 2 次；每次重试重读矩形防窗口漂移
     grab_x, grab_y = r1.Left + 80, wm.title_grab_point(mh)[1]
     pane_cx = hr.Left + 3 + (hr.width - 15) // 4
     pane_cy = hr.Top + 45 + (hr.height - 48) // 2
     r2 = None
     for attempt in range(3):
-        if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "mspaint":
+        if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "python":
             cover.destroy()
             print(f"SKIP_CASE2_GRAB (probe hit "
                   f"{wm.proc_name_of(wm.window_from_point(grab_x, grab_y))})")
+            target.kill()
             return 1
         wm.keybd_event(0x12, 0, 0)
         wm.set_foreground_window(mh)
@@ -153,13 +157,13 @@ def main() -> int:
     print(f"STEP2_FREE_DROP: tool={wm.is_toolwindow(mh)} LEFT_HIT={left_hit} "
           f"rect=({r2.Left},{r2.Top})-({r2.Right},{r2.Bottom})")
 
-    # 清理：关遮罩、优雅关宿主（释放 mspaint）
+    # 清理：关遮罩、优雅关宿主（释放靶窗）
     cover.destroy()
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.5)
-    wm.force_kill_by_name("mspaint")
+    target.kill()
     print("COVERED_DRAG_TEST_DONE")
-    ok = step1_ok and step2_ok and left_hit == "mspaint"
+    ok = step1_ok and step2_ok and left_hit == "python"
     print(f"RESULT {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
