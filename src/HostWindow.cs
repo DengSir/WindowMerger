@@ -989,7 +989,17 @@ public sealed partial class HostWindow : Window
         {
             _update = info;
             SetUpdatePhase(UpdatePhase.Available);
-            await PromptUpdateAsync(); // 发现即弹确认框
+            if (manual)
+            {
+                await PromptUpdateAsync(); // 用户主动检查 = 明确的更新意向，直接给确认框
+            }
+            else
+            {
+                // 启动自动检查只提示绝不弹窗：模态框在用户开始使用前抢焦点，且回归套件里
+                // 每个被测宿主启动 4s 后都会被它禁用、UIA 点击全灭（CI 实测全红）——
+                // 看到 ⬇ 通知后由用户自己点开确认框
+                ShowNotice($"发现新版本 {info.Version}，点顶条更新按钮安装");
+            }
         }
         else
         {
@@ -1036,9 +1046,10 @@ public sealed partial class HostWindow : Window
         InstallUpdate();
     }
 
-    /// <summary>启动静默检查：发现新版本会弹确认框（用户要求弹窗交互）；检查失败/无更新
-    /// 完全无声（离线、代理未就绪不打扰）。状态离开 Idle 就不覆盖——手动检查进行中（Checking）
-    /// 时跳过，否则两路检查各弹一个确认框、模态叠栈（实测 UIA 拿句柄即失效）。</summary>
+    /// <summary>启动静默检查：发现新版本只提示（⬇ + 状态栏通知，绝不弹模态框——见
+    /// CheckUpdateAsync）；检查失败/无更新完全无声（离线、代理未就绪不打扰）。
+    /// 状态离开 Idle 就不覆盖——手动检查进行中（Checking）时跳过，否则两路检查
+    /// 各自改状态/弹框互相踩（实测两路各弹一个模态框叠栈，UIA 拿句柄即失效）。</summary>
     private async void AutoCheckUpdate()
     {
         try
