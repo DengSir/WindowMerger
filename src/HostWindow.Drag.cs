@@ -160,6 +160,8 @@ public sealed partial class HostWindow : Window
              h = Native.GetWindow(h, Native.GW_HWNDNEXT))
         {
             if (h == draggedHwnd) continue;
+            // 自家子窗口属于本单元（点击激活的瞬态会升到宿主上方），不算遮挡
+            if (h == _left?.Hwnd || h == _right?.Hwnd) continue;
             if (!Native.IsWindowVisible(h) || Native.IsCloaked(h)) continue;
             if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TRANSPARENT) != 0) continue;
             if (!Native.GetWindowRect(h, out var r)) continue;

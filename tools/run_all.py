@@ -43,6 +43,7 @@ TESTS = [
     ("drag_switch_side_test", TOOLS / "tests" / "drag_switch_side_test.py",   90),
     ("cross_dpi_seam_test", TOOLS / "tests" / "cross_dpi_seam_test.py",       90),
     ("alt_tab_z_repro",     TOOLS / "tests" / "alt_tab_z_repro.py",          120),
+    ("child_fg_raise_test", TOOLS / "tests" / "child_fg_raise_test.py",      120),
     ("ghost_cycle_test",    TOOLS / "tests" / "ghost_cycle_test.py",         300),
     ("theme_menu_test",     TOOLS / "visual" / "theme_menu_test.py",          90),
     ("theme_toggle_visual_test", TOOLS / "visual" / "theme_toggle_visual_test.py", 90),

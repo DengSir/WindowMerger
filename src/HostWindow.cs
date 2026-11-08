@@ -624,6 +624,28 @@ public sealed partial class HostWindow : Window
         _leftCol.Width = new GridLength(avail * _ratio);
     }
 
+    /// <summary>
+    /// 子窗口激活联动：把整个合并单元升到所有普通窗口之上，焦点保持在子窗口。
+    /// 点击格子（alpha=0 穿透）激活的是子窗口，系统只升子窗口不升宿主——重叠的
+    /// 其他窗口继续压住单元，观感是"点了没反应，子窗口还被拽回去"。宿主用
+    /// topmost-toggle 两步落到普通带顶端再 RaiseChildrenBelow 粘回子窗口；
+    /// 全程 NOACTIVATE 绝不抢焦点（SetForegroundWindow 会打断子窗口输入），
+    /// HWND_TOP 对非前台窗口实测静默无效不可用。最小化/拖动中跳过。
+    /// </summary>
+    internal void OnChildActivated(IntPtr child)
+    {
+        if (_handle == IntPtr.Zero || !IsLoaded || WindowState == WindowState.Minimized) return;
+        if (_drag is { IsBusy: true }) return;
+        // topmost-toggle：第二步只在第一步成功后执行（NOTOPMOST 落普通带顶端）
+        if (Native.SetWindowPos(_handle, Native.HwndTopmost, 0, 0, 0, 0,
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
+                | Native.SWP_NOOWNERZORDER))
+            Native.SetWindowPos(_handle, Native.HwndNotTopmost, 0, 0, 0, 0,
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
+                | Native.SWP_NOOWNERZORDER);
+        RaiseChildrenBelow();
+    }
+
     private void RaiseChildrenBelow()
     {
         if (_handle == IntPtr.Zero) return;
@@ -637,15 +659,24 @@ public sealed partial class HostWindow : Window
 
     private void FixZOrder()
     {
-        // 宿主正下方必须是连续的子窗口块（次序不限）：Alt+Tab 切回时宿主单独升顶，
-        // 子窗口留在原地会被切走前的前台窗口压住（宿主内 HWND_TOP 拉起实测无效）。
-        // 不满足就整体插回宿主正下方。最小化（移出屏幕外但非 iconic）的子窗口豁免。
-        IntPtr below = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetWindow(_handle, Native.GW_HWNDNEXT);
+        // 宿主正下方必须是连续的"可见子窗口块"（次序不限）：Alt+Tab 切回时宿主单独升顶，
+        // 子窗口留在原地会被切走前的前台窗口压住（宿主内 HWND_TOP 拉起实测无效），不满足
+        // 就整体插回宿主正下方。最小化（移出屏幕外但非 iconic）的子窗口豁免。
+        // 跳过隐藏/cloaked 窗口：它们不渲染、不参与命中，为它们翻转子窗口 z 纯属浪费，
+        // 且每次写入都是一次 DWM 重合成（闪烁）——与 IsCoveredAtCursor 同一判定标准。
+        IntPtr b1 = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetWindow(_handle, Native.GW_HWNDNEXT);
+        IntPtr below = b1;
         bool leftOk = false, rightOk = false;
-        for (int i = 0; i < 2 && below != IntPtr.Zero; i++)
+        for (int seen = 0, hops = 0; seen < 2 && below != IntPtr.Zero && hops < 32; hops++)
         {
+            if (!Native.IsWindowVisible(below) || Native.IsCloaked(below))
+            {
+                below = Native.GetWindow(below, Native.GW_HWNDNEXT);
+                continue;
+            }
             if (_left is not null && below == _left.Hwnd) leftOk = true;
             if (_right is not null && below == _right.Hwnd) rightOk = true;
+            seen++;
             below = Native.GetWindow(below, Native.GW_HWNDNEXT);
         }
         bool needLeft = _left is not null && _left.IsAlive && !Native.IsIconic(_left.Hwnd) && !leftOk;

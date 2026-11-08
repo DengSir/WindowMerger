@@ -17,7 +17,6 @@ internal sealed class AttachedChild
     public uint Pid;                                   // 子窗口所属进程（孤儿清理的句柄复用校验）
     public Native.RECT PreAttachRect;                  // 吸附前矩形（释放还原用）
 
-    private static readonly IntPtr HwndNotTopmost = new(-2);
 
     private AttachedChild(IntPtr host, IntPtr hwnd, uint pid)
     {
@@ -77,10 +76,11 @@ internal sealed class AttachedChild
         var r = PreAttachRect;
         if (Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
         // 摘除可能被外部污染的置顶标记，窗口回到普通层
-        Native.SetWindowPos(Hwnd, HwndNotTopmost, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+        Native.SetWindowPos(Hwnd, Native.HwndNotTopmost, 0, 0, 0, 0,
+            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
+            | Native.SWP_NOOWNERZORDER);
         Native.SetWindowPos(Hwnd, IntPtr.Zero, r.Left, r.Top, r.Width, r.Height,
-            Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
     }
 
     /// <summary>确保处于吸附位的正常可见状态：toolwindow 样式、非最小化/最大化、可见。</summary>
@@ -125,8 +125,12 @@ internal sealed class AttachedChild
         }
         // 插到宿主正下方（相对插入是稳定语义）：宿主不透明部分（分隔条/边框）盖住子窗口
         // 隐形边可点击，透明格子透出子窗口。不要用 HWND_TOP——实测 Alt+Tab 切回宿主后
-        // 它是静默无效调用（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住）
-        return Native.SetWindowPos(Hwnd, _host, x, y, w, h, Native.SWP_NOACTIVATE);
+        // 它是静默无效调用（返回 true 但 z 序不变，子窗口被切走前的窗口一直压住）。
+        // SWP_NOOWNERZORDER 必带：缺了它，移动子窗口会联动重排 owner 链——实测 VS Code
+        // 的隐藏终端窗口（PseudoConsoleWindow，owner=code）被系统拖进宿主正下方槽位，
+        // 与 250ms 自愈形成永久互搏 = 中线闪烁（2026-11 日志实锤）
+        return Native.SetWindowPos(Hwnd, _host, x, y, w, h,
+            Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
     }
 
     /// <summary>随宿主整体移动（dx,dy 设备像素；最小化中的子窗口不动）。</summary>
@@ -151,6 +155,7 @@ internal sealed class AttachedChild
     {
         if (!IsAlive || Native.IsIconic(Hwnd)) return;
         Native.SetWindowPos(Hwnd, _host, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
+            | Native.SWP_NOOWNERZORDER);
     }
 }

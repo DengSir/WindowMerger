@@ -46,6 +46,11 @@ internal static partial class Native
     public const uint SWP_NOMOVE = 0x0002;
     public const uint SWP_NOZORDER = 0x0004;
     public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_NOOWNERZORDER = 0x0200;
+
+    // 置顶带（IntPtr 不能作 const，用 static readonly）
+    public static readonly IntPtr HwndTopmost = new(-1);
+    public static readonly IntPtr HwndNotTopmost = new(-2);
 
     // GetWindowLong / GetWindow
     public const int GWL_EXSTYLE = -20;
@@ -85,6 +90,7 @@ internal static partial class Native
     public const uint TH32CS_SNAPPROCESS = 0x00000002;
 
     // WinEvent
+    public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     public const uint EVENT_SYSTEM_MOVESIZE = 0x000A;
     public const uint EVENT_SYSTEM_MOVESIZEEND = 0x000B;
     public const uint WINEVENT_OUTOFCONTEXT = 0x0;

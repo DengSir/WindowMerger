@@ -3,15 +3,19 @@ using System.Windows.Threading;
 namespace WindowMerger;
 
 /// <summary>
-/// 拖入吸附：全局监听任意窗口的移动（EVENT_SYSTEM_MOVESIZE / MOVESIZEEND），
-/// 光标落在宿主左/右洞内时高亮目标格，松手后吸附进该格——以光标为准，
-/// 窗口中心在洞内但光标在洞外不吸附（拖标题条时窗口体悬在洞上不算抓取）。
+/// 全局窗口事件编排，两路职责：
+/// 拖入吸附——监听任意窗口的移动（EVENT_SYSTEM_MOVESIZE / MOVESIZEEND），
+///   光标落在宿主左/右洞内时高亮目标格，松手后吸附进该格——以光标为准，
+///   窗口中心在洞内但光标在洞外不吸附（拖标题条时窗口体悬在洞上不算抓取）；
+/// 前台联动——监听 EVENT_SYSTEM_FOREGROUND，吸附子窗口成为前台时把整个
+///   合并单元升到普通窗口之上（见 HostWindow.OnChildActivated）。
 /// </summary>
 internal sealed class DragAttach : IDisposable
 {
     private readonly HostWindow _host;
     private readonly Native.WinEventProc _proc; // 保活，防止回调被 GC
     private IntPtr _hook;
+    private IntPtr _hookFg;
     private IntPtr _dragHwnd;
     private readonly DispatcherTimer _poll;
 
@@ -21,6 +25,10 @@ internal sealed class DragAttach : IDisposable
         _proc = OnWinEvent;
         _hook = Native.SetWinEventHook(
             Native.EVENT_SYSTEM_MOVESIZE, Native.EVENT_SYSTEM_MOVESIZEEND,
+            IntPtr.Zero, _proc, 0, 0,
+            Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
+        _hookFg = Native.SetWinEventHook(
+            Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND,
             IntPtr.Zero, _proc, 0, 0,
             Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
         _poll = new DispatcherTimer(DispatcherPriority.Input)
@@ -36,6 +44,13 @@ internal sealed class DragAttach : IDisposable
     {
         if (idObject != Native.OBJID_WINDOW || hwnd == IntPtr.Zero) return;
 
+        if (@event == Native.EVENT_SYSTEM_FOREGROUND)
+        {
+            // 子窗口成为前台（用户点格子穿透激活/程序自激活）：整个合并单元随之升到
+            // 普通窗口之上，对齐普通窗口"点哪整窗到前"的行为
+            if (_host.IsAttachedChild(hwnd)) _host.OnChildActivated(hwnd);
+            return;
+        }
         if (@event == Native.EVENT_SYSTEM_MOVESIZE)
         {
             _dragHwnd = hwnd;
@@ -86,6 +101,11 @@ internal sealed class DragAttach : IDisposable
         {
             Native.UnhookWinEvent(_hook);
             _hook = IntPtr.Zero;
+        }
+        if (_hookFg != IntPtr.Zero)
+        {
+            Native.UnhookWinEvent(_hookFg);
+            _hookFg = IntPtr.Zero;
         }
     }
 }
