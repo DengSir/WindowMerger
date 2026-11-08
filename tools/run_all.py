@@ -32,6 +32,7 @@ TESTS = [
     ("shortcut_create_test", TOOLS / "tests" / "shortcut_create_test.py",     90),
     ("launch_attach_test",  TOOLS / "tests" / "launch_attach_test.py",        90),
     ("orphan_e2e_test",     TOOLS / "tests" / "orphan_e2e_test.py",           90),
+    ("update_e2e_test",     TOOLS / "tests" / "update_e2e_test.py",          120),
     ("geometry_persistence_test", TOOLS / "tests" / "geometry_persistence_test.py", 150),
     ("cursor_drop_test",    TOOLS / "tests" / "cursor_drop_test.py",          90),
     ("covered_drag_test",   TOOLS / "tests" / "covered_drag_test.py",         90),

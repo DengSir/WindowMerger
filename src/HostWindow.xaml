@@ -121,7 +121,7 @@
                     <TextBlock x:Name="_status" Grid.Column="2" FontSize="12" Margin="0,0,10,0"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource ThemeTextBrush}" />
-                    <!-- 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
+                    <!-- 顶条功能组：[左][右][交换][释放][快捷方式][更新][主题] | [─][□][✕]
                          字形内容/点击/悬停刷色由 code-behind 补齐 -->
                     <StackPanel x:Name="_captionButtons" Grid.Column="3"
                                 Orientation="Horizontal" HorizontalAlignment="Right"
@@ -131,6 +131,10 @@
                         <Button x:Name="_swapButton" Width="30" ToolTip="交换左右">&#xF0EC;</Button>
                         <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）">&#xF127;</Button>
                         <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式">&#xF360;</Button>
+                        <!-- 更新按钮：字形/tooltip/UIA Name 随状态机切换（↻ 检查 → 弹窗确认 → ⬇ 下载 → 自动重启），
+                             AutomationId 供 e2e 测试 UIA 定位（字形按钮没有可靠的按名匹配） -->
+                        <Button x:Name="_updateButton" Width="30" ToolTip="检查更新"
+                                AutomationProperties.AutomationId="UpdateButton">&#xF021;</Button>
                         <Button x:Name="_themeButton" Width="30" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
                                 VerticalAlignment="Stretch" />

@@ -7,6 +7,7 @@ public sealed class AppConfig
 {
     public double Ratio { get; set; } = 0.5;
     public string Theme { get; set; } = "Auto";
+    public bool CheckUpdates { get; set; } = true; // 启动自动检查更新（GitHub Release）
     public List<long>? AttachedPids { get; set; }
     public List<long>? AttachedHwnds { get; set; }
     // 窗口几何 = 正常态矩形（物理像素，存时乘窗口所在屏 DPI）+ 是否最大化；启动恢复时

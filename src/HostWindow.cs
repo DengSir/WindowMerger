@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -42,6 +43,13 @@ public sealed partial class HostWindow : Window
     private AttachSide? _highlight;   // 当前拖放高亮的槽位（null=无）
     private string? _notice;
     private DateTime _noticeUntil;
+
+    // 自动更新（逻辑在 Updater.cs，这里只做状态机与 UI）
+    private bool _checkUpdates;                 // 启动自动检查开关（config.CheckUpdates，主题菜单可切）
+    private Updater.UpdateInfo? _update;        // 发现的可用更新（null=无）
+    private string? _updateZip;                 // 已下载的更新包路径（null=未下载）
+    private UpdatePhase _updatePhase = UpdatePhase.Idle;
+    private bool _pendingInstall;               // 重启安装已确认：Closing 清理完成后换 exe
 
     /// <summary>当前生效的边框宽度：最大化时边框隐藏，格子铺满窗口。</summary>
     private double CurBorderW => WindowState == WindowState.Maximized ? 0 : _borderW;
@@ -92,6 +100,7 @@ public sealed partial class HostWindow : Window
     {
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
+        _checkUpdates = config.CheckUpdates;
         var orphanPids = config.AttachedPids;
         var orphanHwnds = config.AttachedHwnds;
 
@@ -124,13 +133,26 @@ public sealed partial class HostWindow : Window
         };
         DpiChanged += (_, _) => ApplyLayout();
         Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight, cliLeftExe, cliRightExe); };
-        Closing += (_, _) => OnClosingCleanup();
+        Closing += OnClosing;
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromMilliseconds(250),
         };
         _timer.Tick += (_, _) => Maintain();
+
+        // 上次更新的残留（.old/.update/临时 zip）：新实例启动即清；.old 可能仍被退出中的
+        // 旧进程占用，删不掉定时重试自愈
+        CleanupUpdateLeftoversWithRetry();
+
+        // 启动自动检查更新：延迟 4 秒避开启动高峰，失败静默（离线/代理未就绪不打扰）
+        var updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        updateCheckTimer.Tick += (_, _) =>
+        {
+            updateCheckTimer.Stop();
+            if (_checkUpdates) AutoCheckUpdate();
+        };
+        updateCheckTimer.Start();
     }
 
     // ---------- UI ----------
@@ -163,6 +185,9 @@ public sealed partial class HostWindow : Window
         _maxButton.Click += (_, _) => ToggleMaximize();
         _closeButton.Click += (_, _) => Close();
         UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
+
+        _updateButton.Click += (_, _) => _ = OnUpdateButtonClickedAsync();
+        SetUpdatePhase(UpdatePhase.Idle); // 初始字形/tooltip（含当前版本号）
 
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
         _topBar.MouseMove += TopBarOnMouseMove;
@@ -217,10 +242,24 @@ public sealed partial class HostWindow : Window
         menu.Items.Add(ThemeMenuItem("跟随系统", AppThemeMode.Auto, p));
         menu.Items.Add(ThemeMenuItem("深色", AppThemeMode.Dark, p));
         menu.Items.Add(ThemeMenuItem("浅色", AppThemeMode.Light, p));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuItemWithCheck("启动时检查更新", _checkUpdates, p,
+            () => { _checkUpdates = !_checkUpdates; SaveConfig(); }, "ToggleCheckUpdates"));
         menu.IsOpen = true;
     }
 
     private MenuItem ThemeMenuItem(string label, AppThemeMode mode, AppTheme.Palette p)
+        => MenuItemWithCheck(label, AppTheme.Mode == mode, p, () =>
+        {
+            AppTheme.Mode = mode;
+            ApplyTheme();
+            SaveConfig();
+        });
+
+    /// <summary>主题菜单通用项（主题三选 + 启动检查更新开关共用）：极简模板 + 对勾列 + 悬停高亮。
+    /// 自定义 Header 的 MenuItem UIA Name 为空（AGENTS 已知坑），可传 automationId 供测试定位。</summary>
+    private MenuItem MenuItemWithCheck(string label, bool checkmark, AppTheme.Palette p, Action onClick,
+        string? automationId = null)
     {
         // 极简模板只呈现 Background（默认模板的浅灰高亮会破坏深色主题），悬停色事件时从当前主题取
         var template = new ControlTemplate(typeof(MenuItem));
@@ -238,7 +277,7 @@ public sealed partial class HostWindow : Window
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         header.Children.Add(new TextBlock
         {
-            Text = AppTheme.Mode == mode ? "\uF00C" : "",
+            Text = checkmark ? "\uF00C" : "",
             FontFamily = (FontFamily)FindResource("FaSolid"),
             FontSize = 10,
             Width = 20,
@@ -256,14 +295,11 @@ public sealed partial class HostWindow : Window
             FontSize = 12,
             Template = template,
         };
+        if (automationId is not null)
+            item.SetValue(System.Windows.Automation.AutomationProperties.AutomationIdProperty, automationId);
         item.MouseEnter += (_, _) => item.Background = AppTheme.Brush(AppTheme.Current().ButtonHover);
         item.MouseLeave += (_, _) => item.Background = Brushes.Transparent;
-        item.Click += (_, _) =>
-        {
-            AppTheme.Mode = mode;
-            ApplyTheme();
-            SaveConfig();
-        };
+        item.Click += (_, _) => onClick();
         return item;
     }
 
@@ -397,7 +433,7 @@ public sealed partial class HostWindow : Window
         => target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value });
 
     private void SaveConfig()    {
-        var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString() };
+        var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString(), CheckUpdates = _checkUpdates };
         cfg.AttachedPids = new[] { _left, _right }
             .Where(c => c is not null)
             .Select(c => (long)c!.Pid)
@@ -563,6 +599,25 @@ public sealed partial class HostWindow : Window
         _drag = null;
         ReleaseAll();
         SaveConfig();
+    }
+
+    /// <summary>关闭收尾 + 重启安装：先还原子窗口/落盘配置（AttachedPids 随之清空，新实例
+    /// 不会误吸附），再换 exe 拉起新实例——此刻本进程已无窗口级状态可丢。换装任何一步失败
+    /// 都取消关闭（窗口留着）并报因，用户可重试或正常继续使用。</summary>
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        OnClosingCleanup();
+        if (!_pendingInstall) return;
+        try
+        {
+            Updater.InstallAndRestart(_updateZip!);
+        }
+        catch (Exception ex)
+        {
+            e.Cancel = true;
+            _pendingInstall = false;
+            ShowNotice($"安装更新失败：{ex.Message}");
+        }
     }
 
     // ---------- 布局同步 ----------
@@ -859,6 +914,172 @@ public sealed partial class HostWindow : Window
 
     // 吸附编排（TryAttach/Release*/SwapSides/Pick 及 CLI 匹配）见 HostWindow.Attach.cs
     // 拖拽交互（顶条拖动/最大化拖动还原/分隔条拖动）见 HostWindow.Drag.cs
+
+    // ---------- 自动更新（网络/换装逻辑在 Updater.cs） ----------
+
+    private enum UpdatePhase { Idle, Checking, Available, Downloading }
+
+    /// <summary>更新按钮状态：↻ 检查 → 弹窗确认（UpdateDialog）→ ⬇ 下载（状态栏进度）→ 自动重启安装。
+    /// 只动 Content/ToolTip/IsEnabled——不碰 DynamicResource 引用（悬停刷色由隐式样式 Trigger 管）。
+    /// AutomationProperties.Name 跟随状态：e2e 测试的状态探针（字形按钮没有可靠按名匹配）+ 读屏可读。</summary>
+    private void SetUpdatePhase(UpdatePhase phase)
+    {
+        _updatePhase = phase;
+        string version = _update?.Version ?? "?";
+        bool enabled;
+        string glyph;
+        string label;
+        switch (phase)
+        {
+            case UpdatePhase.Checking:
+                enabled = false; glyph = "\uF021"; label = "正在检查更新…";
+                break;
+            case UpdatePhase.Available:
+                enabled = true; glyph = "\uF019"; // 下载
+                label = _updateZip is not null
+                    ? $"已下载 {version}，点击安装"
+                    : $"发现新版本 {version}，点击下载安装";
+                break;
+            case UpdatePhase.Downloading:
+                enabled = false; glyph = "\uF019"; label = "下载更新中…";
+                break;
+            default: // Idle
+                enabled = true; glyph = "\uF021";
+                label = $"检查更新（当前 {Updater.CurrentDisplayVersion()}）";
+                break;
+        }
+        _updateButton.IsEnabled = enabled;
+        _updateButton.Content = glyph;
+        _updateButton.ToolTip = label;
+        // 普通依赖属性动态赋值，与主题资源（DynamicResource）无关，无资源引用销毁陷阱
+        _updateButton.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, label);
+    }
+
+    private async Task OnUpdateButtonClickedAsync()
+    {
+        try
+        {
+            switch (_updatePhase)
+            {
+                case UpdatePhase.Idle:
+                    await CheckUpdateAsync(manual: true);
+                    break;
+                case UpdatePhase.Available:
+                    // 确认框取消后留在 Available：再点重新弹窗（更新包已下载时是重启安装确认）
+                    await PromptUpdateAsync();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            // 用户触发的动作失败不上抛崩宿主，状态栏报因（同快捷方式生成的处理）；
+            // 状态回退，已下载的包不丢（Available 档 tooltip 会反映"已下载"）
+            SetUpdatePhase(_update is not null ? UpdatePhase.Available : UpdatePhase.Idle);
+            ShowNotice($"更新失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>检查 GitHub 最新 Release（manual=点按钮触发，无更新/失败都报状态栏）。
+    /// 检查异常上抛：manual 由点击处理器报因，启动静默检查由 AutoCheckUpdate 吞掉。</summary>
+    private async Task CheckUpdateAsync(bool manual)
+    {
+        SetUpdatePhase(UpdatePhase.Checking);
+        var check = await Updater.CheckLatestAsync();
+        if (check.Update is { } info)
+        {
+            _update = info;
+            SetUpdatePhase(UpdatePhase.Available);
+            await PromptUpdateAsync(); // 发现即弹确认框
+        }
+        else
+        {
+            _update = null;
+            SetUpdatePhase(UpdatePhase.Idle);
+            if (manual)
+            {
+                ShowNotice(check.NoRelease
+                    ? "仓库还没有已发布的版本"
+                    : $"已是最新版本（{Updater.CurrentDisplayVersion()}）");
+            }
+        }
+    }
+
+    /// <summary>发现新版本后的确认对话框（弹窗交互）。确认 → 下载（更新包已缓存则跳过）
+    /// → 自动重启换装（用户同意"立即更新"即含重启）；取消 → 留在 Available 随时可再点。
+    /// 确认后的失败在此报因——启动自动检查路径也必须让用户看到原因（已点过确认）。</summary>
+    private async Task PromptUpdateAsync()
+    {
+        if (_update is not { } info) return;
+        bool cached = _updateZip is not null && File.Exists(_updateZip);
+        var dlg = new UpdateDialog(
+            headline: $"发现新版本 {info.Version}",
+            detail: cached
+                ? $"更新包已下载（当前 {Updater.CurrentDisplayVersion()}），重启即自动完成替换。"
+                : $"当前版本 {Updater.CurrentDisplayVersion()}。将下载更新包并自动重启安装，吸附的子窗口会先回到原位。",
+            confirmText: cached ? "立即重启" : "立即更新")
+        {
+            Owner = this,
+        };
+        if (dlg.ShowDialog() != true)
+        {
+            ShowNotice("已取消更新，点顶条更新按钮可随时安装");
+            return;
+        }
+
+        if (!cached)
+        {
+            SetUpdatePhase(UpdatePhase.Downloading);
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            _updateZip = await Updater.DownloadAsync(info, ShowNotice, cts.Token);
+        }
+        ShowNotice(cached ? "正在重启安装…" : "下载完成，正在重启安装…");
+        InstallUpdate();
+    }
+
+    /// <summary>启动静默检查：发现新版本会弹确认框（用户要求弹窗交互）；检查失败/无更新
+    /// 完全无声（离线、代理未就绪不打扰）。状态离开 Idle 就不覆盖——手动检查进行中（Checking）
+    /// 时跳过，否则两路检查各弹一个确认框、模态叠栈（实测 UIA 拿句柄即失效）。</summary>
+    private async void AutoCheckUpdate()
+    {
+        try
+        {
+            if (_updatePhase != UpdatePhase.Idle) return;
+            await CheckUpdateAsync(manual: false);
+        }
+        catch
+        {
+            // 检查失败静默；确认框之后的下载/安装失败已在 PromptUpdateAsync 报因
+        }
+    }
+
+    /// <summary>重启安装：只标记 _pendingInstall 后正常 Close——真正换装在 Closing 里
+    /// 子窗口还原、配置落盘之后执行（失败会取消关闭、状态不丢）。</summary>
+    private void InstallUpdate()
+    {
+        if (_updateZip is null || !File.Exists(_updateZip))
+        {
+            _updateZip = null;
+            SetUpdatePhase(_update is null ? UpdatePhase.Idle : UpdatePhase.Available);
+            ShowNotice("更新包丢失，请重新下载");
+            return;
+        }
+        _pendingInstall = true;
+        Close();
+    }
+
+    /// <summary>清理上次更新的残留（.old/.update/临时 zip）。.old 可能仍被退出中的旧进程
+    /// 占用（改名的镜像在跑），1.5s × 4 次重试自愈。</summary>
+    private void CleanupUpdateLeftoversWithRetry()
+    {
+        if (Updater.CleanupLeftovers()) return;
+        var retry = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        int attempts = 0;
+        retry.Tick += (_, _) =>
+        {
+            if (Updater.CleanupLeftovers() || ++attempts >= 4) retry.Stop();
+        };
+        retry.Start();
+    }
 
     // ---------- 状态栏 ----------
 
