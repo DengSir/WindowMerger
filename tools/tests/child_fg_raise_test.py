@@ -75,11 +75,26 @@ def make_hidden_window() -> tuple[int, object, object]:
                     ("lpszMenuName", wintypes.LPCWSTR), ("lpszClassName", wintypes.LPCWSTR)]
 
     user32 = ctypes.windll.user32
-    # DefWindowProcW 必须声明全参数类型——默认 int 转换遇 64 位 WPARAM/LPARAM 高位
-    # 会 OverflowError，wndproc 回调每次消息都炸（实测窗口行为异常、探针测试全歪）
+    # DefWindowProcW / CreateWindowExW / UnregisterClassW 必须声明全参数类型——默认 int
+    # 转换遇 64 位 WPARAM/LPARAM 高位会 OverflowError，wndproc 回调每次消息都炸（实测窗口
+    # 行为异常、探针测试全歪）；hInstance 是模块基址，Win11 高熵 ASLR 下可 >2^31，不声明
+    # 类型在 CreateWindowExW/UnregisterClassW 两处直接溢出（CI 实测 argument 11，看脸翻车）
     user32.DefWindowProcW.restype = ctypes.c_ssize_t
     user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT,
                                       wintypes.WPARAM, wintypes.LPARAM]
+    user32.CreateWindowExW.restype = wintypes.HWND
+    user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                       wintypes.DWORD, ctypes.c_int, ctypes.c_int,
+                                       ctypes.c_int, ctypes.c_int, wintypes.HWND,
+                                       wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID]
+    user32.DestroyWindow.restype = wintypes.BOOL
+    user32.DestroyWindow.argtypes = [wintypes.HWND]
+    user32.UnregisterClassW.restype = wintypes.BOOL
+    user32.UnregisterClassW.argtypes = [wintypes.LPCWSTR, wintypes.HINSTANCE]
+    # GetModuleHandleW 不声明 restype 默认按 c_int 截断成 32 位——高位置 1 时变负数、
+    # 存进 HINSTANCE 再读回是巨型正数，正是 CreateWindowExW 溢出的总根源
+    ctypes.windll.kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+    ctypes.windll.kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
     proc = WNDPROC(user32.DefWindowProcW)
     wc = WNDCLASSW()
     wc.lpfnWndProc = proc
