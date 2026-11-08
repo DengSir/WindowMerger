@@ -49,6 +49,8 @@ git push origin v1.2.3
 - **推 tag**（`git tag v0.1.0 && git push origin v0.1.0`）：从 tag 本身发 Release
 - **Actions 页手动触发**（可在 main 上直接发，无需预推 tag）：填 `version`（如 `0.1.0`、`0.1.0-alpha.1`，`v` 前缀可省）即在该分支当前 HEAD 上自动创建 tag 并发 Release，可勾选 `prerelease` 标记预发布；`version` 留空则只构建上传工件、不发 Release
 
+两条路径发版前都会先复用 `test.yml` 跑**同款全量回归**（reusable workflow 门禁），测试不过不发版。
+
 ## 命令行
 
 ```cmd

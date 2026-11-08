@@ -35,7 +35,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 发版门禁：复用 test.yml（同构建 + 全量回归），测试不过不发版
+  test:
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: test
     runs-on: windows-latest
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1

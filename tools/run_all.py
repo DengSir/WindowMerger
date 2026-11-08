@@ -5,6 +5,7 @@ SKIP 判定 = 脚本 exit 0 且输出含 SKIP_；判定 = 尾部 RESULT PASS/FAI
 警告: 测试会无差别关闭所有 WindowMerger/Notepad/mspaint——包括你自己开着的实例。
 """
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+# 测试环境与真实 GitHub API 断网（子进程继承）：被测宿主不启动自动检查——
+# 匿名限流看脸、线上版本 vs 构建版本的版本差都会改变被测行为（模态框事故根因）
+os.environ.setdefault("WM_UPDATE_OFF", "1")
 
 TOOLS = Path(__file__).resolve().parent
 
@@ -127,6 +132,23 @@ def main() -> int:
         n_fail += status == "FAIL"
         n_skip += status == "SKIP"
     print(f"\n{len(rows)} tests: {n_pass} PASS, {n_fail} FAIL, {n_skip} SKIP")
+
+    # CI 诊断直读：35 项表格写进 $GITHUB_STEP_SUMMARY（Actions 运行页直接看，
+    # 不用拉原始日志——logs API 要管理员权限，实测折腾）；失败项再发 ::error
+    # 注解顶到页面头部。本地没这个环境变量，自动跳过
+    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        mark = {"PASS": "✅", "FAIL": "❌", "SKIP": "◌"}
+        with open(summary_path, "a", encoding="utf-8") as f:
+            f.write("## 回归测试汇总\n\n")
+            f.write(f"**{len(rows)} tests: {n_pass} PASS, {n_fail} FAIL, {n_skip} SKIP**\n\n")
+            f.write("| 状态 | 测试 | 耗时 | 结果 |\n|---|---|---|---|\n")
+            for name, status, secs, verdict in rows:
+                cell = " ".join(str(verdict).split()).replace("|", "/")
+                f.write(f"| {mark[status]} {status} | `{name}` | {secs:.1f}s | {cell} |\n")
+    for name, status, _secs, verdict in rows:
+        if status == "FAIL":
+            msg = " ".join(str(verdict).split())[:200]
+            print(f"::error title=回归失败 {name}::{msg}")
     return 1 if n_fail else 0
 
 

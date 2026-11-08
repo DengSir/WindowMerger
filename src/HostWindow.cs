@@ -145,14 +145,20 @@ public sealed partial class HostWindow : Window
         // 旧进程占用，删不掉定时重试自愈
         CleanupUpdateLeftoversWithRetry();
 
-        // 启动自动检查更新：延迟 4 秒避开启动高峰，失败静默（离线/代理未就绪不打扰）
-        var updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-        updateCheckTimer.Tick += (_, _) =>
+        // 启动自动检查更新：延迟 4 秒避开启动高峰，失败静默（离线/代理未就绪不打扰）。
+        // WM_UPDATE_OFF=1（test.yml 测试步骤 + run_all 设）：测试环境与真实 GitHub API
+        // 彻底断网——匿名限流看脸、线上版本 vs CI 构建版本的版本差都会改变被测行为
+        // （模态框事故根因）；手动点 ↻ 检查不受影响，update_e2e 用 WM_UPDATE_API 指本地假服务
+        if (Environment.GetEnvironmentVariable("WM_UPDATE_OFF") != "1")
         {
-            updateCheckTimer.Stop();
-            if (_checkUpdates) AutoCheckUpdate();
-        };
-        updateCheckTimer.Start();
+            var updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            updateCheckTimer.Tick += (_, _) =>
+            {
+                updateCheckTimer.Stop();
+                if (_checkUpdates) AutoCheckUpdate();
+            };
+            updateCheckTimer.Start();
+        }
     }
 
     // ---------- UI ----------
