@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """全屏/区域截图存 PNG。原 Shot.ps1。
-用法: uv run tools/\utils\\shot.py <out.png> [--x N --y N --w N --h N]（缺省 = 主屏全屏）
+用法: uv run tools\\utils\\shot.py <out.png> [--x N --y N --w N --h N]（缺省 = 主屏全屏）
 """
 import argparse
 import sys

@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """自动更新 e2e 回归：本地 HTTP 服务模拟 GitHub releases/latest + zip asset，
 宿主经 WM_UPDATE_API 指过去（src/Updater.cs 的测试钩子）。弹窗确认流全走一遍：
-  检查（4s 自动检查可能抢跑，与手动点击幂等）→ 断言 Available（发现即自动弹确认框）
-  → 点确认框"立即更新" → 下载 → 自动重启安装
+  Idle 断言顶条更新按钮隐藏（无更新不显示图标；须赶在启动 4s 自动检查完成前断言）
+  → 等自动检查 → Available（按钮现身 ⬇ + 状态栏通知，自动检查绝不弹窗）
+  → 点 ⬇ 弹确认框 → 点"立即更新" → 下载 → 自动重启安装
   → 断言旧 PID 退出 / 新 PID 从原 exe 路径运行 / 服务端收到 zip 请求 / .old 残留最终清掉
-更新按钮按 AutomationId=UpdateButton 定位，UIA Name 随状态机变化 = 状态探针；确认框 =
-进程内除宿主主窗外带 UpdateConfirm 按钮的顶层窗口（all_windows_of_pid 含 owned 弹层）。
+被测宿主环境剥掉 WM_UPDATE_OFF（run_all 全局注入）——启动自动检查是唯一检查入口。
+更新按钮按 AutomationId=UpdateButton 定位，UIA Name 随状态机变化 = 状态探针（按钮只在
+Available/Downloading 可见，Idle 隐藏）；确认框 = 进程内除宿主主窗外带 UpdateConfirm
+按钮的顶层窗口（all_windows_of_pid 含 owned 弹层）。
 InvokePattern 进程内直调，锁屏会话可用，不依赖遮挡/前台。
 用法: uv run tools\\tests\\update_e2e_test.py [--exe 路径]
 """
@@ -100,6 +103,22 @@ def click_update(hwnd: int) -> bool:
     return True
 
 
+def update_button_hidden(hwnd: int) -> bool:
+    """Idle 态更新按钮必须不可见：UIA 树里不存在（WPF 对 Collapsed 子树的处理两种表现
+    均算隐藏），或存在但 IsOffscreen=True。查不出（COM 瞬态错误）按可见算，让断言暴露。"""
+    try:
+        el = wm_uia.element_from_handle(hwnd)
+        btn = wm_uia.find_by_automation_id(el, "UpdateButton")
+    except Exception:
+        return False
+    if btn is None:
+        return True
+    try:
+        return bool(btn.IsOffscreen)
+    except Exception:
+        return False
+
+
 def find_update_dialog(host_hwnd: int) -> int | None:
     """确认对话框 = 进程里除宿主主窗外、带 UpdateConfirm 按钮的可见顶层窗口。"""
     for h in wm.all_windows_of_pid(wm.pid_of(host_hwnd)):
@@ -180,39 +199,45 @@ def wait_phase(hwnd: int, needle: str, timeout_s: float) -> bool:
 
 
 def run_flow(exe: str, srv) -> bool:
-    env = {**os.environ, "WM_UPDATE_API": f"http://127.0.0.1:{srv.port}/releases/latest"}
+    # 剥掉 WM_UPDATE_OFF（run_all 全局注入）：本测试必须让启动自动检查活着——它是唯一
+    # 检查入口；WM_UPDATE_API 指本地假服务，不会碰真实 GitHub API
+    env = {k: v for k, v in os.environ.items() if k != "WM_UPDATE_OFF"}
+    env["WM_UPDATE_API"] = f"http://127.0.0.1:{srv.port}/releases/latest"
     host = subprocess.Popen([exe], env=env)
     old_pid = host.pid
-    time.sleep(3.5)
-    hwnds = wm.host_hwnds()
-    if not hwnds:
+    # 窗口一出现立刻断言 Idle 隐藏：启动 4s 定时器一触发、假 API 一应答按钮就会现身，
+    # 拖到 park 之后断言会和自动检查赛跑（3.5s sleep + park 已贴着 4s 红线）
+    if not wm.wait_until(lambda: wm.host_hwnds(), 8000, 200):
         print("FAIL_NO_HOST")
         return False
+    hwnds = wm.host_hwnds()
+    hwnd = hwnds[0]
+    time.sleep(0.5)  # 让 WPF 视觉树/UIA 子树就绪（窗口出现 + 0.5s 仍在 4s 定时器红线前）
+    if not update_button_hidden(hwnd):
+        print("FAIL_IDLE_VISIBLE")
+        return False
+    print("IDLE_HIDDEN_OK")
     # 测试宿主缩小 + 停左屏（AGENTS：不占用户主屏；钉位后 UIA 照常工作）
     hx, hy = wm.park_on_left_or_primary(900, 600)
     for h in hwnds:
         wm.set_window_pos(h, None, hx, hy, 900, 600, wm.SWP_NOZORDER)
-    hwnd = hwnds[0]
     exe_file = Path(exe)
     old_file = Path(str(exe_file) + ".old")
     upd_file = Path(str(exe_file) + ".update")
 
-    # ① 检查：自动检查（config.CheckUpdates=true 时 4s 后触发）可能已抢跑成 Available
-    #（发现即自动弹确认框，宿主按钮此后不再点——模态期间点不到）
-    name = update_button_name(hwnd) or ""
-    if "发现新版本" not in name:
-        if not click_update(hwnd):
-            return False
-        if not wait_phase(hwnd, "发现新版本", 10):
-            print(f"FAIL_NO_AVAILABLE name={update_button_name(hwnd)!r}")
-            return False
+    # ① 检查：启动 4s 自动检查（唯一入口）→ Available（按钮现身 ⬇ + 状态栏通知，绝不弹窗）
+    if not wait_phase(hwnd, "发现新版本", 15):
+        print(f"FAIL_NO_AVAILABLE name={update_button_name(hwnd)!r}")
+        return False
     if srv.RequestHandlerClass.api_hits < 1:
         print("FAIL_NO_API_REQUEST")
         return False
     print("CHECK_OK")
 
-    # ② 确认框点"立即更新" → 下载 → 自动重启安装：旧进程退出、新进程从原 exe 路径跑起来
-    # （偶发丢弹窗兜底：Available 态再点一次按钮本就重新弹确认框；仍失败则 DIAG 现场已打）
+    # ② 点 ⬇ 弹确认框 → 点"立即更新" → 下载 → 自动重启安装：旧进程退出、新进程从原
+    # exe 路径跑起来（偶发丢弹窗兜底：Available 态按钮可再点一次重新弹确认框）
+    if not click_update(hwnd):
+        return False
     if not confirm_update_dialog(hwnd):
         if not click_update(hwnd):
             return False
@@ -247,13 +272,23 @@ def run_flow(exe: str, srv) -> bool:
         return False
     print("CLEANUP_OK")
 
-    # 新实例 UI 完整可用（更新按钮存在且回到可点状态：Idle 或再次 Available）
-    final = update_button_name(wm.host_hwnds()[0]) or ""
-    if final not in ("", None) and ("检查更新" in final or "发现新版本" in final):
-        print(f"FINAL_PHASE {final}")
-    else:
-        print(f"FAIL_FINAL_PHASE {final!r}")
+    # 新实例 UI 完整可用。WM_UPDATE_OFF 继承 → 新实例永驻 Idle，按钮隐藏是预期终态：
+    # UIA 树找不到 = 隐藏 OK；找得到则 Name 必须是 Idle/Available 文案（不能是垃圾值）
+    try:
+        new_el = wm_uia.element_from_handle(wm.host_hwnds()[0])
+        new_btn = wm_uia.find_by_automation_id(new_el, "UpdateButton")
+    except Exception as ex:
+        print(f"FAIL_FINAL_UIA {type(ex).__name__}: {ex}")
         return False
+    if new_btn is None:
+        print("FINAL_PHASE HIDDEN_IDLE")
+    else:
+        final = wm_uia.name_of(new_btn) or ""
+        if "检查更新" in final or "发现新版本" in final:
+            print(f"FINAL_PHASE {final}")
+        else:
+            print(f"FAIL_FINAL_PHASE {final!r}")
+            return False
     return True
 
 

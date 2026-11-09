@@ -148,7 +148,8 @@ public sealed partial class HostWindow : Window
         // 启动自动检查更新：延迟 4 秒避开启动高峰，失败静默（离线/代理未就绪不打扰）。
         // WM_UPDATE_OFF=1（test.yml 测试步骤 + run_all 设）：测试环境与真实 GitHub API
         // 彻底断网——匿名限流看脸、线上版本 vs CI 构建版本的版本差都会改变被测行为
-        // （模态框事故根因）；手动点 ↻ 检查不受影响，update_e2e 用 WM_UPDATE_API 指本地假服务
+        // （模态框事故根因）；update_e2e 对被测宿主剥掉本变量（自动检查是唯一检查入口），
+        // 用 WM_UPDATE_API 指本地假服务
         if (Environment.GetEnvironmentVariable("WM_UPDATE_OFF") != "1")
         {
             var updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -925,35 +926,39 @@ public sealed partial class HostWindow : Window
 
     private enum UpdatePhase { Idle, Checking, Available, Downloading }
 
-    /// <summary>更新按钮状态：↻ 检查 → 弹窗确认（UpdateDialog）→ ⬇ 下载（状态栏进度）→ 自动重启安装。
-    /// 只动 Content/ToolTip/IsEnabled——不碰 DynamicResource 引用（悬停刷色由隐式样式 Trigger 管）。
+    /// <summary>更新按钮状态：无更新/检查失败（Idle/Checking）时按钮整体隐藏不占顶条，
+    /// 启动自动检查发现新版本才现身 ⬇ → 弹窗确认（UpdateDialog）→ 下载（状态栏进度）
+    /// → 自动重启安装。只动 Visibility/Content/ToolTip/IsEnabled——不碰
+    /// DynamicResource 引用（悬停刷色由隐式样式 Trigger 管）。
     /// AutomationProperties.Name 跟随状态：e2e 测试的状态探针（字形按钮没有可靠按名匹配）+ 读屏可读。</summary>
     private void SetUpdatePhase(UpdatePhase phase)
     {
         _updatePhase = phase;
         string version = _update?.Version ?? "?";
         bool enabled;
+        bool visible;
         string glyph;
         string label;
         switch (phase)
         {
             case UpdatePhase.Checking:
-                enabled = false; glyph = "\uF021"; label = "正在检查更新…";
+                enabled = false; visible = false; glyph = "\uF021"; label = "正在检查更新…";
                 break;
             case UpdatePhase.Available:
-                enabled = true; glyph = "\uF019"; // 下载
+                enabled = true; visible = true; glyph = "\uF019"; // 下载
                 label = _updateZip is not null
                     ? $"已下载 {version}，点击安装"
                     : $"发现新版本 {version}，点击下载安装";
                 break;
             case UpdatePhase.Downloading:
-                enabled = false; glyph = "\uF019"; label = "下载更新中…";
+                enabled = false; visible = true; glyph = "\uF019"; label = "下载更新中…";
                 break;
-            default: // Idle
-                enabled = true; glyph = "\uF021";
+            default: // Idle：无更新不显示图标
+                enabled = true; visible = false; glyph = "\uF021";
                 label = $"检查更新（当前 {Updater.CurrentDisplayVersion()}）";
                 break;
         }
+        _updateButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         _updateButton.IsEnabled = enabled;
         _updateButton.Content = glyph;
         _updateButton.ToolTip = label;
@@ -961,19 +966,15 @@ public sealed partial class HostWindow : Window
         _updateButton.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, label);
     }
 
+    /// <summary>更新按钮点击（只在 Available 态可见可点）：弹确认框（更新包已下载时是
+    /// 重启安装确认），确认框取消后留在 Available 可随时再点。</summary>
     private async Task OnUpdateButtonClickedAsync()
     {
         try
         {
-            switch (_updatePhase)
+            if (_updatePhase == UpdatePhase.Available)
             {
-                case UpdatePhase.Idle:
-                    await CheckUpdateAsync(manual: true);
-                    break;
-                case UpdatePhase.Available:
-                    // 确认框取消后留在 Available：再点重新弹窗（更新包已下载时是重启安装确认）
-                    await PromptUpdateAsync();
-                    break;
+                await PromptUpdateAsync();
             }
         }
         catch (Exception ex)
@@ -985,9 +986,11 @@ public sealed partial class HostWindow : Window
         }
     }
 
-    /// <summary>检查 GitHub 最新 Release（manual=点按钮触发，无更新/失败都报状态栏）。
-    /// 检查异常上抛：manual 由点击处理器报因，启动静默检查由 AutoCheckUpdate 吞掉。</summary>
-    private async Task CheckUpdateAsync(bool manual)
+    /// <summary>启动唯一一次检查 GitHub 最新 Release：发现新版本 → Available（按钮现身
+    /// ⬇ + 状态栏通知），无更新/失败静默——按钮保持隐藏（离线、代理未就绪不打扰）。
+    /// 绝不弹模态框：回归套件里每个被测宿主启动 4s 后都被它禁用、UIA 点击全灭
+    /// （CI 实测全红）——看到 ⬇ 通知后由用户自己点开确认框。检查异常由 AutoCheckUpdate 吞掉。</summary>
+    private async Task CheckUpdateAsync()
     {
         SetUpdatePhase(UpdatePhase.Checking);
         var check = await Updater.CheckLatestAsync();
@@ -995,34 +998,18 @@ public sealed partial class HostWindow : Window
         {
             _update = info;
             SetUpdatePhase(UpdatePhase.Available);
-            if (manual)
-            {
-                await PromptUpdateAsync(); // 用户主动检查 = 明确的更新意向，直接给确认框
-            }
-            else
-            {
-                // 启动自动检查只提示绝不弹窗：模态框在用户开始使用前抢焦点，且回归套件里
-                // 每个被测宿主启动 4s 后都会被它禁用、UIA 点击全灭（CI 实测全红）——
-                // 看到 ⬇ 通知后由用户自己点开确认框
-                ShowNotice($"发现新版本 {info.Version}，点顶条更新按钮安装");
-            }
+            ShowNotice($"发现新版本 {info.Version}，点顶条更新按钮安装");
         }
         else
         {
             _update = null;
             SetUpdatePhase(UpdatePhase.Idle);
-            if (manual)
-            {
-                ShowNotice(check.NoRelease
-                    ? "仓库还没有已发布的版本"
-                    : $"已是最新版本（{Updater.CurrentDisplayVersion()}）");
-            }
         }
     }
 
     /// <summary>发现新版本后的确认对话框（弹窗交互）。确认 → 下载（更新包已缓存则跳过）
     /// → 自动重启换装（用户同意"立即更新"即含重启）；取消 → 留在 Available 随时可再点。
-    /// 确认后的失败在此报因——启动自动检查路径也必须让用户看到原因（已点过确认）。</summary>
+    /// 确认后的失败在此报因。</summary>
     private async Task PromptUpdateAsync()
     {
         if (_update is not { } info) return;
@@ -1052,16 +1039,14 @@ public sealed partial class HostWindow : Window
         InstallUpdate();
     }
 
-    /// <summary>启动静默检查：发现新版本只提示（⬇ + 状态栏通知，绝不弹模态框——见
-    /// CheckUpdateAsync）；检查失败/无更新完全无声（离线、代理未就绪不打扰）。
-    /// 状态离开 Idle 就不覆盖——手动检查进行中（Checking）时跳过，否则两路检查
-    /// 各自改状态/弹框互相踩（实测两路各弹一个模态框叠栈，UIA 拿句柄即失效）。</summary>
+    /// <summary>启动静默检查的守卫：状态离开 Idle 就不查（保险，当前只有 4s 定时器一个
+    /// 触发源）；检查失败完全静默，按钮保持隐藏。</summary>
     private async void AutoCheckUpdate()
     {
         try
         {
             if (_updatePhase != UpdatePhase.Idle) return;
-            await CheckUpdateAsync(manual: false);
+            await CheckUpdateAsync();
         }
         catch
         {

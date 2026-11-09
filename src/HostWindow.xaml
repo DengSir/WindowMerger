@@ -131,9 +131,10 @@
                         <Button x:Name="_swapButton" Width="30" ToolTip="交换左右">&#xF0EC;</Button>
                         <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）">&#xF127;</Button>
                         <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式">&#xF360;</Button>
-                        <!-- 更新按钮：字形/tooltip/UIA Name 随状态机切换（↻ 检查 → 弹窗确认 → ⬇ 下载 → 自动重启），
+                        <!-- 更新按钮：无更新时隐藏（Idle/Checking Collapsed，发现新版本才现身 ⬇），
+                             字形/tooltip/UIA Name/可见性随状态机切换（SetUpdatePhase），
                              AutomationId 供 e2e 测试 UIA 定位（字形按钮没有可靠的按名匹配） -->
-                        <Button x:Name="_updateButton" Width="30" ToolTip="检查更新"
+                        <Button x:Name="_updateButton" Width="30" Visibility="Collapsed" ToolTip="检查更新"
                                 AutomationProperties.AutomationId="UpdateButton">&#xF021;</Button>
                         <Button x:Name="_themeButton" Width="30" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
