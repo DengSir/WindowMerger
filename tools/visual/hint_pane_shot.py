@@ -19,8 +19,12 @@ def shot_host(h: int, tag: str) -> object:
     r = wm.get_window_rect(h)
     wm.set_topmost(h, True)
     time.sleep(0.4)
-    big = wm.capture_screen(0, 0, 2560, 1440)
-    small = big.crop((r.Left, r.Top, r.Right, r.Bottom))
+    # 测试显示器全幅截图（宿主钉在 96 DPI 优先屏，主屏 ≠ 测试屏时 (0,0) 会截错屏），
+    # 裁剪坐标减屏原点
+    mon = wm.pick_test_monitor().rcMonitor
+    big = wm.capture_test_screen()
+    small = big.crop((r.Left - mon.Left, r.Top - mon.Top,
+                      r.Right - mon.Left, r.Bottom - mon.Top))
     small.save(str(Path(tempfile.gettempdir(), f"wm_hint_{tag}.png")))
     wm.set_topmost(h, False)
     print(f"SHOT_{tag}")
@@ -29,7 +33,7 @@ def shot_host(h: int, tag: str) -> object:
 
 def main() -> int:
     # 自备环境：强制深色（确定性预期）→ 启动（主题在启动时读取）
-    cfg = wm.load_config()
+    cfg = wm.load_config_safe()
     cfg["Theme"] = "Dark"
     cfg["Ratio"] = 0.5
     wm.save_config(cfg)

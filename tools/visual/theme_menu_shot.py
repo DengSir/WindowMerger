@@ -59,12 +59,15 @@ def main() -> int:
     menu_ok = len(items) >= 3
     print(f"MENU_ITEMS={len(items)} (expect >=3) {'OK' if menu_ok else 'MISMATCH'}")
 
-    # 全屏截（菜单是独立弹层，PrintWindow 截不到）后裁按钮+下拉区
-    big = wm.capture_screen(0, 0, 3840, 2160)
+    # 测试显示器全屏截（菜单是独立弹层，PrintWindow 截不到；测试窗停在 96 DPI 优先屏），
+    # 裁剪坐标减屏原点
+    mon = wm.pick_test_monitor().rcMonitor
+    big = wm.capture_test_screen()
     cap_w, cap_h = 420, 260
     cap_x = max(0, bx - 340)
     cap_y = max(0, hr.Top)
-    small = big.crop((cap_x, cap_y, cap_x + cap_w, cap_y + cap_h))
+    small = big.crop((cap_x - mon.Left, cap_y - mon.Top,
+                      cap_x - mon.Left + cap_w, cap_y - mon.Top + cap_h))
     small.save(str(Path(tempfile.gettempdir(), "wm_thememenu.png")))
     print(f"SHOT {cap_w}x{cap_h} at ({cap_x},{cap_y})")
 

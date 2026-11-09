@@ -16,7 +16,7 @@ import wm
 def main() -> int:
     import subprocess
     # 自备环境：强制深色（确定性预期）→ 杀干净 → 带配置启动（主题在启动时读取）
-    cfg = wm.load_config()
+    cfg = wm.load_config_safe()
     cfg["Theme"] = "Dark"
     cfg["Ratio"] = 0.5
     wm.save_config(cfg)
@@ -70,13 +70,13 @@ def main() -> int:
               f"{'OK' if hit else 'MISMATCH'}")
         results.append(hit)
 
-    wm.set_cursor_pos(6, 700)
+    wm.set_cursor_pos(hr.Left + w // 2, hr.Top - 20)  # "移开"落点：宿主正上方屏内
     time.sleep(0.4)
     snap("base")
     wm.set_cursor_pos(div_x, hr.Top + h // 2)
     time.sleep(0.4)
     snap("hover")
-    wm.set_cursor_pos(6, 700)
+    wm.set_cursor_pos(hr.Left + w // 2, hr.Top - 20)
     time.sleep(0.4)
     snap("left")
 

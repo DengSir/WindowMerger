@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""跨 DPI 缝隙回归：96DPI mspaint（左侧 100% 屏）吸附进 150% 宿主（4K 主屏），
-断言子窗口可见缘（ExtFrameBounds）与格子矩形四边 ≤1px（右缘 ≤2px，比例来自 config）。原 CrossDpiSeamTest.ps1。
-用法: uv run tools/\tests\\cross_dpi_seam_test.py [--exe 路径]
-左显示器不在/非 100% 时 SKIP。
+"""跨 DPI 缝隙回归：96DPI mspaint 吸附进非 96 DPI（150%）宿主，
+断言子窗口可见缘（ExtFrameBounds）与格子矩形四边 ≤1px（右缘 ≤2px，比例来自 config）。
+原 CrossDpiSeamTest.ps1。
+这是"屏幕超出/跨屏"豁免类测试（不走 test_layout 的 1024x768 预算）：自选显示器——
+一块 96 DPI 屏停 mspaint、一块更高 DPI 屏停宿主；任一缺失则 SKIP（本机单 100% 屏 /
+CI 必 SKIP）。用法: uv run tools/\tests\\cross_dpi_seam_test.py [--exe 路径]
 """
 import argparse
 import subprocess
@@ -31,7 +33,16 @@ def main() -> int:
     close_hosts_gracefully()
     time.sleep(1.0)
 
-    # 2. 拉起 mspaint，停到左显示器（预期 100%）
+    # 2. 选屏：一块 96 DPI + 一块非 96 DPI（DPI 差异才是被测对象，不限于 150%）
+    mon96 = [mi for mi in wm.monitors() if wm.monitor_dpi(mi) == 96]
+    monhi = [mi for mi in wm.monitors() if wm.monitor_dpi(mi) != 96]
+    if not mon96 or not monhi:
+        dpis = [wm.monitor_dpi(mi) for mi in wm.monitors()]
+        print(f"SKIP_NO_DPI_PAIR dpis={dpis} （需要 96 + 非 96 两块屏）")
+        return 0
+    lo, hi = mon96[0], monhi[0]
+
+    # 3. 拉起 mspaint，停到 96 DPI 屏
     mp = subprocess.Popen(["mspaint"])
     time.sleep(2.2)
     mphs = wm.top_windows_of_pids([mp.pid])
@@ -39,7 +50,8 @@ def main() -> int:
         print("FAIL_NO_MSPAINT")
         return 1
     mph = mphs[0]
-    wm.set_window_pos(mph, None, -2300, 200, 1200, 800, wm.SWP_NOZORDER)
+    wa = lo.rcWork
+    wm.set_window_pos(mph, None, wa.Left + 40, wa.Top + 200, 1200, 800, wm.SWP_NOZORDER)
     time.sleep(0.9)
     mp_dpi = wm.get_dpi_for_window(mph)
     if mp_dpi != 96:
@@ -47,7 +59,7 @@ def main() -> int:
         print(f"SKIP_LEFT_MONITOR_NOT_100PCT dpi={mp_dpi}")
         return 0
 
-    # 3. 宿主 CLI 吸附（纯数字 = PID）；宿主开在 4K 主屏
+    # 4. 宿主 CLI 吸附（纯数字 = PID）；宿主开在高 DPI 屏
     host = subprocess.Popen([a.exe, "--left", str(mp.pid)])
     time.sleep(3.5)
     hws = wm.top_windows_of_pids([host.pid])
@@ -57,11 +69,25 @@ def main() -> int:
         return 1
     hw = hws[0]
 
-    # 4. 宿主固定大小停到 4K 固定位（config 尺寸可能巨大），等维护定时器收敛。
-    #    2200x900 保证 ratio 0.5 时左格物理宽 ≥ mspaint 最小宽——704DIP×1.5=1056px
-    #    （AGENTS 已知边界），左格需 ≥1056+18 外扩=1074 物理 px → 宿主 ≥ 2*1074+16。
-    #    更窄会触发 OS 尺寸钳制（子窗口探出格子），缝隙断言就失去意义了
-    wm.set_window_pos(hw, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    # 5. 宿主固定大小停到高 DPI 屏（config 尺寸可能巨大），等维护定时器收敛。
+    #    宽度保证 ratio 0.5 时左格物理宽 ≥ mspaint 最小宽——704DIP×(dpi/96)（AGENTS
+    #    已知边界，150% 即 1056px，左格需 ≥1056+18 外扩=1074 → 宿主 ≥ 2*1074+16）。
+    #    更窄会触发 OS 尺寸钳制（子窗口探出格子），缝隙断言就失去意义了；屏装不下则 SKIP
+    hscale = wm.monitor_dpi(hi) / 96.0
+    need_w = round(704 * hscale) * 2 + 20
+    need_h = round(536 * hscale)
+    hwa = hi.rcWork
+    host_w = need_w + 68  # 与 test_layout 同款余量
+    host_h = need_h
+    if (host_w > hwa.Right - hwa.Left - 40 or host_h > hwa.Bottom - hwa.Top - 40):
+        wm.force_kill_pid(mp.pid)
+        wm.post_close(hw)
+        print(f"SKIP_HI_MONITOR_TOO_SMALL need={need_w}x{need_h} "
+              f"wa={hwa.Right - hwa.Left}x{hwa.Bottom - hwa.Top}")
+        return 0
+    hx = hwa.Left + 20
+    hy = hwa.Top + (hwa.Bottom - hwa.Top) - 20 - host_h
+    wm.set_window_pos(hw, None, hx, hy, host_w, host_h, wm.SWP_NOZORDER)
     time.sleep(2.5)
 
     # 5. 期望格子矩形（设备像素；XAML 常量：边框 2 DIP、顶条 28 DIP、分隔条 6 DIP；

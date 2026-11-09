@@ -48,8 +48,12 @@ def main() -> int:
         print("NO_HOST")
         return 1
 
-    # 钉位（RestoreBounds = 该矩形）→ 最大化
+    # 钉位（RestoreBounds = 该矩形）→ 最大化。窄屏按工作区缩宽：还原落位锚点在光标
+    # 比例处，宿主宽接近屏宽时还原矩形必然出屏（1024 屏右缘出 ~270px，实测）——
+    # 缩到 0.68 倍给拖距留余量，还原后完整可见（1024x768 预算约定）
     hx, hy, hw, hh = PIN
+    wa = wm.pick_test_monitor().rcWork
+    hw = min(hw, int((wa.Right - wa.Left) * 0.68))
     wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
     time.sleep(1.0)
     wm.show_window(hm, 3)  # SW_MAXIMIZE
@@ -60,13 +64,25 @@ def main() -> int:
     hr_max = wm.get_window_rect(hm)
     print(f"MAXIMIZED ({hr_max.Left},{hr_max.Top})-({hr_max.Right},{hr_max.Bottom})")
 
-    # 顶条拖动：抓顶条中段（避开左标签/右按钮），拖 (+300,+250)
+    # 顶条拖动：抓顶条中段（避开左标签/右按钮）。拖距自适应钳制：还原落位 =
+    # 光标终点 - 抓点占比×RestoreBounds，拖距太大落位出屏、太小低于拖动阈值——
+    # 按期望落位公式反解出"还原矩形完整留在工作区内"的最大拖距
     scale = wm.get_dpi_for_window(hm) / 96.0
     gx, gy = hr_max.Left + 600, hr_max.Top + round(14 * scale)
+    grab_dip_x = (gx - hr_max.Left) / scale
+    grab_dip_y = (gy - hr_max.Top) / scale
+    max_dip_w, max_dip_h = hr_max.width / scale, hr_max.height / scale
+    rb_w, rb_h = hw / scale, hh / scale  # RestoreBounds 尺寸（DIP）
+    ratio_x = grab_dip_x / max_dip_w
+    ratio_y = grab_dip_y / max_dip_h
+    base_left = gx - ratio_x * rb_w * scale   # dx=0 时的期望 Left
+    base_top = gy - ratio_y * rb_h * scale    # dy=0 时的期望 Top
+    dx = min(300, wa.Right - 20 - rb_w * scale - base_left)
+    dy = min(250, wa.Bottom - 20 - rb_h * scale - base_top)
     wm.set_topmost(hm, True)
     wm.set_foreground_window(hm)
     time.sleep(0.4)
-    drag(gx, gy, gx + 300, gy + 250)
+    drag(gx, gy, gx + int(dx), gy + int(dy))
 
     # 期望落位（StartMaxRestoreDrag 公式）：光标钉在还原窗口的同一相对比例位置
     #   ratio = (抓点 DIP - 窗口左上 DIP) / 最大化窗口 DIP 尺寸
@@ -75,17 +91,11 @@ def main() -> int:
         print("FAIL_STILL_MAXIMIZED (drag did not restore)")
         wm.set_topmost(hm, False)
         return 1
-    grab_dip_x = (gx - hr_max.Left) / scale
-    grab_dip_y = (gy - hr_max.Top) / scale
-    max_dip_w, max_dip_h = hr_max.width / scale, hr_max.height / scale
-    rb_w, rb_h = hw / scale, hh / scale  # RestoreBounds 尺寸（DIP）
-    ratio_x = grab_dip_x / max_dip_w
-    ratio_y = grab_dip_y / max_dip_h
-    exp_left = (gx + 300) - ratio_x * rb_w * scale
-    exp_top = (gy + 250) - ratio_y * rb_h * scale
+    exp_left = (gx + int(dx)) - ratio_x * rb_w * scale
+    exp_top = (gy + int(dy)) - ratio_y * rb_h * scale
     r = wm.get_window_rect(hm)
     print(f"RESTORED rect=({r.Left},{r.Top})-({r.Right},{r.Bottom}) "
-          f"expect Left~{exp_left:.0f} Top~{exp_top:.0f} size {hw}x{hh}")
+          f"expect Left~{exp_left:.0f} Top~{exp_top:.0f} size {hw}x{hh} drag=({dx:.0f},{dy:.0f})")
     wm.set_topmost(hm, False)
 
     ok = (abs(r.Left - exp_left) <= 40 and abs(r.Top - exp_top) <= 40

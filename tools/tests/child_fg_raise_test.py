@@ -161,12 +161,13 @@ def main() -> int:
         return 1
     left, right = wm.load_config()["AttachedHwnds"]  # 吸附顺序 = 左、右
 
-    # 3.5 圈地：停左侧 100% 屏（AGENTS 惯例，别占用户主屏）。跨 DPI 挪动必须两步走：
-    # 先移动收敛 DPI 再设尺寸，一步到位会被 WPF 改写（实测 2200x900 落成 3300x1350）
-    ox, oy = wm.park_on_left_or_primary(1600, 900)
-    wm.set_window_pos(host, None, ox, oy, 0, 0, wm.SWP_NOSIZE | wm.SWP_NOZORDER)
+    # 3.5 圈地：test_layout 固定布局（1024x768 预算内，锚定 96 DPI 优先显示器）。
+    # 跨 DPI 挪动必须两步走：先移动收敛 DPI 再设尺寸，一步到位会被 WPF 改写
+    # （实测 2200x900 落成 3300x1350）
+    hx, hy, hw, hh = wm.test_layout()["host"]
+    wm.set_window_pos(host, None, hx, hy, 0, 0, wm.SWP_NOSIZE | wm.SWP_NOZORDER)
     time.sleep(0.4)
-    wm.set_window_pos(host, None, 0, 0, 1600, 900, wm.SWP_NOMOVE | wm.SWP_NOZORDER)
+    wm.set_window_pos(host, None, 0, 0, hw, hh, wm.SWP_NOMOVE | wm.SWP_NOZORDER)
     time.sleep(1.0)
     hr = wm.get_window_rect(host)
     print(f"HOST {host:X} L={left:X} R={right:X} rect=({hr.Left},{hr.Top},{hr.Right},{hr.Bottom})")

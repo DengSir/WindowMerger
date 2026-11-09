@@ -13,74 +13,29 @@ InvokePattern 进程内直调，锁屏会话可用，不依赖遮挡/前台。
 用法: uv run tools\\tests\\update_e2e_test.py [--exe 路径]
 """
 import argparse
-import http.server
-import json
 import os
 import subprocess
 import sys
-import tempfile
-import threading
 import time
-import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 import wm_uia
+from fake_gh_api import FakeGitHubApi, zip_bytes
 
 UPDATE_VERSION = "9.9.9"  # 远大于任何真实版本，IsNewer 必真
 
 
-def build_zip(exe: str, tmpdir: Path) -> Path:
-    """模拟 CI stage 产物：固定 entry 名 WindowMerger.exe（tools/ci/release.py 约定）。"""
-    zip_path = tmpdir / f"WindowMerger-{UPDATE_VERSION}-win-x64.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(exe, "WindowMerger.exe")
-    return zip_path
-
-
-def start_server(zip_path: Path):
-    """127.0.0.1 随机端口：GET /releases/latest → 假 JSON（asset 指向本机 zip）。"""
-    class Handler(http.server.BaseHTTPRequestHandler):
-        api_hits = 0
-        zip_hits = 0
-
-        def do_GET(self):
-            if self.path.startswith("/releases/latest"):
-                Handler.api_hits += 1
-                print("UPDATE_API_HIT", flush=True)
-                body = json.dumps({
-                    "tag_name": f"v{UPDATE_VERSION}",
-                    "assets": [{
-                        "name": zip_path.name,
-                        "browser_download_url": f"http://127.0.0.1:{srv.port}/{zip_path.name}",
-                    }],
-                }).encode()
-                self._send(200, body, "application/json")
-            elif self.path.startswith(f"/{zip_path.name}"):
-                Handler.zip_hits += 1
-                print("UPDATE_ZIP_HIT", flush=True)
-                self._send(200, zip_path.read_bytes(), "application/zip")
-            else:
-                self._send(404, b"{}", "application/json")
-
-        def _send(self, code, body, ctype):
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *a):  # 静默默认访问日志
-            pass
-
-    class _Srv(http.server.ThreadingHTTPServer):
-        daemon_threads = True
-
-    srv = _Srv(("127.0.0.1", 0), Handler)
-    srv.port = srv.server_address[1]  # Handler 的下载地址与 run_flow 的 API 地址共用
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return srv
+def start_server(exe: str) -> FakeGitHubApi:
+    """127.0.0.1 随机端口：GET /releases/latest → 假 JSON（asset 指向本机 zip，
+    内存打包固定 entry 名 WindowMerger.exe——tools/ci/release.py stage 约定）。"""
+    api = FakeGitHubApi()
+    api.configure(tag=f"v{UPDATE_VERSION}",
+                  assets=[(f"WindowMerger-{UPDATE_VERSION}-win-x64.zip",
+                           zip_bytes({"WindowMerger.exe": Path(exe).read_bytes()}))])
+    api.start()
+    return api
 
 
 def update_button_name(hwnd: int) -> str | None:
@@ -229,7 +184,7 @@ def run_flow(exe: str, srv) -> bool:
     if not wait_phase(hwnd, "发现新版本", 15):
         print(f"FAIL_NO_AVAILABLE name={update_button_name(hwnd)!r}")
         return False
-    if srv.RequestHandlerClass.api_hits < 1:
+    if srv.api_hits < 1:
         print("FAIL_NO_API_REQUEST")
         return False
     print("CHECK_OK")
@@ -252,7 +207,7 @@ def run_flow(exe: str, srv) -> bool:
     if not wm.wait_until(restarted, 20000, 300):
         print("FAIL_NO_RESTART")
         return False
-    if srv.RequestHandlerClass.zip_hits < 1:
+    if srv.zip_hits < 1:
         print("FAIL_NO_ZIP_REQUEST")
         return False
     print("DOWNLOAD_OK")
@@ -305,20 +260,19 @@ def main() -> int:
         return 1
 
     ok = False
-    with tempfile.TemporaryDirectory() as tmp:
-        srv = start_server(build_zip(a.exe, Path(tmp)))
-        try:
-            ok = run_flow(a.exe, srv)
-        finally:
-            # 新实例自动检查会再弹确认框，先取消再优雅关（模态框开着 WM_CLOSE 语义不明）
-            for h in wm.host_hwnds():
-                cancel_update_dialog(h)
-            wm.graceful_close_by_name("WindowMerger")
-            time.sleep(1.2)
-            srv.shutdown()
-            # 优雅关兜底失败再树杀，不给套件留进程
-            for p in wm.pids_by_name("WindowMerger"):
-                wm.force_kill_pid(p)
+    srv = start_server(a.exe)
+    try:
+        ok = run_flow(a.exe, srv)
+    finally:
+        # 新实例自动检查会再弹确认框，先取消再优雅关（模态框开着 WM_CLOSE 语义不明）
+        for h in wm.host_hwnds():
+            cancel_update_dialog(h)
+        wm.graceful_close_by_name("WindowMerger")
+        time.sleep(1.2)
+        srv.shutdown()
+        # 优雅关兜底失败再树杀，不给套件留进程
+        for p in wm.pids_by_name("WindowMerger"):
+            wm.force_kill_pid(p)
 
     print("RESULT PASS" if ok else "RESULT FAIL")
     return 0 if ok else 1

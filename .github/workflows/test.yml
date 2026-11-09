@@ -1,8 +1,9 @@
 # GUI regression on a real Windows desktop: windows-latest runners have an
-# interactive session (auto-logon RDP, 1920x1080 @ 100% scale), so injected
-# input / UIA / PrintWindow all work — the repo's whole 32-test suite runs
-# unattended. Dual-monitor tests self-SKIP (cross_dpi_seam). Layout constants
-# adapt via wm.test_layout() (CI narrow-screen layout). Locale-sensitive
+# interactive session (RDP; the desktop is small enough that the whole
+# 1024x768-bounded test layout fits), so injected input / UIA / PrintWindow all
+# work — the repo's full suite runs unattended. Dual-monitor / cross-DPI tests
+# self-SKIP (cross_dpi_seam). Layout adapts via wm.test_layout() (anchored to
+# the preferred 96-DPI monitor, bounded by 1024x768). Locale-sensitive
 # assertions match both zh/en window titles.
 # Public repo -> Actions minutes are free.
 name: Tests
@@ -24,26 +25,26 @@ concurrency:
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
       PYTHONIOENCODING: utf-8  # CI 控制台 cp1252 会编码不了中文/FA 字形输出
       # 测试环境与真实 GitHub API 彻底断网：被测宿主不启动自动检查——匿名限流看脸、
       # 线上版本 vs CI 构建版本的版本差都会改变被测行为（模态框事故根因）；
-      # update_e2e 用 WM_UPDATE_API 指本地假服务，手动检查不受影响
+      # update_e2e/update_edge 用 WM_UPDATE_API 指本地假服务，手动检查不受影响
       WM_UPDATE_OFF: 1
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET 10 SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
       - name: Setup uv (Python toolchain)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
 
       - name: Build (must be 0 warnings 0 errors)
         shell: bash
@@ -55,7 +56,7 @@ jobs:
 
       - name: Upload failure screenshots (tests save wm_*.png to user temp)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-screenshots
           path: C:\Users\runneradmin\AppData\Local\Temp\wm_*.png

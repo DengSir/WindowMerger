@@ -68,15 +68,16 @@ def main() -> int:
         print("NO_HOST")
         return 1
 
-    wa = wm.left_monitor_work_area()
+    wa = wm.pick_test_monitor().rcWork
     scale = wm.get_dpi_for_window(hm) / 96.0
     border = round(8 * scale)  # WindowChrome ResizeBorderThickness=8 DIP → 物理 px
+    wa_w, wa_h = wa.Right - wa.Left, wa.Bottom - wa.Top
     park_y = 200 if wa.Left < 0 else 60
     drag_px = 220
     # 还原后窗口必须完整落在屏内（CI 720 高也要装得下拖动全程）
-    h = max(340, min(600, (wa.Bottom - wa.Top) - park_y - drag_px - 10))
-    drag_px = max(120, min(drag_px, (wa.Bottom - wa.Top) - park_y - h - 10))
-    w = 900
+    h = max(340, min(600, wa_h - park_y - drag_px - 10))
+    drag_px = max(120, min(drag_px, wa_h - park_y - h - 10))
+    w = min(900, wa_w - 124)  # 1024 屏上留出左右余量（900→900；更窄的屏钳进工作区）
     x = wa.Left + 100 if wa.Left < 0 else 60
     # 两步钉位（AGENTS 已知坑：WPF 跨 DPI 保 DIP 不保物理，移动+尺寸一步到位会被
     # WM_DPICHANGED 自缩放改写）——先移动收敛 DPI，再设尺寸

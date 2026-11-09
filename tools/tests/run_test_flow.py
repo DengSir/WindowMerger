@@ -23,6 +23,14 @@ def main() -> int:
     wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
     time.sleep(0.8)
     Path(tempfile.gettempdir(), "wm-composite.log").unlink(missing_ok=True)
+    # 比例钉 0.5：矩形断言的格子宽按 config.Ratio 推导，残留非 0.5 比例会让
+    # 商店版 mspaint（最小宽 704px）在窄格里被 OS 钳制、矩形偏差必炸（实测 125）
+    try:
+        cfg = wm.load_config()
+    except Exception:
+        cfg = {}
+    cfg["Ratio"] = 0.5
+    wm.save_config(cfg)
 
     # 2. 测试窗口
     t1 = Path(tempfile.gettempdir(), "wmt1.txt")

@@ -26,24 +26,32 @@ os.environ.setdefault("WM_UPDATE_OFF", "1")
 
 TOOLS = Path(__file__).resolve().parent
 
-# 依赖顺序：run_test_flow 留下的吸附组合给 release_test 用；其余各自清理
+# 依赖顺序：run_test_flow 留下的吸附组合给 release_test 用；其余各自清理。
+# config_edge 会清杀全部宿主/notepad——放在 release_test 之后（依赖组合用完）。
 TESTS = [
     ("run_test_flow",       TOOLS / "tests" / "run_test_flow.py",            120),
     ("release_test",        TOOLS / "tests" / "release_test.py",              60),
+    ("config_edge_test",    TOOLS / "tests" / "config_edge_test.py",         180),
     ("picker_attach_test",  TOOLS / "tests" / "picker_attach_test.py",        90),
+    ("picker_filter_test",  TOOLS / "tests" / "picker_filter_test.py",       150),
     ("swap_sides_test",     TOOLS / "tests" / "swap_sides_test.py",           90),
     ("pid_mode_test",       TOOLS / "tests" / "pid_mode_test.py",             90),
+    ("cli_args_test",       TOOLS / "tests" / "cli_args_test.py",            180),
+    ("pid_fallback_test",   TOOLS / "tests" / "pid_fallback_test.py",        180),
     ("exclude_self_test",   TOOLS / "tests" / "exclude_self_test.py",         90),
     ("shortcut_create_test", TOOLS / "tests" / "shortcut_create_test.py",     90),
     ("launch_attach_test",  TOOLS / "tests" / "launch_attach_test.py",        90),
     ("orphan_e2e_test",     TOOLS / "tests" / "orphan_e2e_test.py",           90),
     ("update_e2e_test",     TOOLS / "tests" / "update_e2e_test.py",          120),
+    ("update_edge_test",    TOOLS / "tests" / "update_edge_test.py",         420),
     ("geometry_persistence_test", TOOLS / "tests" / "geometry_persistence_test.py", 150),
     ("cursor_drop_test",    TOOLS / "tests" / "cursor_drop_test.py",          90),
     ("covered_drag_test",   TOOLS / "tests" / "covered_drag_test.py",         90),
+    ("pane_drag_rules_test", TOOLS / "tests" / "pane_drag_rules_test.py",    240),
     ("maximize_drag_test",  TOOLS / "tests" / "maximize_drag_test.py",        90),
     ("max_top_drag_test",   TOOLS / "tests" / "max_top_drag_test.py",         90),
     ("double_click_max_test", TOOLS / "tests" / "double_click_max_test.py",   90),
+    ("topbar_state_test",   TOOLS / "tests" / "topbar_state_test.py",        150),
     ("divider_resize_test", TOOLS / "tests" / "divider_resize_test.py",       90),
     ("minimize_linkage_test", TOOLS / "tests" / "minimize_linkage_test.py",   90),
     ("drag_switch_side_test", TOOLS / "tests" / "drag_switch_side_test.py",   90),
@@ -51,6 +59,7 @@ TESTS = [
     ("alt_tab_z_repro",     TOOLS / "tests" / "alt_tab_z_repro.py",          120),
     ("child_fg_raise_test", TOOLS / "tests" / "child_fg_raise_test.py",      120),
     ("ghost_cycle_test",    TOOLS / "tests" / "ghost_cycle_test.py",         300),
+    ("attach_heal_test",    TOOLS / "tests" / "attach_heal_test.py",         240),
     ("theme_menu_test",     TOOLS / "visual" / "theme_menu_test.py",          90),
     ("theme_toggle_visual_test", TOOLS / "visual" / "theme_toggle_visual_test.py", 90),
     ("tooltip_shot",        TOOLS / "visual" / "tooltip_shot.py",            120),
@@ -133,7 +142,7 @@ def main() -> int:
         n_skip += status == "SKIP"
     print(f"\n{len(rows)} tests: {n_pass} PASS, {n_fail} FAIL, {n_skip} SKIP")
 
-    # CI 诊断直读：35 项表格写进 $GITHUB_STEP_SUMMARY（Actions 运行页直接看，
+    # CI 诊断直读：全量表格写进 $GITHUB_STEP_SUMMARY（Actions 运行页直接看，
     # 不用拉原始日志——logs API 要管理员权限，实测折腾）；失败项再发 ::error
     # 注解顶到页面头部。本地没这个环境变量，自动跳过
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):

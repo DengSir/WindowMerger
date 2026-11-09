@@ -19,14 +19,14 @@ import wm
 
 def main() -> int:
     # 比例复位，保证按钮坐标计算稳定
-    cfg = wm.load_config()
+    cfg = wm.load_config_safe()
     cfg["Ratio"] = 0.5
     wm.save_config(cfg)
 
     results = []
     for theme in ("Dark", "Light"):
         pal = wm.PALETTES[theme]
-        cfg = wm.load_config()
+        cfg = wm.load_config_safe()
         cfg["Theme"] = theme
         wm.save_config(cfg)
 
@@ -72,22 +72,26 @@ def main() -> int:
         cap_w, cap_h = 340, 90
         cap_x = bx - 80
         cap_y = hr.Top
-        big = wm.capture_screen(0, 0, 3840, 2160)  # 主屏全幅（4K）
+        # 测试显示器全幅截图（tooltip 是独立弹层必须全屏截；测试窗停在 96 DPI 优先屏，
+        # 主屏 ≠ 测试屏时按 (0,0) 截屏会截错屏）——采样坐标减屏原点
+        mon = wm.pick_test_monitor().rcMonitor
+        big = wm.capture_test_screen()
+        ox, oy = mon.Left, mon.Top
 
         # 确定性取色：顶条（文字上方干净区）+ tooltip 内部网格（字形间隙，众数 = tooltip 底色）
-        bar = big.getpixel((hr.Left + 60, hr.Top + 5))[:3]
+        bar = big.getpixel((hr.Left - ox + 60, hr.Top - oy + 5))[:3]
         bar_ok = wm.color_close(bar, pal["Bar"])
         print(f"BAR_{theme} rgb({bar[0]},{bar[1]},{bar[2]}) expect={pal['Bar']} {'OK' if bar_ok else 'MISMATCH'}")
         tip_samples = []
         for dy in (40, 46, 52):
             for dx in (0, 20, 60, 100, 140):
-                p = big.getpixel((bx + dx, hr.Top + dy))[:3]
+                p = big.getpixel((bx - ox + dx, hr.Top - oy + dy))[:3]
                 tip_samples.append(p)
         n_hit = sum(wm.color_close(p, pal["Bar"]) for p in tip_samples)
         tip_ok = n_hit >= 5  # 网格多数命中 tooltip 底色（其余采样落在文字/边框上）
         print(f"TIP_{theme} bg_hits={n_hit}/15 expect={pal['Bar']} {'OK' if tip_ok else 'MISMATCH'}")
 
-        crop = big.crop((cap_x, cap_y, cap_x + cap_w, cap_y + cap_h))
+        crop = big.crop((cap_x - ox, cap_y - oy, cap_x - ox + cap_w, cap_y - oy + cap_h))
         crop.resize((cap_w * 3, cap_h * 3), Image.NEAREST).save(
             str(Path(tempfile.gettempdir(), f"wm_tooltip_{theme}.png")))
         print(f"SHOT_{theme} at ({cap_x},{cap_y})")

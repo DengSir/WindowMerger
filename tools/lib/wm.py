@@ -35,6 +35,7 @@ _gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 _dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+_shcore = ctypes.WinDLL("shcore", use_last_error=True)
 
 # ---------- 常量 ----------
 
@@ -51,6 +52,8 @@ SW_MINIMIZE = 6
 SW_SHOWNA = 8
 SW_RESTORE = 9
 SW_SHOWNOACTIVATE = 4
+SW_MAXIMIZE = 3
+SW_HIDE = 0
 
 WM_CLOSE = 0x0010
 
@@ -67,7 +70,8 @@ DWMWA_CLOAKED = 14
 
 
 def set_dpi_aware_pm2() -> None:
-    """SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)：跨 DPI 测试脚本用。"""
+    """SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)。本模块导入即已设 PMv2
+    （见文件末尾），重复调用会被系统拒绝（ERROR_ACCESS_DENIED）——忽略返回值即幂等。"""
     _user32.SetProcessDpiAwarenessContext(c_void_p(-4))
 
 
@@ -127,8 +131,13 @@ class BITMAPINFOHEADER(Structure):
                 ("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD)]
 
 
-# 导入即 DPI aware（原 PS 脚本语义）
-_user32.SetProcessDPIAware()
+# 导入即 DPI aware。用 PMv2 而非老的 SetProcessDPIAware（system aware）：
+# 混合 DPI 多屏下 system-aware 进程拿到的是系统 DPI 坐标系（跨屏矩形/坐标失真，
+# cross_dpi_seam 曾因此必须单独设 PMv2）；PMv2 下全部坐标=物理像素，且
+# GetDpiForMonitor 才返回每屏真实 DPI（system-aware 只回系统 DPI，无法选屏）。
+# PMv2 失败（个别环境无该 API）退回老的系统级 DPI aware。
+if not _user32.SetProcessDpiAwarenessContext(c_void_p(-4)):
+    _user32.SetProcessDPIAware()
 
 
 # ---------- 基础窗口查询 ----------
@@ -557,46 +566,104 @@ def monitors() -> list[MONITORINFO]:
 
 
 def left_monitor_work_area() -> RECT:
-    """最左（原点 x 最小）显示器的工作区——测试钉位基准（AGENTS：测试宿主一律停左侧
-    100% 屏）。单屏即主屏工作区。"""
+    """最左（原点 x 最小）显示器的工作区（物理像素）。单屏即主屏工作区。"""
     ms = monitors()
     if not ms:
         raise OSError("no monitor")
     return min(ms, key=lambda mi: mi.rcMonitor.Left).rcWork
 
 
+MONITOR_DEFAULTTONEAREST = 2
+MDT_EFFECTIVE_DPI = 0
+
+
+def monitor_dpi(mi: MONITORINFO) -> int:
+    """显示器有效 DPI（96=100%）。查询失败回退 96。
+    前提：进程 PMv2 感知（本模块导入即设置）——system-aware 进程对该 API
+    只会拿到系统 DPI，永远选不出"哪块屏是 100%"。"""
+    pt = POINT((mi.rcMonitor.Left + mi.rcMonitor.Right) // 2,
+               (mi.rcMonitor.Top + mi.rcMonitor.Bottom) // 2)
+    hmon = _user32.MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+    dx, dy = c_uint(), c_uint()
+    if hmon and _shcore.GetDpiForMonitor(wintypes.HMONITOR(hmon), MDT_EFFECTIVE_DPI,
+                                         byref(dx), byref(dy)) == 0:
+        return dx.value
+    return 96
+
+
+def pick_test_monitor() -> MONITORINFO:
+    """测试显示器：优先 96 DPI（无 DPI 缩放干扰）屏，没有则回退主屏（AGENTS 测试约定：
+    优先无 DPI 显示器；无 100% 屏也要能正常跑——此时布局按该屏 DPI 折算仍保证完整可见）。"""
+    ms = monitors()
+    if not ms:
+        raise OSError("no monitor")
+    for mi in ms:
+        if monitor_dpi(mi) == 96:
+            return mi
+    for mi in ms:
+        if mi.dwFlags & 1:  # MONITORINFOF_PRIMARY
+            return mi
+    return ms[0]
+
+
+# 商店版 mspaint 最小窗口（DIP）——布局的"不触发 OS 钳制"下限来源
+MSPAINT_MIN_W_DIP = 704
+MSPAINT_MIN_H_DIP = 500
+
+
 def test_layout() -> dict:
-    """测试固定布局（按主屏工作区自适应，物理像素）：
-    - 主屏宽 ≥2560（4K 开发机）：host (400,150,2200,900)，靶窗宿主正下方 (400,1090,1100,620)
-    - 窄屏（CI RDP 实测只有 1024x720！）：host (20,380,960,320)，靶窗宿主上方 (20,40,500,300)
-      （上方放靶窗才能满足"松手光标在宿主上方且在屏内"的构造；经典版 mspaint 最小宽
-      远小于商店版，472px 格子装得下——CI 实测 514px 格 deviation=0）
+    """测试固定布局（物理像素，锚定 pick_test_monitor() 的工作区）。
+
+    约定（AGENTS）：宿主与靶窗必须能在 1024x768 分辨率下完整显示（除自带屏幕超出
+    逻辑的测试：geometry_persistence S3 / minimize_linkage / cross_dpi_seam /
+    child_fg_raise 靶窗探出——那些不走本布局约束）。
+
+    - 工作区 ≤1024x768（CI RDP 实测 1024x720）：整体缩进预算内——host (20,底-20-320)
+      960x320、靶窗 (20,40) 500x300，与旧 CI 布局逐值一致；
+    - 更大的屏：宿主按需放大到两侧格子各能装下商店版 mspaint 最小窗
+      （704x500 DIP×scale）——格小会触发 OS 尺寸钳制、子窗口探出格子，矩形断言全歪
+      （472px 格 deviation 420，实测）；高度/宽度再与工作区取交，保证不超屏；
+    - 靶窗在宿主上方（间隙 40，标题栏保持在宿主矩形外——裸 WindowFromPoint 抓点要求）；
+      工作区高不足时压靶窗高度（tkinter 靶窗无最小尺寸）。
+
     返回 {host, target, drop_center, covered_drop_center, cover_fx, cover_fw,
-    divider_delta}；其余坐标由各测试按钉位后回读矩形推导，保证一套代码两种屏都能跑。
-    WM_TEST_LAYOUT=ci 环境变量可在任何屏上强制 CI 布局（本地复现 CI 用）。"""
-    wa = primary_work_area()
-    if os.environ.get("WM_TEST_LAYOUT") == "ci":
-        return {"host": (20, 380, 960, 320), "target": (20, 40, 500, 300),
-                "drop_center": (256, 440), "covered_drop_center": (788, 620),
-                "cover_fx": 0.65, "cover_fw": 0.30, "divider_delta": -120}
-    if wa.Right - wa.Left >= 2560:
-        return {"host": (400, 150, 2200, 900), "target": (400, 1090, 1100, 620),
-                "drop_center": (1000, 560), "covered_drop_center": (2050, 830),
-                "cover_fx": 0.55, "cover_fw": 0.40, "divider_delta": 200}
-    # CI 拖 -120（分隔条左移→右格变宽）：472px 右格再压 200 会到 272px，可能触发
-    # 经典 mspaint 最小宽钳制；向左压的是 notepad 格（经典版最小宽更小）且比例 0.37 仍 ≥0.2
-    return {"host": (20, 380, 960, 320), "target": (20, 40, 500, 300),
-            "drop_center": (256, 440), "covered_drop_center": (788, 620),
+    divider_delta}；松手构造点全部由 host 矩形推导，与宿主尺寸/所在屏解耦，其余坐标
+    由各测试按钉位后回读矩形推导。"""
+    mi = pick_test_monitor()
+    wa = mi.rcWork
+    scale = monitor_dpi(mi) / 96.0
+    wa_w, wa_h = wa.Right - wa.Left, wa.Bottom - wa.Top
+    host_w = min(wa_w - 40, max(960, round(MSPAINT_MIN_W_DIP * scale) * 2 + 20))
+    host_h = min(max(320, round((MSPAINT_MIN_H_DIP + 36) * scale)), max(wa_h - 460, 320))
+    target_h = 300
+    host_y = wa.Top + wa_h - 20 - host_h
+    target_y = host_y - 40 - target_h
+    if target_y < wa.Top + 2:  # 工作区矮（如 1024x768@150% 的 672px）：压靶窗高度
+        target_y = wa.Top + 2
+        target_h = max(120, host_y - 40 - target_y)
+    host_x = target_x = wa.Left + 20
+    # covered_drop_center.x 取遮罩左缘内 120px：保证 STEP2 左翼抓点（窗口左缘+80）
+    # 仍在遮罩外——中心点 0.8×host_w 在宽宿主上会陷进 0.65 起始的遮罩（推演 hw≥1133 破）
+    mask_left = host_x + int(host_w * 0.65)
+    return {"host": (host_x, host_y, host_w, host_h),
+            "target": (target_x, target_y, min(500, wa_w - 60), target_h),
+            "drop_center": (host_x + host_w // 4, host_y + host_h // 2),
+            "covered_drop_center": (mask_left + 120, host_y + int(host_h * 0.75)),
             "cover_fx": 0.65, "cover_fw": 0.30, "divider_delta": -120}
 
 
 def park_on_left_or_primary(w: int, h: int) -> tuple[int, int]:
-    """测试窗停放原点：有左侧副屏（开发机）停左侧 100% 屏，否则（CI 单屏）停主屏
-    左上角——经典 notepad/mspaint 在单屏上停负坐标会整个出屏。"""
-    wa = left_monitor_work_area()
-    if wa.Left < 0:
-        return (wa.Left + 100, wa.Top + 200)
-    return (60, 60)
+    """测试窗停放原点（物理像素）：优先 96 DPI 显示器（pick_test_monitor），否则主屏；
+    尺寸先钳进工作区（高度方向 100px 预算），再贴左上角——保证停放窗在 1024x768
+    预算内完整可见。原"有左侧副屏停左侧"惯例由 96 DPI 选屏取代（同一台开发机上
+    左侧屏即 100% 屏，行为不变）。"""
+    wa = pick_test_monitor().rcWork
+    wa_w, wa_h = wa.Right - wa.Left, wa.Bottom - wa.Top
+    w = min(w, wa_w - 100)
+    h = min(h, wa_h - 100)
+    x = wa.Left + max(20, min(60, wa_w - w - 60))
+    y = wa.Top + max(20, min(60, wa_h - h - 60))
+    return (x, y)
 
 
 def title_grab_point(h: int) -> tuple[int, int]:
@@ -661,6 +728,14 @@ def capture_screen(x: int, y: int, w: int, h: int):
     return img
 
 
+def capture_test_screen():
+    """测试显示器全幅截图（(0,0) = 该屏左上角）。tooltip/菜单是独立弹层，PrintWindow
+    截不到宿主，必须全屏 CopyFromScreen；测试窗都停在 pick_test_monitor 上，
+    主屏 ≠ 测试屏（96 DPI 副屏）时按 (0,0) 截屏会截到错误显示器。"""
+    r = pick_test_monitor().rcMonitor
+    return capture_screen(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top)
+
+
 def capture_window(h: int):
     """PrintWindow(PW_RENDERFULLCONTENT)：窗口自身渲染，z 序免疫（被遮挡也能截）。"""
     from PIL import Image
@@ -697,6 +772,15 @@ def config_path() -> str:
     return os.path.join(os.environ["APPDATA"], "WindowMerger", "config.json")
 
 
+def host_env() -> dict:
+    """被测宿主启动环境：强制 WM_UPDATE_OFF=1（测试环境与真实 GitHub API 断网）。
+    run_all 会全局注入并被子进程继承；直接单跑测试脚本时没有那层注入——读状态栏
+    的测试必须自带，否则启动 4s 自动检查发现线上新版本、通知顶掉状态栏 3s（实测）。"""
+    env = dict(os.environ)
+    env["WM_UPDATE_OFF"] = "1"
+    return env
+
+
 # 主题调色板（与 src/Theme.cs 同步；像素断言期望值来源）
 PALETTES = {
     "Dark": {"Bar": (32, 32, 32), "Border": (58, 58, 58), "Divider": (60, 60, 60),
@@ -715,6 +799,15 @@ def color_close(actual: tuple[int, int, int], expected: tuple[int, int, int], to
 def load_config() -> dict:
     with open(config_path(), encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_config_safe() -> dict:
+    """load_config 的容错版：文件缺失/损坏回退 {}（与宿主对损坏配置回退默认值同语义）。
+    测试脚本开头"读改写"配置用——先跑的测试可能删过 config（如 max_top_drag 收尾）。"""
+    try:
+        return load_config()
+    except Exception:
+        return {}
 
 
 def save_config(cfg: dict) -> None:

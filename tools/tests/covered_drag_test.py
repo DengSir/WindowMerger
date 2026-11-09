@@ -66,13 +66,14 @@ def main() -> int:
 
     hx, hy, hw, hh = HOST_RECT
     mx, my, mw, mh2 = MP_RECT
-    # 靶窗钉位：test_layout 原值在屏内且与宿主矩形不相交时照用（4K 开发机 / CI）；
-    # 矮屏（如 2560x1440）下 4K 布局靶窗 y+620 探出屏缘 → 重钉到宿主正下方并钳高
-    # （tkinter 靶窗无最小尺寸；标题栏保持在宿主矩形外——裸 WindowFromPoint 抓点检查要求）
-    scr_h = wm.get_system_metrics(wm.SM_CYSCREEN)  # 导入即 DPI aware → 主屏物理高
-    if my + mh2 > scr_h - 10 or (my < hy + hh and my + mh2 > hy):
+    # 靶窗钉位：test_layout 原值在屏内且与宿主矩形不相交时照用；矮工作区放不下时
+    # 重钉到宿主正下方并钳高（tkinter 靶窗无最小尺寸；标题栏保持在宿主矩形外——
+    # 裸 WindowFromPoint 抓点检查要求）。钳位基准 = 测试显示器工作区（宿主可能停在
+    # 非 96 DPI 副屏，SM_CYSCREEN 的主屏高与它无关）
+    wa = wm.pick_test_monitor().rcWork
+    if my + mh2 > wa.Bottom - 10 or (my < hy + hh and my + mh2 > hy):
         my = hy + hh + 10
-        mh2 = min(mh2, scr_h - 10 - my)
+        mh2 = min(mh2, wa.Bottom - 10 - my)
     wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
     time.sleep(1.0)
     wm.set_window_pos(mh, None, mx, my, mw, mh2, wm.SWP_NOZORDER | wm.SWP_NOACTIVATE)
@@ -154,7 +155,7 @@ def main() -> int:
               f"probe={wm.proc_name_of(wm.window_from_point(grab_x, grab_y))} "
               f"fg={wm.proc_name_of(wm.get_foreground_window())}")
         try:  # 失败现场截图（CI 上传 artifact 供人工看桌面）
-            wm.capture_screen(0, 0, 1024, 720).save(
+            wm.capture_test_screen().save(
                 str(Path(tempfile.gettempdir(), f"wm_ci_covered_diag{attempt}.png")))
         except Exception:
             pass

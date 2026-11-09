@@ -51,6 +51,26 @@ def invoke(el) -> None:
     el.GetInvokePattern().Invoke()
 
 
+def status_text(hwnd: int) -> str | None:
+    """宿主状态栏文案（TextBlock x:Name=_status → WPF AutomationId 回退到 x:Name）。
+    找不到（UIA 瞬态错误/树未就绪）返回 None，由调用方重试。"""
+    try:
+        el = element_from_handle(hwnd)
+        t = find_by_automation_id(el, "_status")
+    except Exception:
+        return None
+    return None if t is None else name_of(t)
+
+
+def set_value(el, text: str) -> bool:
+    """ValuePattern 写入（picker 过滤框等 Edit 控件）。不支持该模式返回 False。"""
+    try:
+        el.GetValuePattern().SetValue(text)
+        return True
+    except Exception:
+        return False
+
+
 def name_of(el) -> str:
     return el.Name or ""
 

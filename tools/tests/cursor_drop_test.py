@@ -73,12 +73,13 @@ def main() -> int:
         return 1
     mh = mps[0][1]
 
-    # 2. 钉位：宿主 + mspaint 固定矩形（主屏 app 坐标==物理坐标）
+    # 2. 钳位：宿主 + mspaint 固定矩形（物理坐标；钳位基准 = 测试显示器工作区，
+    #    宿主可能停在 96 DPI 副屏——SM_CYSCREEN 的主屏高与它无关）
     hx, hy, hw, hh = HOST_RECT
     mx, my, mw, mh2 = MP_RECT
-    scr_h = wm.get_system_metrics(wm.SM_CYSCREEN)  # 导入即 DPI aware → 主屏物理高
-    if my + mh2 > scr_h - 10:
-        my = scr_h - mh2 - 10  # 矮屏（如 2560x1440）放不下时上移，钉位矩形整体留在屏内
+    wa = wm.pick_test_monitor().rcWork
+    if my + mh2 > wa.Bottom - 10:
+        my = wa.Bottom - mh2 - 10  # 矮工作区放不下时上移，钉位矩形整体留在屏内
     wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
     time.sleep(1.0)  # 维护定时器收敛
     wm.set_window_pos(mh, None, mx, my, mw, mh2, wm.SWP_NOZORDER | wm.SWP_NOACTIVATE)

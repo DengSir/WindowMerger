@@ -48,9 +48,9 @@ def main() -> int:
     wm.set_foreground_window(hm)
     time.sleep(0.4)
 
-    # 双击顶条空白区（x=左起 600，避开左标签与右按钮组）；坐标按当前矩形算——
-    # 最大化后顶条移到屏幕顶（y 0..42），沿用钉位 y 会点进格子（实测踩过）
-    gx = hx + 600
+    # 双击顶条空白区（x=左起 62.5%，避开左标签与右按钮组；随宿主宽自适应）；坐标按
+    # 当前矩形算——最大化后顶条移到屏幕顶（y 0..42），沿用钉位 y 会点进格子（实测踩过）
+    gx = hx + int(hw * 0.625)
     double_click(gx, hy + 14)
     max_ok = wm.is_zoomed(hm)
     print(f"AFTER_DBLCLICK zoomed={max_ok} {'OK' if max_ok else 'MISMATCH'}")

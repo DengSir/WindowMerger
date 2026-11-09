@@ -17,7 +17,7 @@ import wm
 
 def main() -> int:
     # 强制深色（确定性预期；结束恢复 Auto）
-    cfg = wm.load_config()
+    cfg = wm.load_config_safe()
     cfg["Theme"] = "Dark"
     cfg["Ratio"] = 0.5
     wm.save_config(cfg)
@@ -31,10 +31,18 @@ def main() -> int:
     if not hm:
         print("NO_HOST")
         return 1
+    # 钉到 test_layout 固定布局（1024x768 预算内）：默认几何受 config/屏大小影响，
+    # 采样点（分隔条/按钮偏移）依赖确定性的宿主矩形与屏内位置
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
     hr = wm.get_window_rect(hm)
     w = hr.width
     wm.set_topmost(hm, True)  # 悬停才能到达宿主
     time.sleep(0.4)
+
+    # "移开"落点：宿主正上方屏内（不压任何宿主元素；hr.Top ≥ 342 保证在屏内）
+    def move_away() -> None:
+        wm.set_cursor_pos(hr.Left + hr.width // 2, hr.Top - 20)
 
     pal = wm.PALETTES["Dark"]
     results = []
@@ -61,7 +69,7 @@ def main() -> int:
     check("DIVIDER_HOVER", div_x - hr.Left, hr.height // 2, pal["DividerHover"], True)
 
     # 移开 → 基态（分隔条回到普通色，不得残留高亮）
-    wm.set_cursor_pos(6, 700)
+    move_away()
     snap("away")
     check("DIVIDER_BASE", div_x - hr.Left, hr.height // 2, pal["Divider"], True)
 
@@ -81,7 +89,7 @@ def main() -> int:
     check("CLOSE_HOVER", w - 22, 4, pal["DangerHover"], True)
 
     # 再移开
-    wm.set_cursor_pos(6, 700)
+    move_away()
     snap("away2")
 
     wm.set_topmost(hm, False)

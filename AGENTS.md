@@ -75,23 +75,36 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ## 验证流程
 
-- **一键完整回归**：`uv run tools/run_all.py`（35 项自动测试按依赖顺序跑 + PASS/FAIL/SKIP 汇总表，`--only 名称[,名称…]` 跑子集——**逗号分隔**，写两个 `--only` 只有最后一个生效）——**清理/回归会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 强杀，未保存内容丢失），跑之前先确认没有正在使用的窗口；子测试输出走**临时文件重定向**而非管道（超时 `taskkill /T` 树杀时孙进程继承管道写句柄，communicate() 等 EOF 永久阻塞卡死套件）；标题行 flush 保证日志进度可看
-- **CI（test.yml）已知限制**：runner 的 RDP 会话分辨率实测仅 **1024x720**（非 1920x1080）；covered_drag/drag_switch 两个注入拖动在 CI 确定性不生效（rect 纹丝不动、GetWindowRect 与可见位置漂移 ~27px、Ribbon 画图激活时功能区自变；四轮复现且本地同代码全 PASS）——两测试按屏宽 <1280 SKIP（`SKIP_CI_RDP_DRAG_NOT_ENGAGING`），拖动语义由本地覆盖；CI 桌面常驻一个浏览器窗口（占顶部），遮挡类断言注意；失败现场截图由 test.yml 上传为 `test-screenshots` artifact
-- **CI 加固（2026-11）**：release.yml 复用 test.yml 当**发版门禁**（`workflow_call` + release job `needs: test`）——发版前先跑同款构建+全量回归，测试不过不发版；run_all 把 35 项表格写进 `$GITHUB_STEP_SUMMARY`（Actions 页直读，logs API 要管理员权限）+ 失败项 `::error` 注解顶到页头；`WM_UPDATE_OFF=1`（test.yml job env + run_all setdefault，子进程继承）让被测宿主**不启动自动检查**——测试环境与真实 GitHub API 彻底断网（匿名限流看脸、线上版本 vs CI 构建版本的版本差会改被测行为=模态框事故根因）；update_e2e 自行剥掉该变量（原因见下条 e2e）
-- **拖动类测试固定布局约定**（2026-11 实测）：
-  - 布局单一来源 `wm.test_layout()`（按主屏工作区自适应物理像素矩形，`WM_TEST_LAYOUT=ci` 任何屏强制 CI 布局；4K 分支 = 工作区宽 ≥2560；窄屏按经典版 mspaint 最小宽 514 设计——商店版 704x500 装不进 472px 格，右格 deviation 420）
-  - 矮屏（高<1710）下 4K 布局靶窗探出屏缘，各测试自行钳位：covered_drag 靶窗重钉宿主正下方并钳高（标题栏保持在宿主矩形外）、cursor_drop 的 mspaint 钳进屏内（与宿主重叠无碍——抓取走 ALT 置前台）；钉主屏固定矩形（物理像素无跨 DPI 地雷——钉 100% 左屏宿主收 WM_DPICHANGED 自缩放坐标全歪）；**跨 DPI 钉位（如 150% 左屏）两步走**：先移动收敛 DPI 再设尺寸（一步到位被改写，实测 900x600→400x450）——同 OnSourceInitialized；尺寸按**钉位后回读值**推导（PMv2 写死值不可信）
+- **一键完整回归**：`uv run tools/run_all.py`（43 项自动测试按依赖顺序跑 + PASS/FAIL/SKIP 汇总表，`--only 名称[,名称…]` 跑子集——**逗号分隔**，写两个 `--only` 只有最后一个生效）——**清理/回归会无差别关闭所有 WindowMerger/Notepad/mspaint——包括用户自己开着的实例**（Notepad 强杀，未保存内容丢失），跑之前先确认没有正在使用的窗口；子测试输出走**临时文件重定向**而非管道（超时 `taskkill /T` 树杀时孙进程继承管道写句柄，communicate() 等 EOF 永久阻塞卡死套件）；标题行 flush 保证日志进度可看
+- **测试布局约定（2026-11 重构）**：
+  - **1024x768 预算**：宿主与靶窗必须能在 1024x768 分辨率下完整显示（CI RDP 实测 1024x720 即最紧工况）；"屏幕超出逻辑"类测试豁免——geometry_persistence S3（超屏钳制）、minimize_linkage（子窗 -32000）、child_fg_raise（靶窗压顶条）、cross_dpi_seam（跨屏）、孤儿救援
+  - **显示器优先级**：`wm.pick_test_monitor()` = 优先 96 DPI 屏（无 DPI 缩放干扰），没有则回退主屏；`wm.test_layout()` 全部坐标锚定它的工作区（宿主贴底、靶窗在上），工作区高不足 700 时压靶窗高度。大屏按需放大宿主到两侧格子各装下商店 mspaint 最小窗（704x500 DIP×scale）免 OS 钳制（472px 格 deviation 420 的教训）；1024x720 工况下输出与旧 CI 布局逐值一致
+  - **wm.py 导入即 PMv2**（不再 SetProcessDPIAware）：混合 DPI 多屏下 system-aware 拿到的是系统 DPI 坐标系（跨屏矩形失真），PMv2 下全部坐标=物理像素，且 `GetDpiForMonitor` 才返回每屏真实 DPI（`wm.monitor_dpi`）——system-aware 只回系统 DPI、永远选不出 100% 屏
+  - `wm.capture_test_screen()`：测试显示器全幅截图（主屏≠测试屏时按 (0,0) 截屏会截错屏）——tooltip/菜单等独立弹层专用
+  - `wm.host_env()`：被测宿主启动环境强制 `WM_UPDATE_OFF=1`——**直接单跑测试脚本时 run_all 的全局注入不存在，读状态栏的测试必须自带**，否则启动 4s 自动检查发现线上新版本、更新通知顶掉状态栏 3s（实测）
+  - 跨 DPI 钉位（如 150% 左屏）两步走：先移动收敛 DPI 再设尺寸（一步到位被改写，实测 900x600→400x450）——同 OnSourceInitialized；尺寸按**钉位后回读值**推导（PMv2 写死值不可信）
   - 拖动抓点 = `wm.title_grab_point()`（WM_NCHITTEST 自窗口顶探第一个真实 HTCAPTION——几何推算无通用解：商店画图顶部 ~8px 是缩放热区、Ribbon 画图标题条矮；**HTCAPTION==2、HTLEFT==10** 写错全线抓到缩放区；SendMessage 用 SendMessageTimeoutW(SMTO_ABORTIFHUNG) 防挂起卡死）。注入拖动本身可靠，先前失败全是坐标假设过期
   - 拖动靶 = 自写 tkinter 靶窗 `tools/targets/drag_target.py`（零 Ribbon/零 PMv2、标题几何已知；mspaint 靶弃用——notepad 自我缩放+最小尺寸钳制不可靠、商店画图抓点/热区随版本漂移）；**裸 WindowFromPoint 抓点要求靶窗标题栏在宿主矩形外**（抓进宿主空格 → SKIP_COVERED_GRAB）；cursor_drop CASE_B 松手光标 y 构造为宿主上沿外 10px、窗口中心随之落进左格（半高不足时 target_cy+抓点dy-half_h 公式不成立，Paint 11.2605 实测）
-- 全流程回归：`uv run tools/tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态）；选窗吸附 `tools\tests\picker_attach_test.py`、交换 `tools\tests\swap_sides_test.py`、几何持久化四场景 `tools\tests\geometry_persistence_test.py`、子窗口激活联动/z 自愈收敛/隐藏杂窗豁免 `tools\tests\child_fg_raise_test.py`（宿主停左侧屏 test 停放点；前台被抢占类程序持有时自动 SKIP）
-- 跨 DPI 缝隙回归（4K+100% 双屏）：`uv run tools/tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进 150% 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；左侧显示器不在/非 100% 时 SKIP）
+- 全流程回归：`uv run tools/tests\run_test_flow.py`（清理 → 开测试窗 → CLI 吸附 → 命中/矩形偏差 → 还原置顶状态；**跑前把 Ratio 钉回 0.5**——矩形断言按 config.Ratio 推导，残留非 0.5 比例会让商店 mspaint 被 OS 钳制、偏差必炸）；选窗吸附 `tools\tests\picker_attach_test.py`、交换 `tools\tests\swap_sides_test.py`、几何持久化四场景 `tools\tests\geometry_persistence_test.py`、子窗口激活联动/z 自愈收敛/隐藏杂窗豁免 `tools\tests\child_fg_raise_test.py`（前台被抢占类程序持有时自动 SKIP）
+- **CI 加固**：release.yml 复用 test.yml 当**发版门禁**（`workflow_call` + release job `needs: test`）——发版前先跑同款构建+全量回归，测试不过不发版；run_all 把全量表写进 `$GITHUB_STEP_SUMMARY`（Actions 页直读）+ 失败项 `::error` 注解顶到页头；`WM_UPDATE_OFF=1`（test.yml job env + run_all setdefault）让被测宿主**不启动自动检查**；setup actions 升至 checkout@v7 / setup-dotnet@v6 / setup-uv@v10 / upload-artifact@v7（2026-11 实测的当前浮动 major）
+- 跨 DPI 缝隙回归：`uv run tools/tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进非 96 DPI 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；**自选显示器**——需要 96 + 非 96 两块屏，任一缺失 SKIP；高 DPI 屏装不下免钳制宿主尺寸也 SKIP）
 - 快捷方式生成回归：`uv run tools/tests\shortcut_create_test.py`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
 - 拉起吸附回归：`uv run tools/tests\launch_attach_test.py`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径现场用 QueryFullProcessImageNameW 解析、不硬编码版本号路径）
 - 自动更新 e2e：`uv run tools/tests\update_e2e_test.py`（本地假 releases/latest + zip asset，`WM_UPDATE_API` 指过去；被测宿主环境**剥掉 WM_UPDATE_OFF**——run_all 全局注入它，不剥就没有检查发生；UIA 按 AutomationId=UpdateButton 定位、UIA Name=状态探针，流：窗口一出现立刻断言按钮隐藏（赶在启动 4s 检查前，park 之后会与检查赛跑）→ 等自动检查 Available → 点 ⬇ → UpdateConfirm → 下载（断言 zip 请求）→ 重启安装（旧 PID 退出/新 PID 原路径/`.old` 清掉）；**owned 弹窗在宿主 UIA 子树也能走到**、`wm.wait_until` 只回布尔——拿句柄自己轮询（实测两坑）；InvokePattern 锁屏可用、与遮挡无关）
+- **新增测试组（2026-11 覆盖缺口补齐）**，全部黑盒、已入 run_all：
+  - `config_edge_test`：损坏 JSON/{}/null/旧版未知字段回退默认值（优雅关后 config 被重写为合法默认）、Ratio 超界钳 [0.2,0.8]、恢复几何过小钳 MinWidth/MinHeight、非法 Theme 回退 Auto
+  - `cli_args_test`：位置参数 ≡ 命名参数、旗标缺参/未知旗标报因不崩、进程名大小写+.exe 后缀、名字/exe 路径找不到的报因文案（**状态栏单行后条覆盖前条**——ShowNotice 单槽）
+  - `pid_fallback_test`：PID 三级回退的后两级 + PickBestBy 面积最大。**进程链现实：venv python.exe 是启动器、窗口属于其子进程**——本测试进程天然就是"无窗口 stub"（P1 传自己 PID 走后代树）；同名回退要求 PID 存活（P2 用无窗口 python 哨兵，PID 已死 GetProcessById 抛 ArgumentException 落空）；P3 传真实解释器 PID 精确匹配双窗取大（靶 = `tools/targets/multi_win.py`）
+  - `attach_heal_test`：EnsureDockedState 三重自愈（外部最大化/摘 TOOLWINDOW/隐藏 → 1s 内拉回）、子窗进程被杀格子清空（状态栏"右: 空"）、释放还原全量语义（矩形逐像素回位+摘置顶污染）、单侧吸附 SwapSides
+  - `pane_drag_rules_test`：占用格无 Ctrl 拖入拒绝（IsDropAllowed=false 走不到 TryAttach，**不产生通知**）、Ctrl 拖入替换+旧窗回吸附前矩形、拖出宿主 250ms 自愈拉回、宿主拖动子窗 MoveBy 跟随。**Ctrl 注入 = 宿主前台时真实 keydown（ALT+setFG 后）**——拖动中切前台会取消 mspaint 移动循环、MOVESIZEEND 在半路触发（实测吸附到半路所在空格）；拖入窗标题条必须落在格内不被顶条/已吸附子窗压住（点击穿透命中的是子窗不是拖入窗）
+  - `picker_filter_test`：负向过滤（TOOLWINDOW/owned/排除类名不进候选）、过滤框大小写不敏感+空匹配空列表、未选中点吸附无操作、双击行确认。探针窗 = ctypes 造 WS_EX_TOOLWINDOW + owned 窗（make_probe_windows）
+  - `topbar_state_test`：最大化矩形=工作区（WM_GETMINMAXINFO 修正）、最大化顶条原地单击不还原、空吸附快捷方式通知且不留 .lnk、吸附后侧按钮字形 f060→f2d2+tooltip 翻转
+  - `update_edge_test`：版本前缀解析（v+预发布段+hash 判新、解析失败绝不更新=安全属性、相等不更新）、404/无匹配资产按无更新、CheckUpdates=false 0 次请求、菜单 ToggleCheckUpdates 翻转持久化、坏 zip 换装失败宿主保留（"安装更新失败"）、.old 被占用重试清理自愈。假服务 = `tools/lib/fake_gh_api.py`（update_e2e 同源，configure() 换场景）
+  - 公共探针：`wm_uia.status_text()`（状态栏 AutomationId=_status，WPF AutomationId 回退 x:Name）——全套件此前零断言的报因路径都靠它
 - 单项工具（`tools\utils\`）：`rect/hit/shot/drag/win_cmd/atomic.py`（atomic = 置顶+截图+自动还原置顶，用于排查遮挡问题）
 - 拖动类交互（最大化拖动还原/遮挡格拒收等）用交互式脚本人工验证：`tools\manual\manual_drag_test.py`（环境准备 + 每 150ms 采样打印时间线）、`tools\manual\covered_drag_test.py`（置顶遮罩盖右格，两步人工拖拽出判定）——注入式自动拖动受前台锁/覆盖窗干扰不可靠（实测反复 FAIL_COVERED），不要走回头路
 - 主题/悬停类视觉验证（5 个带像素断言已入 run_all，调色板期望值在 `lib/wm.py` PALETTES）：`tools\visual\tooltip_shot.py`（悬停截 Tooltip 弹层+像素采样；**Tooltip 是独立弹窗，必须 CopyFromScreen 全屏截屏，PrintWindow 只能截宿主自己**；按钮定位用 UIA 真实矩形，150% 下按 100% 偏移写死会落到相邻按钮）、`tools\utils\zoom_png.py`（放大检字形/像素）、`tools\visual\theme_menu_shot.py`（真实点击截展开菜单）；像素断言坑：自定义 Header 的 MenuItem UIA Name 为空（只能按索引 Invoke）；按钮中心正压字形，悬停采样取按钮顶部无字形区，采样点一律 `get_dpi_for_window` 换算；任务栏按钮 UIA 名 = shell 应用识别名（**桌面快捷方式显示名优先于窗口标题**），搜"窗口合并"前缀而非 "WindowMerger"；探针（WindowFromPoint/截图）与光标悬停是两回事，snap 里动光标全状态变悬停色；notepad 深色编辑器底色 ≈ ThemeBar（32,32,32），"透出子窗口"不能靠像素比对，断言吸附本身
-- CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）。参数**纯数字 = PID、否则 = 进程名**；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用经别名 stub 启动，`Start-Process -PassThru` 返回的 stub 没有窗口，真实窗口属于其后代进程，Toolhelp 快照走树匹配）→ 同名进程（stub 已退出的交接场景兜底）
+- CLI 吸附验证的顺序：**先启动目标窗口，再带参启动宿主**（吸附发生在宿主 Loaded 时，目标必须已存在）。参数**纯数字 = PID、否则 = 进程名**；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用经别名 stub 启动，`Start-Process -PassThru` 返回的 stub 没有窗口，真实窗口属于其后代进程，Toolhelp 快照走树匹配）→ 同名进程（**仅当该 PID 仍存活**：GetProcessById 对已死 PID 抛 ArgumentException 直接落空，见 pid_fallback_test）
 - Win11 记事本是单实例多标签：同名目标会去重只吸一个，属预期
 - 悬停任务栏弹窗的远程截图时机不稳定，最终视觉验收交给用户
 
