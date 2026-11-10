@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""优雅关 WindowMerger（exe 解锁重建用）+ 强杀测试窗（notepad/mspaint）。原 CloseInstance.ps1。
-用法: uv run tools/\utils\\close_instance.py
+r"""优雅关 WindowMerger（exe 解锁重建用）+ 强杀测试窗（notepad/mspaint）。原 CloseInstance.ps1。
+用法: uv run tools\utils\close_instance.py
 警告: notepad 是强杀，未保存内容会丢——跑之前确认没有正在使用的窗口。
 """
 import sys
