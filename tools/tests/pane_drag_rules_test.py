@@ -113,18 +113,26 @@ def main() -> int:
     if not gx:
         print("SKIP_GRAB")
         return 1
+    r0 = wm.get_window_rect(mh)
     drag(gx, gy, drop_x, drop_y)
     r1 = wm.get_window_rect(mh)
-    d1_ok = (not wm.is_toolwindow(mh) and wm.is_toolwindow(nh)
+    # 构造须成立：窗口真的移动了（拖动发生、MOVESIZEEND 在左格松手被拒）——
+    # 否则空转也满足"没吸附"，是假绿。松手光标 = (drop_x, drop_y) 按构造在左格内
+    # （侧判定走光标不走窗口中心：中心 = 光标 + 半高 - 抓点偏移，高窗会探出格底）
+    moved = (abs(r1.Left - r0.Left) + abs(r1.Top - r0.Top)) > 8
+    d1_ok = (moved and not wm.is_toolwindow(mh) and wm.is_toolwindow(nh)
              and wm.proc_name_of(wm.window_from_point(drop_x, hr.Top + hr.height // 2)).lower()
              == "notepad")
     check("D1_OCCUPIED_REJECT", d1_ok,
+          f"moved={moved} rect ({r0.Left},{r0.Top})->({r1.Left},{r1.Top}) "
           f"mp_tool={wm.is_toolwindow(mh)} np_tool={wm.is_toolwindow(nh)}")
 
     # D1 拒收后 mspaint 停在左格上方——被已吸附的 notepad（宿主正下方槽位）压住，
-    # 标题条抓不到（实测点击穿透命中的是 notepad）。挪到宿主右侧屏内 + 提到普通带
-    # 顶端，D2 才能直接抓它
-    wm.set_window_pos(mh, None, hr.Right + 40, hr.Top + 120,
+    # 标题条抓不到（实测点击穿透命中的是 notepad）。挪到宿主正上方，标题条落进
+    # 布局的靶窗-宿主 40px 间隙（hr.Top-40，任何布局都在屏内）——宿主右侧的旧停法
+    # 在 1024 宽屏上整个出屏（抓点探针全灭，D2/D3/D4 连环假失败，CI 实测）。
+    # 顺带提到普通带顶端，grab_target 的 ALT+setFG 再加固一次
+    wm.set_window_pos(mh, None, hr.Left + 20, hr.Top - 40,
                       r1.width, r1.height, wm.SWP_NOZORDER)
     wm.set_topmost(mh, True)
     time.sleep(0.2)
