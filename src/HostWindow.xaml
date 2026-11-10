@@ -6,13 +6,24 @@
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResize"
+        UseLayoutRounding="True"
         MinWidth="400"
         MinHeight="300">
+    <!-- UseLayoutRounding：所有元素边缘吸附到整数设备像素。分隔条 x = 2+avail*ratio 是
+         分数 DIP（缩放宿主后 ActualWidth 非整数），150% 屏上 ×1.5 落在分数物理像素 →
+         边缘列半透明，隔着子窗隐形边透出后面的窗口 = 分隔条左右各一条"透明缝"；
+         250ms 维护定时器不触发 WPF 重绘无法自愈，拖分隔条强制重布局才恢复（用户实测）。
+         吸附取整后与子窗放置公式 Round(PointToScreen) 同一舍入，缝隙类整体消除。
+         另修复同类旧账：1 DIP 边框在 150%=1.5px 的 AA 发丝线（AGENTS 已记录，边框因此
+         加宽到 2 DIP，但位置分数时 2 DIP 仍会出半列）。 -->
+
 
     <Window.Resources>
         <!-- 内嵌字体（pack URI 必须经 XAML 声明，代码 new FontFamily 渲染不解析） -->
         <FontFamily x:Key="FaSolid">pack://application:,,,/assets/fa-solid-900.ttf#Font Awesome 6 Free Solid</FontFamily>
-        <FontFamily x:Key="FaRegular">pack://application:,,,/assets/fa-regular-400.ttf#Font Awesome 6 Free Regular</FontFamily>
+        <!-- 系统标题栏图标（ChromeMinimize/Maximize/Restore/Close）：按名引用 Windows 自带
+             字体——微软系统字体不可内嵌再分发；Win10 无 Fluent 时回退 MDL2 同码位 -->
+        <FontFamily x:Key="CaptionIcons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
         <!-- 主题刷色：ApplyTheme 在启动/切主题时替换这些资源值，DynamicResource 自动传播 -->
         <SolidColorBrush x:Key="ThemeBarBrush" Color="#202020" />
@@ -143,11 +154,14 @@
                         <Button x:Name="_themeButton" Width="30" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
                                 VerticalAlignment="Stretch" />
-                        <Button x:Name="_minimizeButton" ToolTip="最小化">&#xF068;</Button>
+                        <!-- 系统钮三件套用 CaptionIcons 原版字形（E921/E922/E923/E8BB = Windows
+                             标题栏自渲染字形），FontSize 10 = Fluent 设计尺寸 -->
+                        <Button x:Name="_minimizeButton" ToolTip="最小化"
+                                FontFamily="{StaticResource CaptionIcons}" FontSize="10">&#xE921;</Button>
                         <Button x:Name="_maxButton" ToolTip="最大化"
-                                FontFamily="{StaticResource FaRegular}">&#xF096;</Button>
+                                FontFamily="{StaticResource CaptionIcons}" FontSize="10">&#xE922;</Button>
                         <Button x:Name="_closeButton" Style="{StaticResource DangerCaptionButton}"
-                                FontSize="16" ToolTip="关闭">&#xF00D;</Button>
+                                FontFamily="{StaticResource CaptionIcons}" FontSize="10" ToolTip="关闭">&#xE8BB;</Button>
                     </StackPanel>
                 </Grid>
             </Border>

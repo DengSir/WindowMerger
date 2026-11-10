@@ -27,12 +27,13 @@
 
 ## 顶条功能（全部功能一个顶条，无右键菜单）
 
+- 更新组：无更新时隐藏；启动约 4s 自动检查一次 GitHub Release（主题菜单 `CheckUpdates` 开关，无手动检查入口），发现新版本 = 功能区最左现身「发现新版本 ⬇」+ 自动弹主题化确认框（一次性宣告）；确认或点 ⬇ 直接下载（状态栏进度）+ 优雅重启换装；取消后 ⬇ 保留，再点直接下载不重复询问；无更新/失败按钮保持隐藏
 - `[←][→]` 选择左/右窗（空格）或释放该侧（已吸附，字形翻转）
 - `[⇄]` 交换左右（引用交换，几何重排）
 - `[⛓]` 全部释放（回吸附前矩形、恢复任务栏与圆角）
 - `[📎]` 按当前组合生成桌面快捷方式：记录进程名 + exe 完整路径（提权/受保护进程降级仅名字），双击复现组合、目标没开自动拉起
 - `[◐]` 主题下拉：跟随系统/深色/浅色直接选择，当前态带 ✓；Auto 模式经 `WM_SETTINGCHANGE` 实时跟随系统切换
-- `[─][□][✕]` 最小化/最大化/关闭
+- `[─][□][✕]` 最小化/最大化/关闭（Segoe Fluent Icons 原版标题栏字形，Win10 回退 MDL2）
 - 状态栏：空格吸附提示 / 两侧窗口标题 / 3 秒临时通知（报因）
 - 顶条拖动移动窗口、双击最大化；顶条悬停/分隔条悬停走 XAML Trigger 刷色
 
@@ -67,7 +68,7 @@
 ## 发布链路
 
 - 本地：`tools\publish\` 打包脚本（WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源）→ `publish\WindowMerger-<版本>-win-x64.exe`，框架依赖单文件，目标机器需 .NET 10 Desktop Runtime x64）
-- GitHub Actions 三条路：推 `v*` tag 发 Release / dispatch 手动触发（可自动建 tag、可勾 prerelease）/ main push 自动 nightly 滚动 tag（zip，版本号含提交 hash）
+- GitHub Actions 两条路：推 `v*` tag 发 Release / dispatch 手动触发（可自动建 tag、可勾 prerelease）；main push 只跑 `test.yml` 全量回归，不发版
 
 ## 已知边界（设计取舍，不是 bug）
 

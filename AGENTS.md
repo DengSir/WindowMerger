@@ -49,8 +49,8 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 
 ### 字体与资源（Font Awesome Free，SIL OFL；全部内嵌进程序集）
 - 字体/图标在 `assets\`，以 `<Resource>` 内嵌（csproj），输出目录不落散资源文件
-- **pack 字体必须经 XAML 声明**：`HostWindow.Resources` 里 `<FontFamily x:Key="FaSolid">pack://application:,,,/assets/<文件>#<完整家族名></FontFamily>`（FaRegular 同款）——这是唯一渲染正常的路径。**代码里 `new FontFamily(同样的 pack 字符串)` 能构造、GetResourceStream/GetFontFamilies 都正常，但 DWrite 渲染不解析（全部回退缺字）**——.NET 10 WPF 实测，别再试
-- 无需运行时加载/校验代码：XAML 声明即渲染（字形直接写在按钮文本里，动态字形由 code-behind 切 Content）。**FA 无原生水平对称的 sign-out**（全字形镜像扫描实测，f08b/f2f5 差 130%+，e4ba 设计本身不对称）——左/右释放字形 = f08b + `ScaleX=-1` 镜像（左 ←] / 右 [→，UpdateSideButtons 设 Content 保持字符串、镜像走 RenderTransform），全部释放仍是 f127；别再找现成字形
+- **pack 字体必须经 XAML 声明**：`HostWindow.Resources` 里 `<FontFamily x:Key="FaSolid">pack://application:,,,/assets/<文件>#<完整家族名></FontFamily>`——这是唯一渲染正常的路径。**代码里 `new FontFamily(同样的 pack 字符串)` 能构造、GetResourceStream/GetFontFamilies 都正常，但 DWrite 渲染不解析（全部回退缺字）**——.NET 10 WPF 实测，别再试。仅内嵌 fa-solid-900.ttf：fa-regular-400.ttf（FaRegular）唯一消费者是旧最大化/还原空心字形，系统钮 CaptionIcons 化后已删除（csproj 资源条目 + XAML 声明 + 文件，DLL -66KB）；需 Regular 类字形时再随 FA 官方包加回
+- 无需运行时加载/校验代码：XAML 声明即渲染（字形直接写在按钮文本里，动态字形由 code-behind 切 Content）。**FA 无原生水平对称的 sign-out**（全字形镜像扫描实测，f08b/f2f5 差 130%+，e4ba 设计本身不对称）——左/右释放字形 = f08b + `ScaleX=-1` 镜像（左 ←] / 右 [→，UpdateSideButtons 设 Content 保持字符串、镜像走 RenderTransform），全部释放仍是 f127；别再找现成字形。**系统钮三件套（最小化/最大化/还原/关闭）= CaptionIcons 资源（`Segoe Fluent Icons, Segoe MDL2 Assets` 按名引用）**：E921/E922/E923/E8BB 是 Windows 标题栏自渲染原版字形，还原朝向天生正确（UpdateMaxGlyph 切 E922↔E923，FontSize 10 = Fluent 设计尺寸）——替代旧"FA f24d + 180° RotateTransform"方案。**微软系统字体不可内嵌再分发**，只能按名引用（不能走 pack URI 嵌入），Win10 无 Fluent 时回退 MDL2 同码位；功能组仍用 FA——Fluent 无断链（f127）/交换（f0EC）对应字形，且功能组内部视觉语言要统一；更新/主题按钮曾试换 Fluent（E896 Download、E7A1/E708/E706 月日对比）后**用户明确回退保持 FA**——系统钮之外不再主动提议迁移。另：字形对称度测量必须**黑底白字渲染后 getbbox**——白底黑字时 getbbox 取到整张画布，测出来全是假不对称（2026-11-11 实测）
 - ico 内嵌后用 `BitmapDecoder.Create(资源流)` 解码取最大帧
 
 ### .NET 10 WPF 特有

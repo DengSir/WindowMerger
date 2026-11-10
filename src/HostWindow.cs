@@ -190,7 +190,7 @@ public sealed partial class HostWindow : Window
         _minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
         _maxButton.Click += (_, _) => ToggleMaximize();
         _closeButton.Click += (_, _) => Close();
-        UpdateMaxGlyph(); // 初始字体/内容配对：f096 空心方块必须配 Regular 字体（solid 里有同码位实心别名）
+        UpdateMaxGlyph(); // 初始字形（CaptionIcons 原版 ChromeMaximize，XAML 同款）
 
         _updateButton.Click += (_, _) => _ = OnUpdateButtonClickedAsync();
         SetUpdatePhase(UpdatePhase.Idle); // 初始字形/tooltip（含当前版本号）
@@ -464,16 +464,9 @@ public sealed partial class HostWindow : Window
 
     private void UpdateMaxGlyph()
     {
-        // 字体固定 FaRegular（XAML），只切换字形：f096 空心方块 ↔ f24d 空心 clone
-        // （注意 f096 在 solid 里有同码位实心别名，必须配 Regular 才是空心）
-        if (WindowState == WindowState.Maximized)
-        {
-            _maxButton.Content = "\uF24D";
-        }
-        else
-        {
-            _maxButton.Content = "\uF096";
-        }
+        // CaptionIcons（Segoe Fluent Icons，XAML）只切换字形：E922 最大化方块 ↔ E923
+        // 原版还原（Windows 标题栏自渲染字形，天生朝向正确——替代旧 FA f24d+旋转方案）
+        _maxButton.Content = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
     }
 
     private void ToggleMaximize()
