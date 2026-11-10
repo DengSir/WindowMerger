@@ -4,8 +4,19 @@ namespace WindowMerger;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// 进程唯一身份（取自仓库属主，定死不再改——它会成为用户任务栏固定的身份，改名即分裂）。
+    /// 本程序与生成的快捷方式都不写 System.AppUserModel.ID，AUMID 唯一来源就是这里，
+    /// 快捷方式从此只按目标路径参与 pin/跳转列表，不再接管任务栏图标。
+    /// </summary>
+    private const string AppUserModelId = "DengSir.WindowMerger";
+
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        // 任何窗口创建之前（每进程仅一次；晚了或重复才失败，失败即编程错误，直接抛）
+        int hr = Native.SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
+        if (hr != 0) throw new InvalidOperationException($"设置 AUMID 失败：0x{hr:X8}");
+
         // 命令行：WindowMerger.exe [--left 左进程名|左PID] [--right 右进程名|右PID]
         //         [--left-exe 左exe完整路径] [--right-exe 右exe完整路径] 或位置参数 [左] [右]
         // 纯数字参数按 PID 匹配（脚本 Start-Process -PassThru 可直接拿到目标进程 PID）；

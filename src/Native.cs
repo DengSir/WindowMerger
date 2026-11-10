@@ -79,6 +79,14 @@ internal static partial class Native
     public const int GCLP_HICON = -14;
     public const int GCLP_HICONSM = -34;
 
+    /// <summary>
+    /// 设进程显式 AUMID（真实导出名无 W 后缀）。必须先于任何窗口创建、每进程仅一次；
+    /// 返回 HRESULT，S_OK=0。设了它任务栏身份不再被指向本 exe 的快捷方式按目标路径
+    /// 隐式匹配接管——有关联时任务栏图标以快捷方式为准，运行时 WM_SETICON 换图标无效。
+    /// </summary>
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int SetCurrentProcessExplicitAppUserModelID(string appId);
+
     // DWM
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
