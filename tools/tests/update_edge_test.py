@@ -27,7 +27,8 @@ import wm
 import wm_uia
 from fake_gh_api import FakeGitHubApi, zip_bytes
 from update_e2e_test import (cancel_update_dialog, find_update_dialog,
-                             update_button_hidden, update_button_name, wait_phase)
+                             update_button_hidden, update_button_name,
+                             wait_phase, wait_update_dialog)
 
 EXE_ASSET = "WindowMerger-9.9.9-win-x64.zip"
 
@@ -77,12 +78,8 @@ def main() -> int:
             check("U1_AVAILABLE", wait_phase(hm, "发现新版本", 15),
                   f"name={update_button_name(hm)!r}")
 
-            # ---------- U2 确认框取消 ----------
-            el = wm_uia.element_from_handle(hm)
-            btn = wm_uia.find_by_automation_id(el, "UpdateButton")
-            wm_uia.invoke(btn)
-            dlg = find_update_dialog(hm)
-            time.sleep(0.5)
+            # ---------- U2 确认框取消（检查发现即自动弹出，无需点按钮）----------
+            dlg = wait_update_dialog(hm, 10)
             if not dlg:
                 check("U2_CANCEL", False, "no dialog")
             else:
@@ -191,10 +188,7 @@ def main() -> int:
         else:
             check("U9A_AVAILABLE", wait_phase(hm, "发现新版本", 15))
             pid0 = wm.pid_of(hm)
-            wm_uia.invoke(wm_uia.find_by_automation_id(
-                wm_uia.element_from_handle(hm), "UpdateButton"))
-            time.sleep(0.5)
-            dlg = find_update_dialog(hm)
+            dlg = wait_update_dialog(hm, 10)  # 发现即自动弹出，直接确认走坏 zip 失败路径
             if not dlg:
                 check("U9B_INSTALL_FAIL", False, "no dialog")
             else:

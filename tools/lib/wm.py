@@ -30,6 +30,11 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+# 测试宿主与真实 GitHub API 断网（子进程继承本环境）：启动自动检查会弹模态确认框，
+# 单跑任何起宿主的脚本都会被它挡死——run_all/CI 有全局注入，但直接单跑脚本时只有
+# 这里有保障。要真实检查流程的脚本（update_e2e/update_edge）自行从 os.environ 剥掉
+os.environ.setdefault("WM_UPDATE_OFF", "1")
+
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 _gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 _dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)

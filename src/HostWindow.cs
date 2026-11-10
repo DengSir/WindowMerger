@@ -146,10 +146,9 @@ public sealed partial class HostWindow : Window
         CleanupUpdateLeftoversWithRetry();
 
         // 启动自动检查更新：延迟 4 秒避开启动高峰，失败静默（离线/代理未就绪不打扰）。
-        // WM_UPDATE_OFF=1（test.yml 测试步骤 + run_all 设）：测试环境与真实 GitHub API
-        // 彻底断网——匿名限流看脸、线上版本 vs CI 构建版本的版本差都会改变被测行为
-        // （模态框事故根因）；update_e2e 对被测宿主剥掉本变量（自动检查是唯一检查入口），
-        // 用 WM_UPDATE_API 指本地假服务
+        // WM_UPDATE_OFF=1（wm.py 导入即注入 + run_all/CI）：测试宿主与真实 GitHub API
+        // 彻底断网——发现新版本会自动弹模态确认框（抢焦点 + 禁用宿主 UI），测试环境
+        // 必须不检查；update_e2e 剥掉本变量测真实流程，用 WM_UPDATE_API 指本地假服务
         if (Environment.GetEnvironmentVariable("WM_UPDATE_OFF") != "1")
         {
             var updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -926,11 +925,11 @@ public sealed partial class HostWindow : Window
 
     private enum UpdatePhase { Idle, Checking, Available, Downloading }
 
-    /// <summary>更新按钮状态：无更新/检查失败（Idle/Checking）时按钮整体隐藏不占顶条，
-    /// 启动自动检查发现新版本才现身 ⬇ → 弹窗确认（UpdateDialog）→ 下载（状态栏进度）
-    /// → 自动重启安装。只动 Visibility/Content/ToolTip/IsEnabled——不碰
-    /// DynamicResource 引用（悬停刷色由隐式样式 Trigger 管）。
-    /// AutomationProperties.Name 跟随状态：e2e 测试的状态探针（字形按钮没有可靠按名匹配）+ 读屏可读。</summary>
+    /// <summary>更新组状态：无更新/检查失败（Idle/Checking）时按钮+文案整体隐藏不占顶条，
+    /// 启动自动检查发现新版本才现身「发现新版本 ⬇」（功能区最左）→ 自动弹确认框
+    /// （UpdateDialog）→ 下载（状态栏进度）→ 自动重启安装；点 ⬇ 直接下载不再询问。
+    /// 只动 Visibility/Content/ToolTip/IsEnabled——不碰 DynamicResource 引用（悬停刷色由
+    /// 隐式样式 Trigger 管）。AutomationProperties.Name 跟随状态：e2e 的状态探针 + 读屏可读。</summary>
     private void SetUpdatePhase(UpdatePhase phase)
     {
         _updatePhase = phase;
@@ -959,37 +958,29 @@ public sealed partial class HostWindow : Window
                 break;
         }
         _updateButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _updateLabel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         _updateButton.IsEnabled = enabled;
         _updateButton.Content = glyph;
         _updateButton.ToolTip = label;
+        _updateLabel.ToolTip = label;
         // 普通依赖属性动态赋值，与主题资源（DynamicResource）无关，无资源引用销毁陷阱
         _updateButton.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, label);
     }
 
-    /// <summary>更新按钮点击（只在 Available 态可见可点）：弹确认框（更新包已下载时是
-    /// 重启安装确认），确认框取消后留在 Available 可随时再点。</summary>
+    /// <summary>更新按钮点击（只在 Available 态可见可点）：直接下载安装——确认框在检查
+    /// 发现新版本时已自动弹过，这里不再二次询问，也不重新检查版本。</summary>
     private async Task OnUpdateButtonClickedAsync()
     {
-        try
+        if (_updatePhase == UpdatePhase.Available && _update is { } info)
         {
-            if (_updatePhase == UpdatePhase.Available)
-            {
-                await PromptUpdateAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            // 用户触发的动作失败不上抛崩宿主，状态栏报因（同快捷方式生成的处理）；
-            // 状态回退，已下载的包不丢（Available 档 tooltip 会反映"已下载"）
-            SetUpdatePhase(_update is not null ? UpdatePhase.Available : UpdatePhase.Idle);
-            ShowNotice($"更新失败：{ex.Message}");
+            await DownloadAndInstallAsync(info, cached: _updateZip is not null && File.Exists(_updateZip));
         }
     }
 
-    /// <summary>启动唯一一次检查 GitHub 最新 Release：发现新版本 → Available（按钮现身
-    /// ⬇ + 状态栏通知），无更新/失败静默——按钮保持隐藏（离线、代理未就绪不打扰）。
-    /// 绝不弹模态框：回归套件里每个被测宿主启动 4s 后都被它禁用、UIA 点击全灭
-    /// （CI 实测全红）——看到 ⬇ 通知后由用户自己点开确认框。检查异常由 AutoCheckUpdate 吞掉。</summary>
+    /// <summary>启动唯一一次检查 GitHub 最新 Release：发现新版本 → Available（顶条现身
+    /// 「发现新版本 ⬇」）并直接弹确认框——一次性宣告，确认或点 ⬇ 都直接下载安装，
+    /// 取消后顶条按钮随时可再点。无更新/失败静默——更新组保持隐藏（离线、代理未就绪
+    /// 不打扰）。检查异常由 AutoCheckUpdate 吞掉。</summary>
     private async Task CheckUpdateAsync()
     {
         SetUpdatePhase(UpdatePhase.Checking);
@@ -998,7 +989,7 @@ public sealed partial class HostWindow : Window
         {
             _update = info;
             SetUpdatePhase(UpdatePhase.Available);
-            ShowNotice($"发现新版本 {info.Version}，点顶条更新按钮安装");
+            await PromptUpdateAsync();
         }
         else
         {
@@ -1007,9 +998,9 @@ public sealed partial class HostWindow : Window
         }
     }
 
-    /// <summary>发现新版本后的确认对话框（弹窗交互）。确认 → 下载（更新包已缓存则跳过）
-    /// → 自动重启换装（用户同意"立即更新"即含重启）；取消 → 留在 Available 随时可再点。
-    /// 确认后的失败在此报因。</summary>
+    /// <summary>发现新版本后的确认对话框。确认 → 直接下载安装；取消 → 留在 Available
+    /// （顶条 ⬇ 随时可点，点了直接下载不再询问）。下载/安装失败在 DownloadAndInstallAsync
+    /// 报因——自动检查路径已过用户确认，必须可见。</summary>
     private async Task PromptUpdateAsync()
     {
         if (_update is not { } info) return;
@@ -1028,19 +1019,35 @@ public sealed partial class HostWindow : Window
             ShowNotice("已取消更新，点顶条更新按钮可随时安装");
             return;
         }
+        await DownloadAndInstallAsync(info, cached);
+    }
 
-        if (!cached)
+    /// <summary>下载（更新包已缓存则跳过）→ 自动重启换装。用户已明确意向（确认框或点
+    /// ⬇），失败不上抛崩宿主：状态回退 + 状态栏报因，已下载的包不丢（Available 档
+    /// tooltip 会反映"已下载"）。</summary>
+    private async Task DownloadAndInstallAsync(Updater.UpdateInfo info, bool cached)
+    {
+        try
         {
-            SetUpdatePhase(UpdatePhase.Downloading);
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-            _updateZip = await Updater.DownloadAsync(info, ShowNotice, cts.Token);
+            if (!cached)
+            {
+                SetUpdatePhase(UpdatePhase.Downloading);
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                _updateZip = await Updater.DownloadAsync(info, ShowNotice, cts.Token);
+            }
+            ShowNotice(cached ? "正在重启安装…" : "下载完成，正在重启安装…");
+            InstallUpdate();
         }
-        ShowNotice(cached ? "正在重启安装…" : "下载完成，正在重启安装…");
-        InstallUpdate();
+        catch (Exception ex)
+        {
+            SetUpdatePhase(_update is not null ? UpdatePhase.Available : UpdatePhase.Idle);
+            ShowNotice($"更新失败：{ex.Message}");
+        }
     }
 
     /// <summary>启动静默检查的守卫：状态离开 Idle 就不查（保险，当前只有 4s 定时器一个
-    /// 触发源）；检查失败完全静默，按钮保持隐藏。</summary>
+    /// 触发源）；检查失败完全静默，更新组保持隐藏。确认框/下载/安装的失败已在
+    /// DownloadAndInstallAsync 报因，这里不再兜底。</summary>
     private async void AutoCheckUpdate()
     {
         try
@@ -1050,7 +1057,7 @@ public sealed partial class HostWindow : Window
         }
         catch
         {
-            // 检查失败静默；确认框之后的下载/安装失败已在 PromptUpdateAsync 报因
+            // 检查失败静默（网络异常等）
         }
     }
 
@@ -1126,20 +1133,23 @@ public sealed partial class HostWindow : Window
     private static bool IsCtrlHeld()
         => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
 
-    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（左←/右→），已吸附=释放该侧（f2d2）。</summary>
+    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（左←/右→），已吸附=释放该侧
+    /// （f08b 退出括号：左侧 ScaleX 镜像成 ←]、右侧原向 [→——FA 无原生镜像字形，实测扫描）。</summary>
     private void UpdateSideButtons()
     {
         var sides = new[]
         {
             (Button: _pickLeftButton, Child: ChildAt(AttachSide.Left), EmptyGlyph: "\uF060",
-             PickTip: "选择左窗…", ReleaseTip: "释放左窗（回到原位）"),
+             PickTip: "选择左窗…", ReleaseTip: "释放左窗（回到原位）", Mirror: true),
             (Button: _pickRightButton, Child: ChildAt(AttachSide.Right), EmptyGlyph: "\uF061",
-             PickTip: "选择右窗…", ReleaseTip: "释放右窗（回到原位）"),
+             PickTip: "选择右窗…", ReleaseTip: "释放右窗（回到原位）", Mirror: false),
         };
-        foreach (var (btn, child, emptyGlyph, pickTip, releaseTip) in sides)
+        foreach (var (btn, child, emptyGlyph, pickTip, releaseTip, mirror) in sides)
         {
             bool used = child is not null;
-            btn.Content = used ? "\uF2D2" : emptyGlyph;
+            // Content 保持字符串：UIA Name 跟随字形，topbar_state_test 按它断言翻转
+            btn.Content = used ? "\uF08B" : emptyGlyph;
+            btn.RenderTransform = used && mirror ? new ScaleTransform(-1, 1) : null;
             btn.ToolTip = used ? releaseTip : pickTip;
         }
     }

@@ -121,21 +121,25 @@
                     <TextBlock x:Name="_status" Grid.Column="2" FontSize="12" Margin="0,0,10,0"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource ThemeTextBrush}" />
-                    <!-- 顶条功能组：[左][右][交换][释放][快捷方式][更新][主题] | [─][□][✕]
-                         字形内容/点击/悬停刷色由 code-behind 补齐 -->
+                    <!-- 顶条功能组：[发现新版本][⬇（更新）][左][右][释放][交换][快捷方式][主题] | [─][□][✕]
+                         更新组只在发现新版本时现身（SetUpdatePhase 控制显隐）；其余字形内容/点击/悬停刷色由 code-behind 补齐 -->
                     <StackPanel x:Name="_captionButtons" Grid.Column="3"
                                 Orientation="Horizontal" HorizontalAlignment="Right"
                                 VerticalAlignment="Stretch" Background="{x:Null}">
-                        <Button x:Name="_pickLeftButton" Width="30" ToolTip="选择左窗…">&#xF060;</Button>
+                        <!-- 更新组：文案 + 下载按钮。发现新版本自动弹确认框（一次性宣告），
+                             点 ⬇ 直接下载安装不再询问。AutomationId 供 e2e 测试 UIA 定位 -->
+                        <TextBlock x:Name="_updateLabel" Text="发现新版本" FontSize="12"
+                                   VerticalAlignment="Center" Margin="0,0,2,0"
+                                   Foreground="{DynamicResource ThemeTextBrush}"
+                                   Visibility="Collapsed" />
+                        <Button x:Name="_updateButton" Width="30" Margin="0,0,6,0" Visibility="Collapsed"
+                                ToolTip="发现新版本" AutomationProperties.AutomationId="UpdateButton">&#xF019;</Button>
+                        <Button x:Name="_pickLeftButton" Width="30" ToolTip="选择左窗…"
+                                RenderTransformOrigin="0.5,0.5">&#xF060;</Button>
                         <Button x:Name="_pickRightButton" Width="30" ToolTip="选择右窗…">&#xF061;</Button>
-                        <Button x:Name="_swapButton" Width="30" ToolTip="交换左右">&#xF0EC;</Button>
                         <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）">&#xF127;</Button>
+                        <Button x:Name="_swapButton" Width="30" ToolTip="交换左右">&#xF0EC;</Button>
                         <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式">&#xF360;</Button>
-                        <!-- 更新按钮：无更新时隐藏（Idle/Checking Collapsed，发现新版本才现身 ⬇），
-                             字形/tooltip/UIA Name/可见性随状态机切换（SetUpdatePhase），
-                             AutomationId 供 e2e 测试 UIA 定位（字形按钮没有可靠的按名匹配） -->
-                        <Button x:Name="_updateButton" Width="30" Visibility="Collapsed" ToolTip="检查更新"
-                                AutomationProperties.AutomationId="UpdateButton">&#xF021;</Button>
                         <Button x:Name="_themeButton" Width="30" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
                                 VerticalAlignment="Stretch" />

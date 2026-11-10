@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """自动更新 e2e 回归：本地 HTTP 服务模拟 GitHub releases/latest + zip asset，
-宿主经 WM_UPDATE_API 指过去（src/Updater.cs 的测试钩子）。弹窗确认流全走一遍：
+宿主经 WM_UPDATE_API 指过去（src/Updater.cs 的测试钩子）。全流程走一遍：
   Idle 断言顶条更新按钮隐藏（无更新不显示图标；须赶在启动 4s 自动检查完成前断言）
-  → 等自动检查 → Available（按钮现身 ⬇ + 状态栏通知，自动检查绝不弹窗）
-  → 点 ⬇ 弹确认框 → 点"立即更新" → 下载 → 自动重启安装
+  → 自动检查发现新版本：顶条功能区最左现身「发现新版本 ⬇」并自动弹确认框
+  → 取消确认框（留在 Available，顶条保持）
+  → 点 ⬇ 直接下载安装（不再弹框、不再检查——若误弹框会停在确认等待，restarted
+    超时即隐性断言）→ 自动重启
   → 断言旧 PID 退出 / 新 PID 从原 exe 路径运行 / 服务端收到 zip 请求 / .old 残留最终清掉
-被测宿主环境剥掉 WM_UPDATE_OFF（run_all 全局注入）——启动自动检查是唯一检查入口。
+被测宿主环境剥掉 WM_UPDATE_OFF（wm.py 导入即注入 + run_all 全局注入）——启动自动检查
+是唯一检查入口，剥掉才有检查发生。
 更新按钮按 AutomationId=UpdateButton 定位，UIA Name 随状态机变化 = 状态探针（按钮只在
 Available/Downloading 可见，Idle 隐藏）；确认框 = 进程内除宿主主窗外带 UpdateConfirm
 按钮的顶层窗口（all_windows_of_pid 含 owned 弹层）。
@@ -106,29 +109,28 @@ def dump_dialog_failure(host_hwnd: int) -> None:
         print(f"DIAG_ERR {type(ex).__name__}: {ex}", flush=True)
 
 
-def confirm_update_dialog(host_hwnd: int, timeout_s: float = 6) -> bool:
-    """等确认框出现并点"立即更新"（发现即自动弹出，正常 <1s）。注意 wm.wait_until 只回
-    布尔，要拿句柄必须自己轮询；owned 弹窗在宿主 UIA 子树里也能走到（实测），按窗口找更稳。"""
-    dlg = None
+def wait_update_dialog(host_hwnd: int, timeout_s: float) -> int | None:
+    """等确认框出现返回句柄（发现即自动弹出，正常 4~5s）。wm.wait_until 只回布尔，
+    要拿句柄必须自己轮询；owned 弹窗在宿主 UIA 子树里也能走到（实测），按窗口找更稳。"""
     deadline = time.monotonic() + timeout_s
-    while dlg is None and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
         dlg = find_update_dialog(host_hwnd)
-        if dlg is None:
-            time.sleep(0.2)
-    if dlg is None:
-        print("FAIL_NO_DIALOG")
-        dump_dialog_failure(host_hwnd)
-        return False
-    for _ in range(5):  # UIA 偶发瞬态 COM 错误（句柄与取元素之间窗口变动），重试
+        if dlg is not None:
+            return dlg
+        time.sleep(0.2)
+    return None
+
+
+def cancel_dialog_hwnd(dlg: int) -> bool:
+    """点确认框的取消按钮（UIA 偶发瞬态 COM 错误——句柄与取元素之间窗口变动，重试）。"""
+    for _ in range(5):
         try:
-            btn = wm_uia.find_by_automation_id(wm_uia.element_from_handle(dlg), "UpdateConfirm")
+            btn = wm_uia.find_by_automation_id(wm_uia.element_from_handle(dlg), "UpdateCancel")
             if btn is not None:
                 wm_uia.invoke(btn)
                 return True
         except Exception:
             time.sleep(0.2)
-    print("FAIL_NO_CONFIRM_BUTTON")
-    dump_dialog_failure(host_hwnd)
     return False
 
 
@@ -138,11 +140,8 @@ def cancel_update_dialog(host_hwnd: int) -> None:
     if not dlg:
         return
     try:
-        el = wm_uia.element_from_handle(dlg)
-        btn = wm_uia.find_by_automation_id(el, "UpdateCancel")
-        if btn is not None:
-            wm_uia.invoke(btn)
-            time.sleep(0.3)
+        cancel_dialog_hwnd(dlg)
+        time.sleep(0.3)
     except Exception:
         pass
 
@@ -180,25 +179,32 @@ def run_flow(exe: str, srv) -> bool:
     old_file = Path(str(exe_file) + ".old")
     upd_file = Path(str(exe_file) + ".update")
 
-    # ① 检查：启动 4s 自动检查（唯一入口）→ Available（按钮现身 ⬇ + 状态栏通知，绝不弹窗）
-    if not wait_phase(hwnd, "发现新版本", 15):
-        print(f"FAIL_NO_AVAILABLE name={update_button_name(hwnd)!r}")
+    # ② 自动检查发现新版本：顶条功能区最左现身「发现新版本 ⬇」并自动弹确认框
+    dlg = wait_update_dialog(hwnd, 15)
+    if dlg is None:
+        print(f"FAIL_NO_AUTO_DIALOG name={update_button_name(hwnd)!r}")
+        dump_dialog_failure(hwnd)
         return False
     if srv.api_hits < 1:
         print("FAIL_NO_API_REQUEST")
         return False
     print("CHECK_OK")
 
-    # ② 点 ⬇ 弹确认框 → 点"立即更新" → 下载 → 自动重启安装：旧进程退出、新进程从原
-    # exe 路径跑起来（偶发丢弹窗兜底：Available 态按钮可再点一次重新弹确认框）
+    # ③ 取消确认框 → 留在 Available（顶条更新组保持；点 ⬇ = 直接下载）
+    if not cancel_dialog_hwnd(dlg):
+        print("FAIL_NO_CANCEL_BUTTON")
+        dump_dialog_failure(hwnd)
+        return False
+    if not wait_phase(hwnd, "发现新版本", 5):
+        print(f"FAIL_NOT_AVAILABLE_AFTER_CANCEL name={update_button_name(hwnd)!r}")
+        return False
+    print("CANCEL_OK")
+
+    # ④ 点 ⬇ 直接下载安装（不再弹框、不再检查）→ 自动重启：旧进程退出、新进程从原
+    # exe 路径跑起来
     if not click_update(hwnd):
         return False
-    if not confirm_update_dialog(hwnd):
-        if not click_update(hwnd):
-            return False
-        if not confirm_update_dialog(hwnd):
-            return False
-    print("CONFIRM_OK")
+    print("DOWNLOAD_CLICKED")
 
     def restarted():
         pids = [p for p in wm.pids_by_name("WindowMerger") if wm.main_windows_of_pid(p)]
@@ -227,8 +233,9 @@ def run_flow(exe: str, srv) -> bool:
         return False
     print("CLEANUP_OK")
 
-    # 新实例 UI 完整可用。WM_UPDATE_OFF 继承 → 新实例永驻 Idle，按钮隐藏是预期终态：
-    # UIA 树找不到 = 隐藏 OK；找得到则 Name 必须是 Idle/Available 文案（不能是垃圾值）
+    # 新实例 UI 完整可用。被剥过的环境随宿主继承 → 新实例 4s 后也会自动检查并弹框，
+    # 而这里通常在其检查完成前读取：隐藏（不在 UIA 树）或 Idle/Available 文案都算健康，
+    # 垃圾值才算炸；随后 main 的兜底清理会取消可能弹出的确认框
     try:
         new_el = wm_uia.element_from_handle(wm.host_hwnds()[0])
         new_btn = wm_uia.find_by_automation_id(new_el, "UpdateButton")

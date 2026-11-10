@@ -3,7 +3,7 @@
   T1 最大化矩形 = 所在显示器工作区（不盖任务栏，ptMaxPosition/ptMaxSize 修正）
   T2 最大化态顶条原地单击不还原（armed 未超阈值，TopBarOnMouseDown 原地点击语义）
   T3 空吸附点"快捷方式" → 状态栏"未吸附窗口：先吸附再创建快捷方式"，桌面无新增 .lnk
-  T4 吸附后侧按钮字形翻转 f060→f2d2、tooltip 换"释放…"（UpdateSideButtons）
+  T4 吸附后侧按钮字形翻转 f060→f08b（左释放 ScaleX 镜像）、tooltip 换"释放…"（UpdateSideButtons）
 用法: uv run tools\\tests\\topbar_state_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad；不在桌面留 .lnk。
 """
@@ -107,7 +107,7 @@ def main() -> int:
     el = wm_uia.element_from_handle(hm)
     bl = wm_uia.find_by_automation_id(el, "_pickLeftButton")
     br = wm_uia.find_by_automation_id(el, "_pickRightButton")
-    check("T4_LEFT_GLYPH_RELEASE", bl is not None and wm_uia.name_of(bl) == "\uF2D2",
+    check("T4_LEFT_GLYPH_RELEASE", bl is not None and wm_uia.name_of(bl) == "\uF08B",
           f"name={wm_uia.name_of(bl)!r}")
     check("T4_RIGHT_GLYPH_STILL_PICK", br is not None and wm_uia.name_of(br) == "\uF061",
           f"name={wm_uia.name_of(br)!r}")
