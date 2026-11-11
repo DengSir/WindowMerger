@@ -342,15 +342,61 @@ internal static partial class Native
     public static bool IsCloaked(IntPtr hwnd)
         => DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
 
-    /// <summary>切换 WS_EX_TOOLWINDOW（任务栏/Alt+Tab 收录开关）。注意：显示状态需翻转一次任务栏按钮才刷新。</summary>
-    public static void SetToolWindowStyle(IntPtr hwnd, bool tool)
+    // ---------- 任务栏 tab（ITaskbarList 裸 vtable：DeleteTab/AddTab 隐藏与恢复任务栏/Alt+Tab，不改窗口样式） ----------
+    // 走 Marshal 裸 vtable 而非 [ComImport] 内建 interop：.NET 10 编译器拒收 co-class→接口转换
+    // （CS0030，与 IShellLinkW 字符串封送 ArgumentException 同为内建 interop 的坑）；
+    // 接口只有 IntPtr 参数，裸调用无封送风险。仅 UI 线程调用（WPF 主线程已是 STA）。
+
+    private static readonly Guid TaskbarListClsid = new("56FDF344-FD6D-11d0-958A-006097C9A090");
+    private static readonly Guid TaskbarListIid = new("56FDF342-FD6D-11d0-958A-006097C9A090");
+    private const uint CLSCTX_ALL = 23;
+
+    private static IntPtr _taskbarPunk; // ITaskbarList 实例（vtable 槽位：3=HrInit 4=AddTab 5=DeleteTab）
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int TaskbarListFn(IntPtr self, IntPtr hwnd);
+
+    [LibraryImport("ole32")]
+    private static partial int CoCreateInstance(ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext, ref Guid riid, out IntPtr ppv);
+
+    private static int CallTaskbarSlot(int slot, IntPtr hwnd)
     {
-        int ex = GetWindowLong(hwnd, GWL_EXSTYLE);
-        int desired = tool ? ex | WS_EX_TOOLWINDOW : ex & ~WS_EX_TOOLWINDOW;
-        if (desired == ex) return;
-        SetWindowLong(hwnd, GWL_EXSTYLE, desired);
-        ShowWindow(hwnd, SW_HIDE);
-        ShowWindow(hwnd, SW_SHOWNA);
+        var vtbl = Marshal.ReadIntPtr(_taskbarPunk);
+        var fn = Marshal.GetDelegateForFunctionPointer<TaskbarListFn>(Marshal.ReadIntPtr(vtbl, slot * IntPtr.Size));
+        return fn(_taskbarPunk, hwnd);
+    }
+
+    /// <summary>
+    /// 任务栏/Alt+Tab 收录开关（原 WS_EX_TOOLWINDOW 方案退役，吸附窗口从此保持普通样式）。
+    /// DeleteTab 是 shell 侧运行时状态且无查询接口：explorer 重启会重建 task list 丢失
+    /// 删除标记并使旧代理失效，吸附维护循环低频重断言兜底。shell 不可用（CoCreateInstance
+    /// 失败）按设计静默——没有任务栏就没有"隐藏"可言。
+    /// </summary>
+    public static void SetTaskbarTab(IntPtr hwnd, bool show)
+    {
+        for (int attempt = 0; attempt < 2; attempt++) // 第二圈：旧代理失效复位后的重建重试
+        {
+            if (_taskbarPunk == IntPtr.Zero)
+            {
+                var clsid = TaskbarListClsid; // ref/out 不收 static readonly（CS0199），取局部副本
+                var iid = TaskbarListIid;
+                if (CoCreateInstance(ref clsid, IntPtr.Zero, CLSCTX_ALL,
+                        ref iid, out _taskbarPunk) != 0)
+                {
+                    _taskbarPunk = IntPtr.Zero;
+                    return;
+                }
+                if (CallTaskbarSlot(3, IntPtr.Zero) != 0) // HrInit 必须先于其他方法
+                {
+                    Marshal.Release(_taskbarPunk);
+                    _taskbarPunk = IntPtr.Zero;
+                    return;
+                }
+            }
+            if (CallTaskbarSlot(show ? 4 : 5, hwnd) == 0) return;
+            Marshal.Release(_taskbarPunk); // explorer 重启后旧实例失效：复位重建后重试一次
+            _taskbarPunk = IntPtr.Zero;
+        }
     }
 
     /// <summary>Win11 DWM 圆角开关：吸附时直角化（DONOTROUND）防"圆角缝"，释放还原 DEFAULT。Win10 无此属性，调用失败无副作用。</summary>

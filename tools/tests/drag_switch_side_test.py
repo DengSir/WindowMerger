@@ -98,7 +98,7 @@ def main() -> int:
 
     post_l = wm.proc_name_of(wm.window_from_point(left_cx, mid_y)).lower()
     post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
-    still_tool = wm.is_toolwindow(th)
+    still_tool = wm.is_attached(th)
     print(f"POST LEFT_HIT={post_l} RIGHT_HIT={post_r} tool={still_tool}")
     wm.set_topmost(hm, False)
 

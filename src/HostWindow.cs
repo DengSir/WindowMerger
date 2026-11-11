@@ -144,7 +144,7 @@ public sealed partial class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedToolWindows(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight, cliLeftExe, cliRightExe); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedChildren(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight, cliLeftExe, cliRightExe); };
         Closing += OnClosing;
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -764,9 +764,10 @@ public sealed partial class HostWindow : Window
         if (!dragging && _highlight is not null) SetDragHighlight(null); // 拖动事件丢失时兜底熄灭高亮
         if (dragging) return; // 有窗口正在被拖动，不对抗
 
-        // 应用自身可能被外部改回普通样式（个别框架会重写样式），丢失时补上；
-        // 吸附子窗口没有任务栏按钮，最小化后无从手动还原；独立最大化则摧毁合并布局——
-        // 宿主可见期间两种状态一律拉回格子自愈（子窗口自身没有"最大化"概念）
+        // 吸附态外观自愈：任务栏隐藏标记可能被 shell 侧重新收录（无查询接口，见
+        // EnsureDockedState 的低频重断言）；吸附子窗口没有任务栏按钮，最小化后无从手动
+        // 还原；独立最大化则摧毁合并布局——宿主可见期间一律拉回格子自愈（子窗口自身
+        // 没有"最大化"概念）
         foreach (var child in new[] { _left, _right })
         {
             child?.EnsureDockedState();
@@ -877,12 +878,12 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>
-    /// 启动时清理上一会话的孤儿：宿主被强杀时已吸附子窗口会残留
-    /// WS_EX_TOOLWINDOW（任务栏消失、可能停在屏幕外），按记录的 HWND 精确摘除样式。
-    /// 不能按 PID 枚举：进程的隐藏辅助窗口（CiceroUIWndFrame 等）同样带 TOOLWINDOW，
-    /// 误显示会产生"点不出来的任务栏幽灵按钮"（实测踩坑）。PID 仅用于句柄复用校验。
+    /// 启动时清理上一会话的孤儿：宿主被强杀时已吸附子窗口会残留吸附态外观
+    /// （任务栏/Alt+Tab 被删、圆角直角化、可能停在屏幕外），按记录的 HWND 精确还原。
+    /// 不能按 PID 枚举：进程的隐藏辅助窗口（CiceroUIWndFrame 等）会被误显示成
+    /// "点不出来的任务栏幽灵按钮"（实测踩坑）。PID 仅用于句柄复用校验。
     /// </summary>
-    private static void CleanupOrphanedToolWindows(List<long>? pids, List<long>? hwnds)
+    private static void CleanupOrphanedChildren(List<long>? pids, List<long>? hwnds)
     {
         if (hwnds is not { Count: > 0 } || pids is not { Count: > 0 }) return;
         var pidSet = pids.ToHashSet();
@@ -892,10 +893,8 @@ public sealed partial class HostWindow : Window
             if (!Native.IsWindow(h)) continue;
             Native.GetWindowThreadProcessId(h, out uint pid);
             if (!pidSet.Contains(pid)) continue; // 句柄已被复用给其他进程，跳过
-            int ex = Native.GetWindowLong(h, Native.GWL_EXSTYLE);
-            if ((ex & Native.WS_EX_TOOLWINDOW) == 0) continue; // 已还原（正常释放过）
-            Native.SetWindowLong(h, Native.GWL_EXSTYLE, ex & ~Native.WS_EX_TOOLWINDOW);
-            Native.ShowWindow(h, Native.SW_SHOWNA); // 任务栏重新收录
+            Native.SetTaskbarTab(h, show: true); // 任务栏重新收录（已收录时是幂等 no-op）
+            Native.SetSquareCorners(h, square: false); // 圆角还原（强杀时 Undock 没跑）
             if (Native.GetWindowRect(h, out var r) && (r.Left <= -30000 || r.Top <= -30000))
             {
                 // 宿主最小化联动时被强杀：窗口还停在移出屏幕外的位置，拉回工作区

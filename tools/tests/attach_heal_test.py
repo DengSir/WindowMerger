@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""吸附态自愈与释放还原回归（250ms 维护定时器的黑盒行为）：
+r"""吸附态自愈与释放还原回归（250ms 维护定时器的黑盒行为）：
   H1 外部把子窗口最大化 → 1s 内拉回格子（EnsureDockedState，子窗口没有"最大化"概念）
-  H2 外部摘掉 TOOLWINDOW → 1s 内补回（个别框架会重写样式的自愈）
+  H2 外部重新收录任务栏 → 低频重断言再隐藏（DeleteTab 方案的 shell 侧自愈，
+     覆盖 explorer 重启重建 task list 的场景）
   H3 外部隐藏子窗口 → 1s 内重新可见（SW_SHOWNA）
   H4 子窗口进程被强杀 → 格子清空（状态栏"右: 空"），宿主不崩、另一侧保留
   H5 释放还原：吸附前矩形逐像素回位 + 外部污染的置顶标记被摘除（Restore 全量语义）
   H6 单侧吸附时交换 → 引用整体搬家（SwapSides 左有右空分支）
-用法: uv run tools\\tests\\attach_heal_test.py [--exe 路径]
+吸附态探针 = 圆角直角化（corner_pref==1，吸附流程唯一写入者），不再是 TOOLWINDOW 样式。
+用法: uv run tools/tests/attach_heal_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse
@@ -20,10 +22,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 import wm_uia
 import uiautomation as auto
-
-
-def wait_tool(h: int, want: bool, timeout_ms: int = 2000) -> bool:
-    return wm.wait_until(lambda: wm.is_toolwindow(h) == want, timeout_ms, 100)
 
 
 def main() -> int:
@@ -63,7 +61,7 @@ def main() -> int:
     nps = wm.main_windows_by_name("Notepad")
     nh = nps[0][1]
     mph = wm.main_windows_by_name("mspaint")[0][1]
-    if not (wm.is_toolwindow(nh) and wm.is_toolwindow(mph)):
+    if not (wm.is_attached(nh) and wm.is_attached(mph)):
         print("FAIL_ATTACH")
         return 1
     scale = wm.get_dpi_for_window(hm) / 96.0
@@ -80,10 +78,15 @@ def main() -> int:
     check("H1_UNMAXIMIZE_HEAL", not wm.is_zoomed(nh) and dev <= 14,
           f"zoomed={wm.is_zoomed(nh)} dev={dev}")
 
-    # ---------- H2 外部摘 TOOLWINDOW → 补回 ----------
-    wm.set_toolwindow(nh, False)
-    check("H2_TOOLWINDOW_HEAL", wait_tool(nh, True, 2000),
-          f"tool={wm.is_toolwindow(nh)}")
+    # ---------- H2 外部重新收录任务栏 → 低频重断言再隐藏 ----------
+    def notepad_button() -> bool:
+        return any("记事本" in n or "notepad" in n.lower() for n in wm_uia.dump_taskbar_buttons())
+
+    wm.taskbar_tab(nh, True)  # 模拟 shell 重新收录（explorer 重启重建 task list 同款）
+    time.sleep(0.6)
+    btn_back = notepad_button()
+    rehidden = wm.wait_until(lambda: not notepad_button(), 5000, 300) if btn_back else False
+    check("H2_TAB_REASSERT_REHIDE", btn_back and rehidden, f"btn_back={btn_back}")
 
     # ---------- H3 外部隐藏 → 重新可见 ----------
     wm.show_window(nh, wm.SW_HIDE)
@@ -102,7 +105,7 @@ def main() -> int:
     check("H4_CHILD_LOST_PANE_CLEARED", wm.wait_until(right_empty, 3000, 150),
           f"status={wm_uia.status_text(hm)!r}")
     check("H4_HOST_ALIVE", wm.is_window(hm) and wm.is_window_visible(hm))
-    check("H4_OTHER_SIDE_KEPT", wm.is_toolwindow(nh))
+    check("H4_OTHER_SIDE_KEPT", wm.is_attached(nh))
 
     # ---------- H5 释放还原：矩形回位 + 摘置顶污染（经 picker 吸附新 mspaint）----------
     mp2 = subprocess.Popen(["mspaint"])
@@ -144,7 +147,7 @@ def main() -> int:
     time.sleep(0.3)
     wm_uia.invoke(wm_uia.find_by_name(pe, "吸附"))
     time.sleep(1.5)
-    check("H5A_PICKER_ATTACH", wm.is_toolwindow(mh2))
+    check("H5A_PICKER_ATTACH", wm.is_attached(mh2))
     # 吸附态下外部污染置顶，释放必须摘除 + 矩形回吸附前位置
     wm.set_topmost(mh2, True)
     time.sleep(0.3)
@@ -157,7 +160,7 @@ def main() -> int:
           f"now={r2.as_tuple()} pre={mp_pre.as_tuple()}")
     check("H5C_RESTORE_UNTOPMOST", not wm.is_topmost(mh2),
           f"topmost={wm.is_topmost(mh2)}")
-    check("H5D_RELEASE_UNTOOL", not wm.is_toolwindow(mh2))
+    check("H5D_RELEASE_UNTOOL", not wm.is_attached(mh2))
 
     # ---------- H6 单侧吸附交换 ----------
     wm.graceful_close_by_name("WindowMerger")
@@ -187,7 +190,7 @@ def main() -> int:
     right_hit = wm.proc_name_of(wm.window_from_point(rcx, mid_y)).lower()
     left_hit = wm.proc_name_of(wm.window_from_point(lcx, mid_y)).lower()
     check("H6_SWAP_SINGLE_SIDE",
-          "左: 空" in st and right_hit == "notepad" and wm.is_toolwindow(nh2),
+          "左: 空" in st and right_hit == "notepad" and wm.is_attached(nh2),
           f"status={st!r} RIGHT_HIT={right_hit} LEFT_HIT={left_hit}")
 
     wm.set_topmost(hm2, False)

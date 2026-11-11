@@ -114,8 +114,8 @@ def main() -> int:
     r = wm.get_window_rect(mh)
     cx, cy = (r.Left + r.Right) // 2, (r.Top + r.Bottom) // 2
     in_left_pane = pane_l < cx < pane_r and pane_t < cy < pane_b
-    case_b_ok = not wm.is_toolwindow(mh)
-    print(f"CASE_B_NO_ATTACH_EXPECTED: tool={wm.is_toolwindow(mh)} "
+    case_b_ok = not wm.is_attached(mh)
+    print(f"CASE_B_NO_ATTACH_EXPECTED: tool={wm.is_attached(mh)} "
           f"rect=({r.Left},{r.Top})-({r.Right},{r.Bottom}) center=({cx},{cy}) "
           f"centerInLeftPane={in_left_pane} (构造须成立)")
 
@@ -126,8 +126,8 @@ def main() -> int:
         return 1
     drag(grab_x, grab_y, pane_cx, pane_cy)
     r2 = wm.get_window_rect(mh)
-    case_a_ok = wm.is_toolwindow(mh)
-    print(f"CASE_A_ATTACH_EXPECTED: tool={wm.is_toolwindow(mh)} "
+    case_a_ok = wm.is_attached(mh)
+    print(f"CASE_A_ATTACH_EXPECTED: tool={wm.is_attached(mh)} "
           f"rect=({r2.Left},{r2.Top})-({r2.Right},{r2.Bottom})")
     left_hit = wm.proc_name_of(wm.window_from_point(pane_cx, pane_cy)).lower()
     print(f"LEFT_HIT={left_hit}")

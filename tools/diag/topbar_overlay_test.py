@@ -58,7 +58,7 @@ def main() -> int:
     # 用户可能正开着自己的宿主（installed 版）——按 PID 跟踪本测试实例，别碰别人的
     proc = subprocess.Popen([wm.exe_path(), "--left", "mspaint"], env=wm.host_env())
     if not wm.wait_until(lambda: bool(wm.main_windows_of_pid(proc.pid)), 15000) \
-            or not wm.wait_until(lambda: wm.is_toolwindow(target), 15000):
+            or not wm.wait_until(lambda: wm.is_attached(target), 15000):
         print("NO_ATTACH")
         wm.post_close(wm.main_windows_of_pid(proc.pid)[0] if wm.main_windows_of_pid(proc.pid) else 0)
         return 1

@@ -46,7 +46,7 @@ def main() -> int:
     wm_uia.invoke(btns[3])  # 顶条按钮序：左/右/交换/释放
     time.sleep(1.2)
 
-    states = [(proc, wm.is_toolwindow(h)) for proc, h in wm.main_windows_by_name("Notepad", "mspaint")]
+    states = [(proc, wm.is_attached(h)) for proc, h in wm.main_windows_by_name("Notepad", "mspaint")]
     for proc, tool in states:
         print(f"{proc} tool={tool}")
     wm.graceful_close_by_name("WindowMerger")

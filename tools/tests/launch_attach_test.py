@@ -67,7 +67,7 @@ def main() -> int:
         if mp_pids:
             pid = mp_pids[0]
             launched_by_host = wm.launched_by(pid, host_pid)
-            attached = wm.is_toolwindow(wm.main_windows_of_pid(pid)[0])
+            attached = wm.is_attached(wm.main_windows_of_pid(pid)[0])
             print(f"STATE launchedByHost={launched_by_host} attached={attached} "
                   f"path={wm.image_path_of_pid(pid)}")
             if launched_by_host and attached:

@@ -90,8 +90,8 @@ def main() -> int:
         if not hm:
             check("P1_ATTACH", False, "no host")
         else:
-            got = wm.wait_until(lambda: wm.is_toolwindow(big_h), 8000, 300)
-            check("P1_ATTACH", got, f"big_tool={wm.is_toolwindow(big_h)} "
+            got = wm.wait_until(lambda: wm.is_attached(big_h), 8000, 300)
+            check("P1_ATTACH", got, f"big_tool={wm.is_attached(big_h)} "
                   f"(stub_pid={os.getpid()} real={real_pid})")
             kill_all()
 
@@ -103,9 +103,9 @@ def main() -> int:
         if not hm:
             check("P2_ATTACH", False, "no host")
         else:
-            got = wm.wait_until(lambda: wm.is_toolwindow(big_h), 8000, 300)
+            got = wm.wait_until(lambda: wm.is_attached(big_h), 8000, 300)
             check("P2_ATTACH", got, f"sentinel={sentinel.pid} "
-                  f"big_tool={wm.is_toolwindow(big_h)} small_tool={wm.is_toolwindow(small)}")
+                  f"big_tool={wm.is_attached(big_h)} small_tool={wm.is_attached(small)}")
             kill_all()
             sentinel.kill()
 
@@ -116,10 +116,10 @@ def main() -> int:
         if not hm:
             check("P3_ATTACH", False, "no host")
         else:
-            got = wm.wait_until(lambda: wm.is_toolwindow(big_h), 8000, 300)
+            got = wm.wait_until(lambda: wm.is_attached(big_h), 8000, 300)
             time.sleep(0.5)
-            check("P3_ATTACH", got and not wm.is_toolwindow(small),
-                  f"big_tool={wm.is_toolwindow(big_h)} small_tool={wm.is_toolwindow(small)} "
+            check("P3_ATTACH", got and not wm.is_attached(small),
+                  f"big_tool={wm.is_attached(big_h)} small_tool={wm.is_attached(small)} "
                   f"(area big={r_big.width * r_big.height} small={r_small.width * r_small.height})")
             kill_all()
     finally:

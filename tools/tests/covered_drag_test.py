@@ -125,8 +125,8 @@ def main() -> int:
     drag(grab_x, grab_y, cur_x, cur_y)
     r1 = wm.get_window_rect(mh)
     c1 = ((r1.Left + r1.Right) // 2, (r1.Top + r1.Bottom) // 2)
-    step1_ok = not wm.is_toolwindow(mh)
-    print(f"STEP1_COVERED_DROP: tool={wm.is_toolwindow(mh)} center=({c1[0]},{c1[1]}) "
+    step1_ok = not wm.is_attached(mh)
+    print(f"STEP1_COVERED_DROP: tool={wm.is_attached(mh)} center=({c1[0]},{c1[1]}) "
           f"droppedInCoveredPane={cx <= c1[0] <= cx + cw and cy <= c1[1] <= cy + ch} (构造须成立)")
 
     # STEP 2: 从新位置拖到左格中心 → 必须吸附。
@@ -149,7 +149,7 @@ def main() -> int:
         time.sleep(0.3)
         drag(grab_x, grab_y, pane_cx, pane_cy)
         r2 = wm.get_window_rect(mh)
-        if wm.is_toolwindow(mh):
+        if wm.is_attached(mh):
             break
         print(f"DIAG attempt{attempt}: rect unchanged at ({r2.Left},{r2.Top}) "
               f"probe={wm.proc_name_of(wm.window_from_point(grab_x, grab_y))} "
@@ -160,9 +160,9 @@ def main() -> int:
         except Exception:
             pass
         time.sleep(0.5)
-    step2_ok = wm.is_toolwindow(mh)
+    step2_ok = wm.is_attached(mh)
     left_hit = wm.proc_name_of(wm.window_from_point(pane_cx, pane_cy)).lower()
-    print(f"STEP2_FREE_DROP: tool={wm.is_toolwindow(mh)} LEFT_HIT={left_hit} "
+    print(f"STEP2_FREE_DROP: tool={wm.is_attached(mh)} LEFT_HIT={left_hit} "
           f"rect=({r2.Left},{r2.Top})-({r2.Right},{r2.Bottom})")
 
     # 清理：关遮罩、优雅关宿主（释放靶窗）

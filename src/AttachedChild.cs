@@ -16,6 +16,7 @@ internal sealed class AttachedChild
     public IntPtr Hwnd;                                // 当前子窗口
     public uint Pid;                                   // 子窗口所属进程（孤儿清理的句柄复用校验）
     public Native.RECT PreAttachRect;                  // 吸附前矩形（释放还原用）
+    private int _tabReassertCountdown = 1;             // 任务栏隐藏重断言倒计时（首个维护 tick 立即补一次）
 
 
     private AttachedChild(IntPtr host, IntPtr hwnd, uint pid)
@@ -50,19 +51,19 @@ internal sealed class AttachedChild
     /// <summary>存活且处于可放置状态（非最小化/非最大化）。</summary>
     public bool CanPlace => IsAlive && !Native.IsIconic(Hwnd) && !Native.IsZoomed(Hwnd);
 
-    /// <summary>吸附前置：直角化 + iconic 还原 + toolwindow 样式。</summary>
+    /// <summary>吸附前置：直角化 + iconic 还原 + 任务栏/Alt+Tab 隐藏（DeleteTab，不改窗口样式）。</summary>
     public void PrepareForDock()
     {
         Native.SetSquareCorners(Hwnd, square: true);
         if (Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
-        Native.SetToolWindowStyle(Hwnd, tool: true);
+        Native.SetTaskbarTab(Hwnd, show: false);
     }
 
-    /// <summary>解除吸附外观：圆角还原 + 摘 toolwindow（不动几何）。</summary>
+    /// <summary>解除吸附外观：圆角还原 + 任务栏收录回来（不动几何）。</summary>
     public void Undock()
     {
         Native.SetSquareCorners(Hwnd, square: false);
-        Native.SetToolWindowStyle(Hwnd, tool: false);
+        Native.SetTaskbarTab(Hwnd, show: true);
     }
 
     /// <summary>
@@ -83,13 +84,16 @@ internal sealed class AttachedChild
             Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
     }
 
-    /// <summary>确保处于吸附位的正常可见状态：toolwindow 样式、非最小化/最大化、可见。</summary>
+    /// <summary>确保处于吸附位的正常可见状态：任务栏保持隐藏、非最小化/最大化、可见。</summary>
     public void EnsureDockedState()
     {
         if (!IsAlive) return;
-        if ((Native.GetWindowLong(Hwnd, Native.GWL_EXSTYLE) & Native.WS_EX_TOOLWINDOW) == 0)
+        // DeleteTab 是 shell 侧运行时状态且无查询接口（explorer 重启会重建 task list、
+        // 个别 shell 事件可能重新收录按钮）——每 ~2s 低频重断言，替代旧的样式位检查
+        if (--_tabReassertCountdown <= 0)
         {
-            Native.SetToolWindowStyle(Hwnd, tool: true);
+            Native.SetTaskbarTab(Hwnd, show: false);
+            _tabReassertCountdown = 8; // 250ms 维护周期 × 8 ≈ 2s
         }
         if (Native.IsIconic(Hwnd) || Native.IsZoomed(Hwnd))
         {

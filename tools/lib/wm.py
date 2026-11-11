@@ -213,6 +213,76 @@ def set_toolwindow(h: int, tool: bool) -> None:
     set_window_long(h, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW) if tool else (ex & ~WS_EX_TOOLWINDOW))
 
 
+# ---------- 任务栏 tab / 圆角偏好（DeleteTab 吸附方案的探针与救援） ----------
+
+_ole32 = ctypes.WinDLL("ole32")
+_taskbar_punk = 0  # ITaskbarList 实例（裸 vtable：3=HrInit 4=AddTab 5=DeleteTab）
+
+
+class _GUID(Structure):
+    _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+
+def _guid(s: str) -> _GUID:
+    hx = s.strip("{}").replace("-", "")
+    return _GUID(int(hx[:8], 16), int(hx[8:12], 16), int(hx[12:16], 16),
+                 (ctypes.c_ubyte * 8)(*(int(hx[16 + i * 2:18 + i * 2], 16) for i in range(8))))
+
+
+def _itbl_call(slot: int, h: int = 0) -> int:
+    vtbl = ctypes.cast(ctypes.c_void_p(_taskbar_punk), ctypes.POINTER(ctypes.c_void_p))[0]
+    fn = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_void_p)(
+        ctypes.cast(ctypes.c_void_p(vtbl), ctypes.POINTER(ctypes.c_void_p))[slot])
+    return fn(ctypes.c_void_p(_taskbar_punk), ctypes.c_void_p(h))
+
+
+def taskbar_tab(h: int, show: bool) -> int:
+    """ITaskbarList::DeleteTab/AddTab（任务栏/Alt+Tab 收录开关，与宿主 SetTaskbarTab 同语义）。
+    DeleteTab 方案下吸附窗没有 toolwindow 样式，孤儿救援/测试经此重新收录或再隐藏。
+    返回 HRESULT（0=成功；无 shell 环境 -1）。explorer 重启后旧实例失效会复位重建重试一次。"""
+    global _taskbar_punk
+    _ole32.CoInitializeEx(None, 0)  # MTA；已初始化（含 UIA 的 STA）返回 CHANGED_MODE，忽略
+    hr = -1
+    for _ in range(2):
+        if not _taskbar_punk:
+            punk = ctypes.c_void_p()
+            if _ole32.CoCreateInstance(byref(_guid("{56FDF344-FD6D-11d0-958A-006097C9A090}")),
+                                       None, 23,
+                                       byref(_guid("{56FDF342-FD6D-11d0-958A-006097C9A090}")),
+                                       byref(punk)) != 0:
+                return -1
+            _taskbar_punk = punk.value or 0
+            if not _taskbar_punk or _itbl_call(3) != 0:  # HrInit 必须先于其他方法
+                _taskbar_punk = 0
+                return -1
+        hr = _itbl_call(4 if show else 5, h)
+        if hr == 0:
+            return 0
+        _taskbar_punk = 0
+    return hr
+
+
+def corner_pref(h: int) -> int:
+    """DWMWA_WINDOW_CORNER_PREFERENCE(33) 读回：1=DONOTROUND（吸附态标记）0=DEFAULT -1=失败。
+    DeleteTab 方案下吸附窗不再有 toolwindow 样式，圆角直角化成了吸附态的黑盒探针
+    （只有吸附流程会设 DONOTROUND，释放/孤儿清理还原 DEFAULT）。"""
+    v = wintypes.INT(-1)
+    hr = _dwmapi.DwmGetWindowAttribute(wintypes.HWND(h), 33, byref(v), sizeof(v))
+    return v.value if hr == 0 else -1
+
+
+def set_corner_pref(h: int, val: int) -> None:
+    """DWMWA_WINDOW_CORNER_PREFERENCE(33) 写入（1=DONOTROUND 0=DEFAULT），孤儿救援用。"""
+    v = wintypes.INT(val)
+    _dwmapi.DwmSetWindowAttribute(wintypes.HWND(h), 33, byref(v), sizeof(v))
+
+
+def is_attached(h: int) -> bool:
+    """吸附态黑盒探针（DeleteTab 方案）：圆角被直角化 = 已吸附。替代旧 is_toolwindow 探针。"""
+    return corner_pref(h) == 1
+
+
 def get_text(h: int, max_chars: int = 256) -> str:
     buf = ctypes.create_unicode_buffer(max_chars)
     _user32.GetWindowTextW(wintypes.HWND(h), buf, max_chars)

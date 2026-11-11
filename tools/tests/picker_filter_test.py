@@ -178,7 +178,7 @@ def main() -> int:
         rows = picker_list_items(picker)
         wm_uia.invoke(wm_uia.find_by_name(pe, "吸附"))
         time.sleep(1.0)
-        check("K3_NO_SELECT_NOOP", bool(wm.is_window(picker)) and not wm.is_toolwindow(
+        check("K3_NO_SELECT_NOOP", bool(wm.is_window(picker)) and not wm.is_attached(
             wm.main_windows_by_name("Notepad")[0][1]),
             f"picker_alive={bool(wm.is_window(picker))}")
 
@@ -199,8 +199,8 @@ def main() -> int:
             time.sleep(1.5)
             nh = wm.main_windows_by_name("Notepad")[0][1]
             check("K4_DOUBLE_CLICK_CONFIRM",
-                  not wm.is_window(picker) and wm.is_toolwindow(nh),
-                  f"picker_alive={bool(wm.is_window(picker))} np_tool={wm.is_toolwindow(nh)}")
+                  not wm.is_window(picker) and wm.is_attached(nh),
+                  f"picker_alive={bool(wm.is_window(picker))} np_tool={wm.is_attached(nh)}")
 
         wm.set_topmost(hm, False)
         wm.graceful_close_by_name("WindowMerger")

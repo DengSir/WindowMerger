@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-"""孤儿扫描/救援：扫描全部 WS_EX_TOOLWINDOW 顶层窗口（孤儿特征）；
---rescue 按进程摘样式 + 显示 + 拉回屏幕外 -32000 的窗口。原 OrphanRescue.ps1。
-用法: uv run tools/\utils\\orphan_rescue.py [--rescue] [--proc-name xxx]
+r"""孤儿扫描/救援：吸附窗口隐藏任务栏已改用 ITaskbarList::DeleteTab（不再有 toolwindow
+样式），孤儿特征 = DWMWA_WINDOW_CORNER_PREFERENCE==1（DONOTROUND 直角化，只有吸附流程
+会设）；--rescue 对匹配窗口重新收录任务栏 + 圆角还原 + 拉回屏幕外 -32000 的窗口。
+原 OrphanRescue.ps1（旧版按 WS_EX_TOOLWINDOW 扫描，DeleteTab 方案下失效）。
+用法: uv run tools/utils/orphan_rescue.py [--rescue] [--proc-name xxx]
 """
 import argparse
 import sys
@@ -25,9 +27,8 @@ def main() -> int:
     for i, h in enumerate(wm.z_walk()):
         if i >= 600:
             break
-        ex = wm.get_ex_style(h)
-        if (ex & wm.WS_EX_TOOLWINDOW) == 0:
-            continue
+        if wm.corner_pref(h) != 1:
+            continue  # 吸附态孤儿特征：圆角仍被直角化（隐藏任务栏的 tab 态无查询接口，一并救）
         pid = wm.pid_of(h)
         pn = wm.proc_name_of(h)
         if a.proc_name and pn.lower() != a.proc_name.lower():
@@ -44,8 +45,8 @@ def main() -> int:
             if not vis:
                 print("  SKIP rescue: hidden helper window (never ours)")
             else:
-                wm.set_window_long(h, wm.GWL_EXSTYLE, ex & ~wm.WS_EX_TOOLWINDOW)
-                wm.show_window(h, wm.SW_SHOWNA)
+                wm.taskbar_tab(h, True)   # 任务栏/Alt+Tab 重新收录
+                wm.set_corner_pref(h, 0)  # 圆角还原 DEFAULT
                 if off:
                     x = 60 + (cascade % 5) * 40
                     y = 60 + (cascade % 5) * 40
@@ -53,11 +54,11 @@ def main() -> int:
                     w = min(1200, screen_w - 120)
                     hh = min(800, screen_h - 120)
                     wm.set_window_pos(h, None, x, y, w, hh, wm.SWP_NOZORDER)
-                    print(f"  RESCUED: style stripped, shown, moved to ({x},{y}) {w}x{hh}")
+                    print(f"  RESCUED: tab re-added, corners restored, moved to ({x},{y}) {w}x{hh}")
                 else:
-                    print("  RESCUED: style stripped, shown")
+                    print("  RESCUED: tab re-added, corners restored")
     if found == 0:
-        print("NO_TOOLWINDOW_WINDOWS")
+        print("NO_ORPHAN_CANDIDATES")
     print("ORPHAN_SCAN_DONE")
     return 0
 

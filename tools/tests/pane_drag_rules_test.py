@@ -120,12 +120,12 @@ def main() -> int:
     # 否则空转也满足"没吸附"，是假绿。松手光标 = (drop_x, drop_y) 按构造在左格内
     # （侧判定走光标不走窗口中心：中心 = 光标 + 半高 - 抓点偏移，高窗会探出格底）
     moved = (abs(r1.Left - r0.Left) + abs(r1.Top - r0.Top)) > 8
-    d1_ok = (moved and not wm.is_toolwindow(mh) and wm.is_toolwindow(nh)
+    d1_ok = (moved and not wm.is_attached(mh) and wm.is_attached(nh)
              and wm.proc_name_of(wm.window_from_point(drop_x, hr.Top + hr.height // 2)).lower()
              == "notepad")
     check("D1_OCCUPIED_REJECT", d1_ok,
           f"moved={moved} rect ({r0.Left},{r0.Top})->({r1.Left},{r1.Top}) "
-          f"mp_tool={wm.is_toolwindow(mh)} np_tool={wm.is_toolwindow(nh)}")
+          f"mp_tool={wm.is_attached(mh)} np_tool={wm.is_attached(nh)}")
 
     # D1 拒收后 mspaint 停在左格上方——被已吸附的 notepad（宿主正下方槽位）压住，
     # 标题条抓不到（实测点击穿透命中的是 notepad）。挪到宿主正上方，标题条落进
@@ -169,9 +169,9 @@ def main() -> int:
     import wm_uia as _u
     print(f"DIAG status={_u.status_text(hm)!r}")
     np_now = wm.get_window_rect(nh)
-    d2_ok = wm.is_toolwindow(mh) and not wm.is_toolwindow(nh)
+    d2_ok = wm.is_attached(mh) and not wm.is_attached(nh)
     check("D2_CTRL_REPLACE_ATTACH", d2_ok,
-          f"mp_tool={wm.is_toolwindow(mh)} np_tool={wm.is_toolwindow(nh)}")
+          f"mp_tool={wm.is_attached(mh)} np_tool={wm.is_attached(nh)}")
     back_ok = (abs(np_now.Left - npre.Left) <= 3 and abs(np_now.Top - npre.Top) <= 3
                and abs(np_now.Right - npre.Right) <= 3 and abs(np_now.Bottom - npre.Bottom) <= 3)
     check("D2_OLD_RESTORED_RECT", back_ok,

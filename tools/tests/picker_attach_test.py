@@ -99,7 +99,7 @@ def main() -> int:
     ok_btn.GetInvokePattern().Invoke()
     time.sleep(1.5)  # 吸附 + 布局收敛
 
-    attached = wm.is_toolwindow(mh)
+    attached = wm.is_attached(mh)
     left_hit = wm.proc_name_of(wm.window_from_point(pane_cx, pane_cy)).lower()
     r = wm.get_window_rect(mh)
     print(f"ATTACHED={attached} LEFT_HIT={left_hit} "

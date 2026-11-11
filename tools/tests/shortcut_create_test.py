@@ -110,7 +110,7 @@ def main() -> int:
     if not candidates:
         # 诊断：吸附是否成立（应用只在有吸附时写 .lnk）+ 桌面现有 lnk
         mp = wm.main_windows_by_name("mspaint")
-        print(f"DIAG attached={bool(mp) and wm.is_toolwindow(mp[0][1])} desktop={desktop}")
+        print(f"DIAG attached={bool(mp) and wm.is_attached(mp[0][1])} desktop={desktop}")
         print(f"DIAG desktop_lnk={[f.name for f in Path(desktop).glob('*.lnk')][:10]}")
         print("FAIL_NO_LNK")
         wm.graceful_close_by_name("WindowMerger")

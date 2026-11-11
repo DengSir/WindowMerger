@@ -43,7 +43,7 @@ def main() -> int:
         print("FAIL_NO_C")
         return 1
 
-    tool = wm.is_toolwindow(hb)
+    tool = wm.is_attached(hb)
     rb2 = wm.get_window_rect(hb)
     moved = rb2.Left != rb.Left or rb2.Top != rb.Top
 
