@@ -34,6 +34,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - **FixZOrder 校验必须跳过隐藏/cloaked 窗口**（与 `IsCoveredAtCursor` 同口径）：不可见插队者不渲染、不参与命中，为它翻转子窗口纯属浪费且每次写入都是一次重合成。不变量 = "宿主与子窗口之间无**可见**插队者"，不是"精确相邻"——隐藏杂窗（conhost/IME 辅助窗，本机开发时自己的工具调用就会产生）夹在中间是合法稳态
 - **子窗口激活联动升顶**：`EVENT_SYSTEM_FOREGROUND`（DragAttach 第二钩子）→ 宿主 topmost-toggle 两步落普通带顶端（全程 `NOACTIVATE` 保焦点——`SetForegroundWindow(宿主)` 会打断子窗口输入；`HWND_TOP` 静默无效）→ `RaiseChildrenBelow` 粘回。语义 = 普通窗口"点哪整窗到前"，焦点留在被点的子窗口。**ALT+SetForegroundWindow 强制改前台不产生该事件**（合成测试走不了这条捷径）；回归 `tools\tests\child_fg_raise_test.py`（净空校验用 `GA_ROOT` 比对——Win11 notepad/mspaint 是多 HWND 应用，WindowFromPoint 命中的是内部控件如 RichEditD2DPT；点击区被前台抢占类程序持有时 SKIP_FOREGROUND_HIJACK）
 - 吸附子窗口设为 `WS_EX_TOOLWINDOW`（无任务栏/Alt+Tab）→ **最小化或独立最大化后无法手动恢复**，维护定时器（250ms）会自动拉回：子窗口没有"自己最大化"的概念
+- **DeleteTab 隐藏任务栏已评估并否决（2026-11-12，勿重走）**：样式零改动、隐藏等效，但子窗口回归普通窗口后 Win11 悬停最大化按钮必弹 Snap 布局浮层，无单窗口 API 可屏蔽 → 回 toolwindow。附带：`[ComImport]` 内建 interop 编译器拒收 co-class→接口转换（CS0030，IShellLinkW 同族）；无 AUMID 裸窗口的任务栏按钮 UIA 名 = exe 文件描述而非窗口标题，判定身份须先设显式 AUMID
 - **WindowChrome 的 resize 边命中测试不检查最大化状态**（WPF 源码 `_HitTestNca`）：最大化时窗口顶边=屏幕顶边，顶条最上 8 DIP 被判成 HTTOP 缩放区、四边同理——按在屏幕顶上**拖不动**（旧 maximize_drag_test 抓点恰在死区之下从未暴露）。修复 = 宿主 WndProc 拦 `WM_NCHITTEST`：最大化整窗回 `HTCLIENT`（最大化本就不可缩放 = Windows 标准；宿主 hook 在 WindowChromeWorker 之后挂接，能压过其命中结果）。回归 `tools\tests\max_top_drag_test.py`（含 NCHITTEST 逐行探针）
 - Win11 DWM 自动圆角是格子四角"圆角缝"的根源：吸附时设 `DWMWA_WINDOW_CORNER_PREFERENCE=DONOTROUND`，释放还原 `DEFAULT`
 - 带框窗口有 ~7px 隐形边（`GetWindowRect` > 可见窗口）：吸附矩形按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩，可见内容才与格子齐平
