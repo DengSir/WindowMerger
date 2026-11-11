@@ -135,7 +135,7 @@ public sealed partial class HostWindow : Window
         double bw = CurBorderW;
         double x0 = bw;
         double x1 = ActualWidth - bw;
-        double y0 = bw + _topBarH;
+        double y0 = bw + TopInset; // 最大化浮层模式顶条不占布局，命中区从边框下沿开始
         double y1 = ActualHeight - bw;
         if (p.X < x0 || p.X > x1 || p.Y < y0 || p.Y > y1) return null;
         // 与 PaneRectDevice/UpdatePaneWidths 同一公式（ActualWidth 直算）：

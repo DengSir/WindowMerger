@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -20,6 +21,8 @@ public sealed partial class HostWindow : Window
     private double _borderW;    // 外框宽（最大化时隐藏为 0）
     private double _topBarH;    // 顶条高度
     private double _dividerW;   // 中间分隔条宽度
+    private bool _barHidden;                        // 最大化自动隐藏：顶条当前收起？
+    private readonly DispatcherTimer _revealTimer;  // 最大化顶条移入显隐轮询（100ms）
 
     private const double MinRatio = 0.2;
     private const double MaxRatio = 0.8;
@@ -118,6 +121,15 @@ public sealed partial class HostWindow : Window
         WireUi();
         ApplyTheme(); // XAML 只带深色初值，按配置主题重刷一遍（含按钮前景）
 
+        // 顶条叠层：非最大化顶条占位（上边距=顶条高，视觉同旧 DockPanel 行）；
+        // 最大化走自动隐藏浮层，ApplyTopBarMode 随状态切换
+        _content.Margin = new Thickness(0, _topBarH, 0, 0);
+        _revealTimer = new DispatcherTimer(DispatcherPriority.Input)
+        {
+            Interval = TimeSpan.FromMilliseconds(100),
+        };
+        _revealTimer.Tick += (_, _) => PollTopBarReveal();
+
         LocationChanged += (_, _) => OnHostMoved();
         SizeChanged += (_, _) => { UpdatePaneWidths(); ApplyLayout(); };
         StateChanged += (_, _) => OnStateChanged();
@@ -196,6 +208,7 @@ public sealed partial class HostWindow : Window
         SetUpdatePhase(UpdatePhase.Idle); // 初始字形/tooltip（含当前版本号）
 
         _topBar.MouseLeftButtonDown += TopBarOnMouseDown;
+        _topBarFrame.MouseLeftButtonDown += TopBarOnMouseDown; // 浮层态四边框带也归顶条交互
         _topBar.MouseMove += TopBarOnMouseMove;
         _topBar.MouseLeftButtonUp += TopBarOnMouseUp;
     }
@@ -659,13 +672,13 @@ public sealed partial class HostWindow : Window
         double bw = CurBorderW;
         bool isLeft = side == AttachSide.Left;
         double availDip = Math.Max(0, ActualWidth - 2 * bw - _dividerW);
-        double contentHDip = Math.Max(0, ActualHeight - 2 * bw - _topBarH);
+        double contentHDip = Math.Max(0, ActualHeight - 2 * bw - TopInset);
         double leftWDip = availDip * _ratio;
         double xDip = isLeft ? bw : bw + leftWDip + _dividerW;
         double wDip = isLeft ? leftWDip : availDip - leftWDip;
 
-        var tl = PointToScreen(new Point(xDip, bw + _topBarH));
-        var br = PointToScreen(new Point(xDip + wDip, bw + _topBarH + contentHDip));
+        var tl = PointToScreen(new Point(xDip, bw + TopInset));
+        var br = PointToScreen(new Point(xDip + wDip, bw + TopInset + contentHDip));
         return ((int)Math.Round(tl.X), (int)Math.Round(tl.Y),
                 (int)Math.Round(br.X - tl.X), (int)Math.Round(br.Y - tl.Y));
     }
@@ -768,6 +781,7 @@ public sealed partial class HostWindow : Window
 
     private void OnStateChanged()
     {
+        ApplyTopBarMode(); // 最大化 ↔ 其他：顶条浮层占位/自动隐藏与轮询启停
         switch (WindowState)
         {
             case WindowState.Minimized:
@@ -796,6 +810,70 @@ public sealed partial class HostWindow : Window
         }
 
         UpdateMaxGlyph();
+    }
+
+    // ---------- 最大化顶条自动隐藏（移入显示） ----------
+
+    private bool BarOverlayMode => WindowState == WindowState.Maximized;
+
+    /// <summary>几何公式的顶内缩：最大化时顶条变浮层不占布局，子窗占满全高——
+    /// 顶条移入显示时盖在子窗口上方（宿主渲染天然在子窗 hwnd 之上）。</summary>
+    private double TopInset => BarOverlayMode ? 0 : _topBarH;
+
+    /// <summary>最大化 ↔ 其他的顶条模式切换：占位边距、显隐状态与轮询启停。</summary>
+    private void ApplyTopBarMode()
+    {
+        bool overlay = BarOverlayMode;
+        _content.Margin = overlay ? default : new Thickness(0, _topBarH, 0, 0);
+        // 浮层态画四边 2 DIP 全框（=正常态外框的同色同宽翻版，观感一致：框跟着顶条浮起来）；
+        // 正常态不画——外框已经包着顶条，再画会叠双线。框画在 _topBarFrame（_topBar 外面），
+        // _topBar.Height 恒 28 不动：底色带视觉高度与正常态一致，边框不侵占顶条本体
+        const double barFrame = 2;
+        _topBarFrame.BorderThickness = overlay ? new Thickness(barFrame) : default;
+        if (overlay)
+        {
+            SetBarShown(CursorInTopStrip()); // 点最大化按钮时鼠标就在带内 → 先显示
+            _revealTimer.Start();
+        }
+        else
+        {
+            _revealTimer.Stop();
+            SetBarShown(true);
+        }
+    }
+
+    private bool CursorInTopStrip()
+    {
+        if (!Native.GetCursorPos(out var p)) return false;
+        var w = PointFromScreen(new Point(p.X, p.Y)); // 物理像素 → 窗口 DIP
+        // 已显示时加 6px 迟滞带：光标停在顶条底边附近不因 ±1px 抖动闪烁
+        double grace = _barHidden ? 0 : 6;
+        return w.Y <= _topBarFrame.ActualHeight + grace && w.X >= -8 && w.X <= ActualWidth + 8;
+    }
+
+    private void PollTopBarReveal()
+    {
+        if (!BarOverlayMode)
+        {
+            _revealTimer.Stop();
+            return;
+        }
+        // 最大化拖还原全程捕获顶条：拖动中光标会离开顶条带，收起会掐断拖拽
+        if (_topBar.IsMouseCaptured || _maxDragActive)
+        {
+            SetBarShown(true);
+            return;
+        }
+        SetBarShown(CursorInTopStrip());
+    }
+
+    private void SetBarShown(bool show)
+    {
+        if (_barHidden == !show) return;
+        _barHidden = !show;
+        var to = show ? 0d : -_topBarFrame.ActualHeight - 2; // 平移出窗口表面即不可见（hwnd 表面裁剪）
+        _barSlide.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(_barSlide.Y, to, TimeSpan.FromMilliseconds(120)));
     }
 
     /// <summary>

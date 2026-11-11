@@ -62,11 +62,11 @@ def main() -> int:
           f"max=({rmax.Left},{rmax.Top})-({rmax.Right},{rmax.Bottom}) "
           f"wa=({wa.Left},{wa.Top})-({wa.Right},{wa.Bottom})")
 
-    # T2 最大化态原地单击不还原（位移 0）
+    # T2 最大化态原地单击不还原（位移 0）。顶条自动隐藏（移入显示）：入带后等轮询滑入
     scale = wm.get_dpi_for_window(hm) / 96.0
     cx, cy = hr.Left + int(hr.width * 0.3), rmax.Top + round(14 * scale)
     wm.set_cursor_pos(cx, cy)
-    time.sleep(0.2)
+    time.sleep(0.5)
     wm.mouse_event(wm.MOUSEEVENTF_LEFTDOWN)
     time.sleep(0.06)
     wm.mouse_event(wm.MOUSEEVENTF_LEFTUP)

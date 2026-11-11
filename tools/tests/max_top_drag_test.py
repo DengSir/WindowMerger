@@ -118,6 +118,8 @@ def main() -> int:
                 and edge_l == HTCLIENT and edge_r == HTCLIENT and edge_b == HTCLIENT)
 
     # B. 屏幕顶边死区注入下拖 → 必须还原并跟随（还原锚点≈光标占比 → 顶边下移≈拖距）
+    wm.set_cursor_pos(cx, mr.Top + 2)
+    time.sleep(0.6)  # 最大化顶条自动隐藏（移入显示）：先入带滑入再抓取（轮询 100ms + 滑入 120ms）
     drag(cx, mr.Top + 2, cx, mr.Top + 2 + drag_px)
     r2 = wm.get_window_rect(hm)
     moved = r2.Top - mr.Top

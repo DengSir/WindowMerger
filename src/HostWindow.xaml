@@ -113,9 +113,69 @@
 
     <!-- 主题刷色由 ApplyTheme 换上面的资源完成（XAML 值仅深色主题初值） -->
     <Border x:Name="_outer" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
-        <DockPanel LastChildFill="True">
-            <Border x:Name="_topBar" DockPanel.Dock="Top" Height="28"
-                    Background="{DynamicResource ThemeBarBrush}">
+        <!-- 单格叠层：_content 铺满整窗，_topBar 浮在其上（树序后者渲染在上）。
+             非最大化由 code-behind 给 _content 上边距=_topBarH（顶条占位，视觉同旧 DockPanel）；
+             最大化走自动隐藏浮层：TopInset=0 子窗占满全高，顶条移入显示时盖在子窗上方 -->
+        <Grid>
+            <Grid x:Name="_content" Background="{x:Null}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="_leftCol" Width="*" />
+                    <ColumnDefinition Width="6" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="_leftPaneBorder" Grid.Column="0" Background="{x:Null}"
+                        BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
+                    <Grid Background="{x:Null}">
+                        <!-- 空格占位：填充不透明 + 提示文案（该侧吸附后隐藏，恢复透明让子窗口透出） -->
+                        <Border x:Name="_leftHint" Background="{DynamicResource ThemeBarBrush}"
+                                Visibility="Collapsed">
+                            <TextBlock Text="拖窗口到此处吸附&#x000A;或点顶条 ← 选择左窗"
+                                       FontSize="13" TextAlignment="Center"
+                                       Foreground="{DynamicResource ThemeTextBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <!-- 拖放目标高亮（拖动中亮起，盖在占位上） -->
+                        <Border x:Name="_leftGlow" BorderBrush="#0A84FF" BorderThickness="5"
+                                CornerRadius="4" Margin="1" IsHitTestVisible="False"
+                                Visibility="Collapsed" />
+                    </Grid>
+                </Border>
+                <Border x:Name="_divider" Grid.Column="1" Cursor="SizeWE"
+                        Style="{StaticResource DividerStyle}">
+                    <TextBlock x:Name="_gripText" Text="&#xF338;"
+                               FontFamily="{StaticResource FaSolid}" FontSize="9"
+                               Foreground="#70FFFFFF" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" IsHitTestVisible="False" />
+                </Border>
+                <Border x:Name="_rightPaneBorder" Grid.Column="2" Background="{x:Null}"
+                        BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
+                    <Grid Background="{x:Null}">
+                        <!-- 空格占位：填充不透明 + 提示文案（该侧吸附后隐藏，恢复透明让子窗口透出） -->
+                        <Border x:Name="_rightHint" Background="{DynamicResource ThemeBarBrush}"
+                                Visibility="Collapsed">
+                            <TextBlock Text="拖窗口到此处吸附&#x000A;或点顶条 → 选择右窗"
+                                       FontSize="13" TextAlignment="Center"
+                                       Foreground="{DynamicResource ThemeTextBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Border x:Name="_rightGlow" BorderBrush="#0A84FF" BorderThickness="5"
+                                CornerRadius="4" Margin="1" IsHitTestVisible="False"
+                                Visibility="Collapsed" />
+                    </Grid>
+                </Border>
+            </Grid>
+            <!-- 顶条浮层：树序在 _content 之后 = 渲染在其上。最大化自动隐藏（移入显示，
+                 _barSlide 滑入滑出，子窗口内容从顶条下面透出）；非最大化恒显示。
+                 外框 Border 常驻包裹、厚度由 ApplyTopBarMode 切换：正常态 0（外观由宿主
+                 _outer 外框负责）；浮层态 2 DIP 四边框——框画在 _topBar 外面，
+                 _topBar.Height 恒 28，底色带视觉高度与正常态一致 -->
+            <Border x:Name="_topBarFrame" VerticalAlignment="Top"
+                    BorderBrush="{DynamicResource ThemeBorderBrush}">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="_barSlide" Y="0" />
+                </Border.RenderTransform>
+                <Border x:Name="_topBar" Height="28"
+                        Background="{DynamicResource ThemeBarBrush}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -164,54 +224,8 @@
                                 FontFamily="{StaticResource CaptionIcons}" FontSize="10" ToolTip="关闭">&#xE8BB;</Button>
                     </StackPanel>
                 </Grid>
+                </Border>
             </Border>
-            <Grid x:Name="_content" Background="{x:Null}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="_leftCol" Width="*" />
-                    <ColumnDefinition Width="6" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Border x:Name="_leftPaneBorder" Grid.Column="0" Background="{x:Null}"
-                        BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
-                    <Grid Background="{x:Null}">
-                        <!-- 空格占位：填充不透明 + 提示文案（该侧吸附后隐藏，恢复透明让子窗口透出） -->
-                        <Border x:Name="_leftHint" Background="{DynamicResource ThemeBarBrush}"
-                                Visibility="Collapsed">
-                            <TextBlock Text="拖窗口到此处吸附&#x000A;或点顶条 ← 选择左窗"
-                                       FontSize="13" TextAlignment="Center"
-                                       Foreground="{DynamicResource ThemeTextBrush}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <!-- 拖放目标高亮（拖动中亮起，盖在占位上） -->
-                        <Border x:Name="_leftGlow" BorderBrush="#0A84FF" BorderThickness="5"
-                                CornerRadius="4" Margin="1" IsHitTestVisible="False"
-                                Visibility="Collapsed" />
-                    </Grid>
-                </Border>
-                <Border x:Name="_divider" Grid.Column="1" Cursor="SizeWE"
-                        Style="{StaticResource DividerStyle}">
-                    <TextBlock x:Name="_gripText" Text="&#xF338;"
-                               FontFamily="{StaticResource FaSolid}" FontSize="9"
-                               Foreground="#70FFFFFF" HorizontalAlignment="Center"
-                               VerticalAlignment="Center" IsHitTestVisible="False" />
-                </Border>
-                <Border x:Name="_rightPaneBorder" Grid.Column="2" Background="{x:Null}"
-                        BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
-                    <Grid Background="{x:Null}">
-                        <!-- 空格占位：填充不透明 + 提示文案（该侧吸附后隐藏，恢复透明让子窗口透出） -->
-                        <Border x:Name="_rightHint" Background="{DynamicResource ThemeBarBrush}"
-                                Visibility="Collapsed">
-                            <TextBlock Text="拖窗口到此处吸附&#x000A;或点顶条 → 选择右窗"
-                                       FontSize="13" TextAlignment="Center"
-                                       Foreground="{DynamicResource ThemeTextBrush}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <Border x:Name="_rightGlow" BorderBrush="#0A84FF" BorderThickness="5"
-                                CornerRadius="4" Margin="1" IsHitTestVisible="False"
-                                Visibility="Collapsed" />
-                    </Grid>
-                </Border>
-            </Grid>
-        </DockPanel>
+        </Grid>
     </Border>
 </Window>

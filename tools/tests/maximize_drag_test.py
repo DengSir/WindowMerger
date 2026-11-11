@@ -82,6 +82,8 @@ def main() -> int:
     wm.set_topmost(hm, True)
     wm.set_foreground_window(hm)
     time.sleep(0.4)
+    wm.set_cursor_pos(gx, gy)
+    time.sleep(0.6)  # 最大化顶条自动隐藏（移入显示）：先入带等轮询滑入再抓取
     drag(gx, gy, gx + int(dx), gy + int(dy))
 
     # 期望落位（StartMaxRestoreDrag 公式）：光标钉在还原窗口的同一相对比例位置
