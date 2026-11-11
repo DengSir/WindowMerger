@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""顶条按钮字形全套断言：UIA 读 9 个按钮的 AutomationId→Name 码点逐个比对期望值
-（同时验证 FA 内嵌字体没有缺字回退——Name 来自按钮 Content），并截两选窗按钮区
-4x 放大图人工复核。原 PickBtnDump.ps1。
-用法: uv run tools/\visual\\pick_btn_dump.py [--exe 路径]
+r"""顶条按钮字形全套断言：UIA 读 9 个按钮的 AutomationId→Name 码点逐个比对期望值
+（功能组按钮同时验证 FA 内嵌字体没有缺字回退——Name 来自按钮 Content；系统钮三件
+= Segoe Fluent/MDL2 原版字形，266800b 起），并截两选窗按钮区 4x 放大图人工复核。
+原 PickBtnDump.ps1。
+用法: uv run tools/visual/pick_btn_dump.py [--exe 路径]
 警告: 强杀运行中的 WindowMerger。
-截图: %TEMP%\\wm_pickbtns_zoom.png
+截图: %TEMP%/wm_pickbtns_zoom.png
 """
 import argparse
 import subprocess
@@ -27,9 +28,9 @@ EXPECTED = {
     "_releaseButton": "\uf127",    # ⛓
     "_shortcutButton": "\uf360",   # 📎
     "_themeButton": "\uf042",      # ◐（跟随系统）
-    "_minimizeButton": "\uf068",   # ─
-    "_maxButton": "\uf096",        # □（空心，FaRegular）
-    "_closeButton": "\uf00d",      # ✕
+    "_minimizeButton": "\uE921",   # E921 最小化（Fluent/MDL2 原版字形）
+    "_maxButton": "\uE922",        # E922 最大化（最大化态 UpdateMaxGlyph 切 E923）
+    "_closeButton": "\uE8BB",      # E8BB 关闭
 }
 
 
