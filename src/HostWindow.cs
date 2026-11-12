@@ -135,10 +135,8 @@ public sealed partial class HostWindow : Window
         StateChanged += (_, _) => OnStateChanged();
         Activated += (_, _) =>
         {
-            foreach (var child in new[] { _left, _right })
-            {
-                child?.EnsureDockedState();
-            }
+            EnsureChildDocked(AttachSide.Left);
+            EnsureChildDocked(AttachSide.Right);
             RaiseChildrenBelow();
             // 宿主激活把宿主单独升到 z 序顶端，子窗口留在原地；低优先级再插回一次加固
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
@@ -767,11 +765,10 @@ public sealed partial class HostWindow : Window
         // 吸附态外观自愈：任务栏隐藏标记可能被 shell 侧重新收录（无查询接口，见
         // EnsureDockedState 的低频重断言）；吸附子窗口没有任务栏按钮，最小化后无从手动
         // 还原；独立最大化则摧毁合并布局——宿主可见期间一律拉回格子自愈（子窗口自身
-        // 没有"最大化"概念）
-        foreach (var child in new[] { _left, _right })
-        {
-            child?.EnsureDockedState();
-        }
+        // 没有"最大化"概念）。例外：应用自行隐藏（关闭/最小化到托盘类）→ 上报后走
+        // 释放还原，不拉回（见 ReleaseHiddenSide）
+        EnsureChildDocked(AttachSide.Left);
+        EnsureChildDocked(AttachSide.Right);
 
         UpdatePaneWidths(); // 分隔条视觉位置与 _ratio 的持续对账（自愈任何布局漂移）
         ApplyLayout();
@@ -799,10 +796,8 @@ public sealed partial class HostWindow : Window
                 // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化；边框同步隐藏/恢复。
                 // 立即按当前窗口宽校一次；WPF 尺寸回缩/边框变化完成后再校一次（Loaded 优先级），
                 // 消除事件时序导致的分隔条位置漂移
-                foreach (var child in new[] { _left, _right })
-                {
-                    child?.EnsureDockedState();
-                }
+                EnsureChildDocked(AttachSide.Left);
+                EnsureChildDocked(AttachSide.Right);
                 if (_outer is not null) _outer.BorderThickness = new Thickness(CurBorderW);
                 UpdatePaneWidths();
                 ApplyLayout();
@@ -1230,6 +1225,26 @@ public sealed partial class HostWindow : Window
         ChildAt(side)?.Restore();
         if (side == AttachSide.Left) _left = null; else _right = null;
         UpdateStatus();
+        UpdateHostIcon();
+    }
+
+    /// <summary>单侧吸附态自愈入口：应用自行隐藏（连续两个维护周期不可见）→ 走释放；
+    /// 其余（任务栏重断言、最小化/独立最大化拉回）由 EnsureDockedState 处理。</summary>
+    private void EnsureChildDocked(AttachSide side)
+    {
+        var child = ChildAt(side);
+        if (child is null || !child.EnsureDockedState()) return;
+        ReleaseHiddenSide(side);
+    }
+
+    /// <summary>子窗口自行隐藏（关闭/最小化到托盘类应用收到关闭后隐藏而非销毁）：解除吸附
+    /// 外观并回吸附前矩形，保持隐藏——尊重应用意图，不把僵尸窗顶回屏幕（应用已认为自己
+    /// 关闭，强拉回的窗不响应不重绘）。</summary>
+    private void ReleaseHiddenSide(AttachSide side)
+    {
+        ChildAt(side)?.RestoreHidden();
+        if (side == AttachSide.Left) _left = null; else _right = null;
+        ShowNotice($"{(side == AttachSide.Left ? "左" : "右")}: 窗口已自行隐藏（可能已关闭到托盘），已自动释放");
         UpdateHostIcon();
     }
 

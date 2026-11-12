@@ -17,6 +17,7 @@ internal sealed class AttachedChild
     public uint Pid;                                   // 子窗口所属进程（孤儿清理的句柄复用校验）
     public Native.RECT PreAttachRect;                  // 吸附前矩形（释放还原用）
     private int _tabReassertCountdown = 1;             // 任务栏隐藏重断言倒计时（首个维护 tick 立即补一次）
+    private int _hiddenTicks;                          // 连续不可见维护周期计数（≥2 判定应用自行隐藏，见 EnsureDockedState）
 
 
     private AttachedChild(IntPtr host, IntPtr hwnd, uint pid)
@@ -70,12 +71,23 @@ internal sealed class AttachedChild
     /// 完整释放还原：Undock + iconic 还原 + 摘置顶污染 + 回吸附前矩形。
     /// 只碰自己的 hwnd；UIPI 失败按设计静默（与旧 DetachRestore 行为一致）。
     /// </summary>
-    public void Restore()
+    public void Restore() => RestoreCore(allowShow: true);
+
+    /// <summary>
+    /// 释放还原（保持隐藏）：应用自行隐藏（关闭到托盘类）后走这里——与 Restore 相同的
+    /// Undock + 摘置顶 + 回吸附前矩形，但跳过 iconic 的 SW_RESTORE（会把隐藏窗顶回可见，
+    /// 与应用的托盘意图对抗）；SetWindowPos 不带 SWP_SHOWWINDOW 不会显示隐藏窗。
+    /// </summary>
+    public void RestoreHidden() => RestoreCore(allowShow: false);
+
+    /// <summary>释放还原核心：Undock + iconic 还原（allowShow 时）+ 摘置顶污染 + 回吸附前矩形。
+    /// 只碰自己的 hwnd；UIPI 失败按设计静默（与旧 DetachRestore 行为一致）。</summary>
+    private void RestoreCore(bool allowShow)
     {
         Undock();
         if (!Native.IsWindow(Hwnd)) return;
         var r = PreAttachRect;
-        if (Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
+        if (allowShow && Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
         // 摘除可能被外部污染的置顶标记，窗口回到普通层
         Native.SetWindowPos(Hwnd, Native.HwndNotTopmost, 0, 0, 0, 0,
             Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
@@ -84,10 +96,14 @@ internal sealed class AttachedChild
             Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
     }
 
-    /// <summary>确保处于吸附位的正常可见状态：任务栏保持隐藏、非最小化/最大化、可见。</summary>
-    public void EnsureDockedState()
+    /// <summary>
+    /// 确保处于吸附位的正常状态：任务栏保持隐藏、非最小化/最大化。
+    /// 返回 true = 子窗口自行隐藏（连续两个维护周期不可见，如关闭到托盘的应用），
+    /// 宿主应释放该侧（RestoreHidden）——不再强制拉回可见。
+    /// </summary>
+    public bool EnsureDockedState()
     {
-        if (!IsAlive) return;
+        if (!IsAlive) return false;
         // DeleteTab 是 shell 侧运行时状态且无查询接口（explorer 重启会重建 task list、
         // 个别 shell 事件可能重新收录按钮）——每 ~2s 低频重断言，替代旧的样式位检查
         if (--_tabReassertCountdown <= 0)
@@ -95,14 +111,21 @@ internal sealed class AttachedChild
             Native.SetTaskbarTab(Hwnd, show: false);
             _tabReassertCountdown = 8; // 250ms 维护周期 × 8 ≈ 2s
         }
+        // 隐藏检查放在 iconic 之前：应用"最小化到托盘"会先最小化再隐藏，此时不能被
+        // 下面的 SW_RESTORE 顶回可见。纯最小化（iconic 且可见位不变）不走这里，照旧拉回
+        if (!Native.IsWindowVisible(Hwnd))
+        {
+            // 应用自己隐藏了窗口（关闭/最小化到托盘类）：旧版 SW_SHOWNA 强制拉回会造出
+            // "应用已认为窗口关闭、宿主却把僵尸窗顶回屏幕"的死窗（不响应不重绘）——
+            // 改为上报宿主释放。连续两个周期都不可见才上报（迟滞防瞬时显隐误判）
+            return ++_hiddenTicks >= 2;
+        }
+        _hiddenTicks = 0;
         if (Native.IsIconic(Hwnd) || Native.IsZoomed(Hwnd))
         {
             Native.ShowWindow(Hwnd, Native.SW_RESTORE);
         }
-        else if (!Native.IsWindowVisible(Hwnd))
-        {
-            Native.ShowWindow(Hwnd, Native.SW_SHOWNA);
-        }
+        return false;
     }
 
     /// <summary>
