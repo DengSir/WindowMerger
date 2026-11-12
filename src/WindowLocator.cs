@@ -6,7 +6,8 @@ public sealed record WindowCandidate(IntPtr Hwnd, string Title, string ClassName
 
 public static class WindowLocator
 {
-    private static readonly HashSet<string> ExcludedClasses = new(StringComparer.OrdinalIgnoreCase)
+    // internal：snap 布局检测（SnapLayoutDetector）复用同一口径排除 shell 杂窗
+    internal static readonly HashSet<string> ExcludedClasses = new(StringComparer.OrdinalIgnoreCase)
     {
         "Shell_TrayWnd",
         "Shell_SecondaryTrayWnd",

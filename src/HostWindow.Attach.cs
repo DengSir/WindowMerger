@@ -15,21 +15,29 @@ public sealed partial class HostWindow : Window
     /// 名字/PID 匹配不到时先按镜像路径匹配已运行窗口，仍没有就拉起该 exe 并轮询窗口出现
     /// （上限 12 秒，异步等待不阻塞 UI）——快捷方式双击复现组合时目标应用可以还没开。
     /// 同候选多窗口取面积最大的；未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
+    /// --left-hwnd/--right-hwnd（snap 接管）绕开名字/PID 解析直连句柄——同进程多窗
+    /// （记事本多标签、explorer 多窗）靠 PID 匹配会有歧义，句柄才能精确指定。
     /// </summary>
-    private async void AttachStartupTargets(string? cliLeft, string? cliRight, string? cliLeftExe, string? cliRightExe)
+    private async void AttachStartupTargets(StartupOptions? opts)
     {
-        if (string.IsNullOrWhiteSpace(cliLeft) && string.IsNullOrWhiteSpace(cliRight)
-            && string.IsNullOrWhiteSpace(cliLeftExe) && string.IsNullOrWhiteSpace(cliRightExe))
+        if (opts is null
+            || (string.IsNullOrWhiteSpace(opts.Left) && string.IsNullOrWhiteSpace(opts.Right)
+                && string.IsNullOrWhiteSpace(opts.LeftExe) && string.IsNullOrWhiteSpace(opts.RightExe)
+                && opts.LeftHwnd is null && opts.RightHwnd is null))
         {
             return;
         }
 
         try
         {
+            // 直连句柄先吸（无效句柄报因跳过，不做名字解析回退）
+            if (opts.LeftHwnd is long lh) AttachHwndTarget(AttachSide.Left, lh);
+            if (opts.RightHwnd is long rh) AttachHwndTarget(AttachSide.Right, rh);
+
             var targets = new[]
             {
-                (Side: AttachSide.Left, Raw: cliLeft, Exe: cliLeftExe),
-                (Side: AttachSide.Right, Raw: cliRight, Exe: cliRightExe),
+                (Side: AttachSide.Left, Raw: opts.Left, Exe: opts.LeftExe),
+                (Side: AttachSide.Right, Raw: opts.Right, Exe: opts.RightExe),
             };
 
             // 先把能直接吸附的吸掉、缺失的并行拉起，再统一轮询等窗口出现
@@ -83,6 +91,18 @@ public sealed partial class HostWindow : Window
             // async void 事件处理器：失败不上抛崩宿主，状态栏报因
             ShowNotice($"启动目标失败：{ex.Message}");
         }
+    }
+
+    /// <summary>snap 接管的直连句柄目标：句柄失效（目标已关/句柄复用）报因跳过，无名字解析。</summary>
+    private void AttachHwndTarget(AttachSide side, long hwnd)
+    {
+        IntPtr h = new(hwnd);
+        if (!Native.IsWindow(h))
+        {
+            ShowNotice($"{(side == AttachSide.Left ? "左" : "右")}: 窗口句柄无效，已跳过");
+            return;
+        }
+        AttachFound(side, h);
     }
 
     /// <summary>启动目标匹配：名字/PID（raw）优先，其次按镜像路径匹配已运行窗口（exe）。</summary>

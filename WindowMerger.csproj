@@ -6,6 +6,10 @@
     <None Remove="assets\fa-*.ttf" />
     <Resource Include="assets\fa-solid-900.ttf" />
     <Resource Include="assets\WindowMerger.ico" />
+    <!-- 托盘监听模式用 WinForms 的 NotifyIcon/ContextMenuStrip/SystemIcons：只加程序集引用，
+         不用 UseWindowsForms 开关——后者会全局注入 System.Windows.Forms/System.Drawing
+         隐式 using，与 WPF 的 Point/Button/MenuItem 等全面冲突（26 个 CS0104，实测） -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
 
   <PropertyGroup>

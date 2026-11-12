@@ -6,6 +6,14 @@
 **布局尺寸单一来源 = XAML**（`_outer` BorderThickness / `_topBar` Height / 分隔条列宽），WireUi 读入 `_borderW/_topBarH/_dividerW` 字段，几何公式用字段；不能直接把 BorderThickness 当基准读——最大化时会写 0，恢复时形成循环（曾因此设计过分步写回）。最小窗口尺寸 = XAML `MinWidth/MinHeight`（WndProc 的 ptMinTrackSize 读它们）。
 主题刷色 = **换窗口资源**：`HostWindow.Resources` 里 7 个 `Theme*Brush` 键，元素一律 `DynamicResource` 引用，`ApplyTheme` 只替换资源值；**悬停刷色也在 XAML**（Button 隐式样式/DangerCaptionButton/DividerStyle 的 `IsMouseOver` Trigger + DynamicResource，.NET 10 WPF 完全可用——早前"Trigger 不能用 DynamicResource"的记录是错误结论）。**陷阱**：对 DynamicResource 属性做局部赋值会销毁资源引用表达式，之后 `ClearValue` 不会恢复引用而是落到 null（分隔条变透明）——悬停一律走 Trigger，不要用事件刷色。顶条按钮是 XAML 实例 + 隐式 Button 样式，静态字形直接写在按钮文本里，动态字形（主题月亮/太阳、最大化还原、左右选窗方向/空格）由 WireUi/UpdateSideButtons 补。
 
+## snap 接管子系统（v1：二格左右布局，2026-11-13）
+
+- **单 exe 三模式**（`src/App.xaml.cs` ParseArgs 分支）：默认宿主；`--tray` = 托盘监听（`src/TrayController.cs`：NotifyIcon + message-only 窗口 RegisterHotKey **Ctrl+Alt+M 固定**，右键菜单 立即捕捉/开机自启(HKCU Run)/退出，命名 mutex `Local\WindowMerger.Tray.Instance` 单实例——第二实例秒退；**托盘模式必须显式 `ShutdownMode.OnExplicitShutdown`**，默认 OnLastWindowClose 零窗口永不触发是靠 Application 兜底常驻不是靠它）；`--detect-snap` = 检测一次输出一行 JSON 退出（**reason 是 ASCII 码** NO_LAYOUT/STACKED/TOO_MANY:n，中文报因只进 balloon——CI cp1252 控制台安全）。托盘热键 → `SnapLayoutDetector.DetectAndPick` → spawn `--left-hwnd/--right-hwnd --profile snap-<屏序号>`（同屏已有存活接管实例则 balloon 拒绝重捕）。
+- **检测 = 纯几何**（`src/SnapLayoutDetector.cs`）：snap 分区/成员**无公开查询 API**，判据 = 可见顶层窗的 **EFB（DWMWA_EXTENDED_FRAME_BOUNDS）** 互不重叠 + 并集≈某屏工作区（容差 8px）+ **共享竖直边**。**必须用 EFB**：GetWindowRect 带 ~7px 隐形边，snap 相邻窗在 GetWindowRect 域互相重叠 14px。**TilesWorkArea 只看并集外接矩形有洞**：两窗中间留缝时 bbox 仍=工作区，必须再靠共享边分类——共享竖边=pair、共享水平边=STACKED、都不共享=有缝不成布局（自测推演实锤）。单窗面积 ≥5% 工作区（最小 snap 分区≈1/4 屏）+ 完整在工作区（容差）内才参与；按面积降序贪心去重叠（漂浮小窗被丢弃、盖半屏的大窗让该屏判不成布局）。不区分 shell snap 与手动对齐（按热键=接管当前排列）。v1 只接恰好 2 窗左右对分（Win11 两区模板对半/2:1 都在口径内）；3+ 窗 TOO_MANY:n、上下排列 STACKED、留缝 NO_LAYOUT。挑屏优先级 = 前台窗口所在屏 → 光标屏 → 任意有布局的屏。
+- **接管实例**：App 解析 --left-hwnd/--right-hwnd → `SnapRectFor` 派生并集矩形+左宽占比 → HostWindow ctor **跳过 config 几何恢复**直接落位（物理 px，OnSourceInitialized 两步走复用）+ ratio 覆盖 + **CheckUpdates 强制 false**（多实例并发换装互抢 .old，更新走主实例）。AttachStartupTargets 直连句柄（同进程多窗 PID 匹配有歧义，句柄才能精确；无效句柄状态栏报因）。释放 = 回捕获时矩形（= snap 位置，Restore 语义白拿）。
+- **profile 配置隔离**：`ConfigStore.Configure(profile)` → `config-<name>.json`（名字清洗到 `[A-Za-z0-9-]` 防路径注入），**必须 Load/Save 前调用**；多实例互不覆盖孤儿救援记录/几何。托盘本身只读默认 config 不写。
+- **WinForms 引用坑**：`UseWindowsForms=true` 会全局注入 System.Windows.Forms/System.Drawing 隐式 using——WPF 项目的 Point/Button/MenuItem/Color/ListView/TextBox 全面 CS0104（26 个错一次爆）。正确姿势 = `<FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />` 只引程序集不注 using。csproj **XML 注释里不能出现 `--`**（MSB4025，注释里写 `--tray` 字样都炸）。C# `EnumDisplayMonitors` 枚举顺序 = python `wm.monitors()` 顺序（同 API），屏序号（profile 名与 --detect-snap 的 monitor 字段）跨语言一致可比。
+
 ## 构建 / 运行 / 提交
 
 ```cmd
@@ -13,6 +21,9 @@ dotnet build -c Release        :: 必须做到 0 警告 0 错误
 bin\Release\net10.0-windows\WindowMerger.exe [左进程名|左PID 右进程名|右PID]
 bin\Release\net10.0-windows\WindowMerger.exe --left Code --right ZCode
 bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
+bin\Release\net10.0-windows\WindowMerger.exe --tray                    :: 托盘监听，Ctrl+Alt+M 捕捉 snap 布局
+bin\Release\net10.0-windows\WindowMerger.exe --detect-snap             :: 检测一次输出 JSON 退出
+bin\Release\net10.0-windows\WindowMerger.exe --left-hwnd 123456 --right-hwnd 123457 --profile snap-0   :: snap 接管直连
 ```
 
 - **重建前必须先关闭运行中的实例**（exe 被运行实例锁定会构建失败）。优雅关闭 = PostMessage `WM_CLOSE (0x0010)`，走正常退出流程（保存配置 + 释放子窗口回原位）；`taskkill /F` 会跳过这些清理，仅在卡死时用
@@ -92,6 +103,7 @@ bin\Release\net10.0-windows\WindowMerger.exe --left 12345 --right mspaint
 - 跨 DPI 缝隙回归：`uv run tools/tests\cross_dpi_seam_test.py`（96DPI mspaint 吸附进非 96 DPI 宿主，断言子窗口可见缘 ExtFrameBounds 与格子矩形四边 ≤1px；**自选显示器**——需要 96 + 非 96 两块屏，任一缺失 SKIP；高 DPI 屏装不下免钳制宿主尺寸也 SKIP）
 - 快捷方式生成回归：`uv run tools/tests\shortcut_create_test.py`（mspaint 单侧 + UIA 点按钮校验 .lnk 含 --left/--left-exe 完整路径；**不起 notepad——用户要求测试窗一律 mspaint、窗口由其人工选择**，mspaint 被占用时 SKIP 不强杀）
 - 拉起吸附回归：`uv run tools/tests\launch_attach_test.py`（关闭 mspaint → 宿主带 `--left 名字 --left-exe 完整路径` 启动 → 断言宿主自己拉起 mspaint 且吸附成功；打包应用真实路径现场用 QueryFullProcessImageNameW 解析、不硬编码版本号路径）
+- snap 接管回归：`uv run tools/tests\snap_capture_test.py`（S0 基线 config / S1 检测 50:50 + S1b 2:1 比例 / S2 接管 e2e：双窗吸附+宿主矩形=工作区+profile 落盘孤儿记录+释放回捕获矩形+圆角还原+记录清空 / S3 默认 config 不被接管实例触碰 / S4 报因四场景（三等分 TOO_MANY:3、上下 STACKED、留缝 NO_LAYOUT、单窗 NO_LAYOUT）/ S5 无效句柄状态栏报因 / S6 托盘常驻+单实例 mutex；已入 run_all）。**靶窗必须按 EFB 对齐**（`efb_align`：设 GetWindowRect→读 EFB→差值修正循环）——tkinter 窗有 ~8px 隐形边，直接摆 GetWindowRect 在 EFB 口径下必失败；**吸附前矩形基线必须在最后一次对齐之后记录**（释放回的是捕获时矩形，不是初始摆放）。靶 = `tools/targets/snap_target.py`（单进程单顶层无 owner 窗——multi_win 的 Toplevel 是 owned 窗、会被检测的 owner 过滤排除）。热键注入不可靠（既有结论），托盘热键/捕捉路径经 `--detect-snap` + spawn 共用代码覆盖，S6 只测进程语义
 - 自动更新 e2e：`uv run tools/tests\update_e2e_test.py`（本地假 releases/latest + zip asset，`WM_UPDATE_API` 指过去；被测宿主环境**剥掉 WM_UPDATE_OFF**——wm.py/run_all 都注入它，不剥就没有检查发生；UIA 按 AutomationId=UpdateButton 定位、UIA Name=状态探针，流：窗口一出现立刻断言按钮隐藏（赶在启动 4s 检查前，park 之后会与检查赛跑）→ 自动检查发现新版本 = 顶条「发现新版本 ⬇」现身**且自动弹确认框** → 取消（留在 Available，顶条保持）→ 点 ⬇ **直接下载**（不再弹框/不再检查——若误弹框会停在确认等待，restarted 超时即隐性断言）→ 重启安装（旧 PID 退出/新 PID 原路径/`.old` 清掉）；**owned 弹窗在宿主 UIA 子树也能走到**、`wm.wait_until` 只回布尔——拿句柄自己轮询（实测两坑）；InvokePattern 锁屏可用、与遮挡无关）
 - **新增测试组（2026-11 覆盖缺口补齐）**，全部黑盒、已入 run_all：
   - `config_edge_test`：损坏 JSON/{}/null/旧版未知字段回退默认值（优雅关后 config 被重写为合法默认）、Ratio 超界钳 [0.2,0.8]、恢复几何过小钳 MinWidth/MinHeight、非法 Theme 回退 Auto

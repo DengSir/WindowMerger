@@ -98,8 +98,7 @@ public sealed partial class HostWindow : Window
         else ReleaseSide(side);
     }
 
-    public HostWindow(AppConfig config, string? cliLeft = null, string? cliRight = null,
-        string? cliLeftExe = null, string? cliRightExe = null)
+    public HostWindow(AppConfig config, StartupOptions? opts = null)
     {
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
@@ -109,10 +108,25 @@ public sealed partial class HostWindow : Window
 
         InitializeComponent();
 
-        // 几何恢复（Windows 原生惯例）：正常态矩形（物理像素）+ 是否最大化，校验钳制到
-        // 可见显示器工作区后暂存，hwnd 建好后 OnSourceInitialized 落位——显示器断开/
-        // 分辨率变化/配置损坏都不能产生屏外幽灵窗。无有效几何默认 1280×800 主屏居中
-        _pendingPlacement = ResolvePlacement(config);
+        if (opts?.Snap is { } snap)
+        {
+            // snap 接管落位：两窗口可见边界并集（物理 px，现场实测非陈旧保存值）——跳过
+            // config 几何恢复（接管几何由当前布局决定，不是用户偏好），只钳最小尺寸防极端；
+            // 比例 = 左窗宽占比（与工作区分界的偏差 ≈ 边框 2 DIP，可忽略）
+            double scale = Native.MonitorDpiScale(Native.MonitorFromPoint(
+                new Native.POINT { X = (int)(snap.Rect.X + snap.Rect.W / 2), Y = (int)(snap.Rect.Y + snap.Rect.H / 2) },
+                Native.MONITOR_DEFAULTTONEAREST));
+            _pendingPlacement = (snap.Rect.X, snap.Rect.Y,
+                Math.Max(snap.Rect.W, MinWidth * scale), Math.Max(snap.Rect.H, MinHeight * scale), false);
+            _ratio = Math.Clamp(snap.Ratio, MinRatio, MaxRatio);
+        }
+        else
+        {
+            // 几何恢复（Windows 原生惯例）：正常态矩形（物理像素）+ 是否最大化，校验钳制到
+            // 可见显示器工作区后暂存，hwnd 建好后 OnSourceInitialized 落位——显示器断开/
+            // 分辨率变化/配置损坏都不能产生屏外幽灵窗。无有效几何默认 1280×800 主屏居中
+            _pendingPlacement = ResolvePlacement(config);
+        }
         Width = 1280;
         Height = 800;
         // hwnd 建好前的初始值（无有效几何时即最终状态）；有保存几何时 OnSourceInitialized
@@ -142,7 +156,7 @@ public sealed partial class HostWindow : Window
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedChildren(orphanPids, orphanHwnds); AttachStartupTargets(cliLeft, cliRight, cliLeftExe, cliRightExe); };
+        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedChildren(orphanPids, orphanHwnds); AttachStartupTargets(opts); };
         Closing += OnClosing;
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
