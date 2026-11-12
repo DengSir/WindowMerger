@@ -83,7 +83,7 @@ def main() -> int:
     # 左格判定 = 吸附本身成立（提示消失是其后果；notepad 深色编辑器底色 ≈ ThemeBar，
     # 像素比对不可靠——实测撞色）；右格仍是填充
     nps = wm.main_windows_by_name("Notepad")
-    attached = bool(nps) and wm.is_toolwindow(nps[0][1])
+    attached = bool(nps) and wm.is_attached(nps[0][1])
     r2 = wm.get_window_rect(hm2)
     pane_cx = r2.Left + 3 + (r2.width - 15) // 4
     pane_cy = r2.Top + 45 + (r2.height - 48) // 2
