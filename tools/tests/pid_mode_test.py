@@ -28,10 +28,11 @@ def main() -> int:
 
     # 自己拉起 notepad → PID 在手
     np = subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
     print(f"NOTEPAD_PID={np.pid}")
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
 
     # 混合：左按 PID、右按名字
     subprocess.Popen([a.exe, "--left", str(np.pid), "--right", "mspaint"])

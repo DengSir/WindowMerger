@@ -55,9 +55,10 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmcli1.txt")
     t1.write_text("cli-args", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
 
     def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"{name} {'OK' if ok else 'MISMATCH'} {detail}")

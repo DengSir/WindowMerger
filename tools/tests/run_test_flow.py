@@ -32,15 +32,18 @@ def main() -> int:
     cfg["Ratio"] = 0.5
     wm.save_config(cfg)
 
-    # 2. 测试窗口
+    # 2. 测试窗口——**必须等窗口真实存在再起宿主**（吸附发生在宿主 Loaded，
+    # 固定 sleep 在 CI 冷启动会输给商店 Paint 的 AppX 首启时长：2026-11-13
+    # run 43361906688 实锤 1.5s 后起宿主、mspaint 窗口未现 → 右格空 RIGHT_HIT=windowmerger）
     t1 = Path(tempfile.gettempdir(), "wmt1.txt")
     t2 = Path(tempfile.gettempdir(), "wmt2.txt")
     t1.write_text("cli-test-1", encoding="ascii")
     t2.write_text("cli-test-2", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(0.7)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
 
     # 3. 带命名参数启动宿主 + 固定布局钉位（主屏，命中/矩形断言坐标静态可推）
     # CI 偶发 4s 起不来（run 6 首见）→ 失败再等 4s 重查一次

@@ -72,19 +72,12 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmpd1.txt")
     t1.write_text("pane-rules", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
     msp = subprocess.Popen(["mspaint"])
-    time.sleep(1.8)
-    mps = wm.main_windows_by_name("mspaint")
-    if not mps:
-        print("FAIL_NO_MSPAINT")
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
         return 1
-    mh = mps[0][1]
-    nps0 = wm.main_windows_by_name("Notepad")
-    if not nps0:
-        print("FAIL_NO_NOTEPAD")
-        return 1
-    npre = wm.get_window_rect(nps0[0][1])  # 吸附前矩形（D2 替换还原断言的基准）
+    mh = wm.main_windows_by_name("mspaint")[0][1]
+    npre = wm.get_window_rect(wm.main_windows_by_name("Notepad")[0][1])  # 吸附前矩形（D2 替换还原断言的基准）
     subprocess.Popen([a.exe, "--left", "notepad"], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()

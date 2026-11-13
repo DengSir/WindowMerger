@@ -143,9 +143,10 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmfgr1.txt")
     t1.write_text("child-fg-raise-1", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(0.7)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
 
     # 3. 宿主 CLI 吸附（左=notepad 右=mspaint），等吸附落盘
     subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])

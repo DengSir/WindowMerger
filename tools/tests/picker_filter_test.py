@@ -116,9 +116,10 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmkf1.txt")
     t1.write_text("picker-filter", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.8)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
 
     tool = owned = 0
     wc = user32 = None

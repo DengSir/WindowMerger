@@ -52,7 +52,9 @@ def main() -> int:
 
     # 目标窗口：小尺寸停到左侧 100% 屏（绝不占用户 4K）
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("mspaint"):
+        print("FAIL_NO_MSPAINT")
+        return 1
     mp_pids = [p for p in wm.pids_by_name("mspaint") if wm.main_windows_of_pid(p)]
     if mp_pids:
         px, py = wm.park_on_left_or_primary(900, 650)  # 单屏（CI）停主屏左上，不出屏

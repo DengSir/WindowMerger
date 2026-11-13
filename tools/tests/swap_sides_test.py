@@ -32,9 +32,10 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmt1.txt")
     t1.write_text("swap-test", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
     # 目标先存在，再带参启动宿主（吸附发生在 Loaded）
     subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)

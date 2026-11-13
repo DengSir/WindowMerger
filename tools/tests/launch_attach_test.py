@@ -30,7 +30,9 @@ def main() -> int:
     # 趁 mspaint 短暂起来时现场解析真实 exe 路径（打包应用路径含版本目录、
     # 更新后会变，绝不硬编码），再关掉
     mp = subprocess.Popen(["mspaint"])
-    time.sleep(1.8)
+    if not wm.wait_main_windows("mspaint"):
+        print("FAIL_NO_MSPAINT")
+        return 1
     mp_pids = [p for p in wm.pids_by_name("mspaint") if wm.main_windows_of_pid(p)]
     if not mp_pids:
         print("FAIL_NO_MSPAINT")

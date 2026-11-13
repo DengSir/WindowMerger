@@ -49,9 +49,10 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmah1.txt")
     t1.write_text("attach-heal", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.8)
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
+        return 1
     subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
@@ -108,12 +109,10 @@ def main() -> int:
 
     # ---------- H5 释放还原：矩形回位 + 摘置顶污染（经 picker 吸附新 mspaint）----------
     mp2 = subprocess.Popen(["mspaint"])
-    time.sleep(2.0)
-    mp2s = wm.main_windows_by_name("mspaint")
-    if not mp2s:
+    if not wm.wait_main_windows("mspaint"):
         print("FAIL_NO_MSPAINT2")
         return 1
-    mh2 = mp2s[0][1]
+    mh2 = wm.main_windows_by_name("mspaint")[0][1]
     mp_pre = wm.get_window_rect(mh2)
     # picker 吸附到右格（空格）：UIA Invoke → 选中行 → 吸附按钮
     wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm),

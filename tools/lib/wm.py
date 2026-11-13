@@ -775,6 +775,15 @@ def wait_until(fn, timeout_ms: int, interval_ms: int = 100) -> bool:
     return fn()
 
 
+def wait_main_windows(*names: str, timeout_ms: int = 20000) -> bool:
+    """等这些进程名的可见主窗全部出现。起宿主前必调——吸附发生在宿主 Loaded
+    一次性完成，目标窗口未现即"未找到窗口，已跳过"永不重试；固定 sleep 在
+    CI 冷启动会输给商店 Paint 的 AppX 首启时长（2026-11-13 run_test_flow 实锤）。
+    """
+    return wait_until(lambda: all(main_windows_by_name(n) for n in names),
+                      timeout_ms, 300)
+
+
 # ---------- 截图（Pillow） ----------
 
 def capture_screen(x: int, y: int, w: int, h: int):

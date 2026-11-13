@@ -44,11 +44,10 @@ def main() -> int:
 
     # 3. 拉起 mspaint，停到 96 DPI 屏
     mp = subprocess.Popen(["mspaint"])
-    time.sleep(2.2)
-    mphs = wm.top_windows_of_pids([mp.pid])
-    if not mphs:
+    if not wm.wait_main_windows("mspaint"):
         print("FAIL_NO_MSPAINT")
         return 1
+    mphs = wm.top_windows_of_pids([mp.pid])
     mph = mphs[0]
     wa = lo.rcWork
     wm.set_window_pos(mph, None, wa.Left + 40, wa.Top + 200, 1200, 800, wm.SWP_NOZORDER)

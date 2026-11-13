@@ -41,8 +41,12 @@ def main() -> int:
     # 自写靶窗（tkinter，标题 WM_DRAG_TARGET）：零 Ribbon/零 PMv2，标题几何已知
     target = subprocess.Popen([sys.executable,
                                str(Path(__file__).resolve().parents[1] / "targets" / "drag_target.py")])
-    time.sleep(1.8)
-    th = wm.find_window_by_title("WM_DRAG_TARGET")
+    th = 0
+    for _ in range(50):  # 等靶窗真实存在再起宿主（吸附发生在 Loaded，CI 冷启动竞速）
+        th = wm.find_window_by_title("WM_DRAG_TARGET")
+        if th:
+            break
+        time.sleep(0.2)
     if not th:
         print("FAIL_NO_TARGET")
         target.kill()

@@ -95,7 +95,9 @@ def main() -> int:
     t1f = Path(tempfile.gettempdir(), "wmts1.txt")
     t1f.write_text("topbar-state", encoding="ascii")
     subprocess.Popen(["notepad", str(t1f)])
-    time.sleep(1.2)
+    if not wm.wait_main_windows("Notepad"):
+        print("FAIL_TARGET_NOT_RUNNING")
+        return 1
     subprocess.Popen([a.exe, "--left", "notepad"], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()

@@ -70,13 +70,11 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmt1.txt")
     t1.write_text("z-repro-1", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(0.7)
     subprocess.Popen(["mspaint"])
-    time.sleep(1.5)
-    mps = wm.main_windows_by_name("mspaint")
-    if not mps:
-        print("FAIL no-mspaint")
+    if not wm.wait_main_windows("Notepad", "mspaint"):
+        print("FAIL_TARGETS_NOT_RUNNING")
         return 1
+    mps = wm.main_windows_by_name("mspaint")
     mp_h = mps[0][1]
 
     # 3. 宿主 CLI 吸附

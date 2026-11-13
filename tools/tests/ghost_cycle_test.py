@@ -61,9 +61,10 @@ def main() -> int:
         t1 = Path(tempfile.gettempdir(), "wmt1.txt")
         t1.write_text(f"ghost-r{rnd}", encoding="ascii")
         subprocess.Popen(["notepad", str(t1)])
-        time.sleep(0.6)
         subprocess.Popen(["mspaint"])
-        time.sleep(1.4)
+        if not wm.wait_main_windows("Notepad", "mspaint"):
+            print("FAIL_TARGETS_NOT_RUNNING")
+            return 1
         subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
         time.sleep(4)
         hm = wm.host_hwnd()

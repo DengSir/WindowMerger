@@ -22,15 +22,20 @@ def main() -> int:
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.3)
 
-    # 受害者：普通实例 B
+    # 受害者：普通实例 B（等主窗真实出现，CI 冷启动 WPF 首启竞速兜底）
     subprocess.Popen([a.exe])
-    time.sleep(3)
-    b_pids = [p for p in wm.pids_by_name("WindowMerger") if wm.main_windows_of_pid(p)]
-    if not b_pids:
+    b_pids: list[int] = []
+    hb = 0
+    for _ in range(30):
+        b_pids = [p for p in wm.pids_by_name("WindowMerger") if wm.main_windows_of_pid(p)]
+        if b_pids:
+            hb = wm.main_windows_of_pid(b_pids[0])[0]
+            break
+        time.sleep(0.3)
+    if not hb:
         print("FAIL_NO_B")
         return 1
     pid_b = b_pids[0]
-    hb = wm.main_windows_of_pid(pid_b)[0]
     rb = wm.get_window_rect(hb)
 
     # 抓取者：实例 C 以 B 的 PID 为目标

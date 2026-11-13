@@ -46,7 +46,9 @@ def main() -> int:
     t1 = Path(tempfile.gettempdir(), "wmt1.txt")
     t1.write_text("orphan-e2e", encoding="ascii")
     subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.5)
+    if not wm.wait_main_windows("Notepad"):
+        print("FAIL_TARGET_NOT_RUNNING")
+        return 1
 
     # 2. CLI 吸附后强杀宿主 → 孤儿
     host = subprocess.Popen([a.exe, "--left", "notepad"])

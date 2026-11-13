@@ -60,18 +60,16 @@ def main() -> int:
     time.sleep(0.8)
     wm.remove_config()
     subprocess.Popen(["mspaint"])
-    time.sleep(1.8)
+    if not wm.wait_main_windows("mspaint"):
+        print("FAIL_TARGET_NOT_RUNNING")
+        return 1
     subprocess.Popen([a.exe])
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
         print("NO_HOST")
         return 1
-    mps = wm.main_windows_by_name("mspaint")
-    if not mps:
-        print("NO_MSPAINT")
-        return 1
-    mh = mps[0][1]
+    mh = wm.main_windows_by_name("mspaint")[0][1]
 
     # 2. 钳位：宿主 + mspaint 固定矩形（物理坐标；钳位基准 = 测试显示器工作区，
     #    宿主可能停在 96 DPI 副屏——SM_CYSCREEN 的主屏高与它无关）
