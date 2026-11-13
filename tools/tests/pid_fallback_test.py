@@ -9,6 +9,9 @@
      PID 已死会 ArgumentException 落空，实测）
   P3 同候选多窗口取面积最大：`--left <真实解释器PID>`（精确命中，单进程双窗）→
      PickBestBy 吸附 800x500 大窗，500x300 小窗不动
+靶进程发现 = **按窗口标题全局找**（双窗齐备的 python 进程），结构无关——CI 曾在
+uv 0.13.7→0.13.8（2026-11-12/13）之间按"启动器→后代持窗"链找漏（8s 全耗尽
+FAIL_NO_TARGET_WINDOWS），等待同时拉到 20s 兜 CI 慢机。
 用法: uv run tools\\tests\\pid_fallback_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad + 清理靶/哨兵进程。
 """
@@ -39,11 +42,12 @@ def kill_all() -> None:
     time.sleep(0.5)
 
 
-def windowed_descendant(launcher_pid: int) -> int:
-    """启动器 pid 的后代里持有窗口的真实解释器 pid（venv 重定向产物）。"""
+def find_target_pid() -> int:
+    """持 WM_MULTI_* 双窗的 python 进程 pid（按标题全局找，不依赖进程链形态——
+    venv 启动器→子解释器与解释器本体两种链型都兼容）。"""
     for p in wm.pids_by_name("python"):
-        if p != launcher_pid and wm.launched_by(p, launcher_pid, depth=2) \
-                and wm.all_windows_of_pid(p):
+        texts = {wm.get_text(h) for h in wm.top_windows_of_pids([p])}
+        if {"WM_MULTI_SMALL", "WM_MULTI_BIG"} <= texts:
             return p
     return 0
 
@@ -68,11 +72,14 @@ def main() -> int:
 
     def have_windows() -> bool:
         nonlocal real_pid
-        real_pid = windowed_descendant(target.pid)
+        real_pid = find_target_pid()
         return bool(real_pid)
 
-    if not wm.wait_until(have_windows, 8000, 300) or not real_pid:
-        print("FAIL_NO_TARGET_WINDOWS")
+    if not wm.wait_until(have_windows, 20000, 300) or not real_pid:
+        dbg = [(p, wm.parent_pid_of(p), len(wm.all_windows_of_pid(p)))
+               for p in wm.pids_by_name("python")]
+        print(f"FAIL_NO_TARGET_WINDOWS launcher={target.pid} poll={target.poll()} "
+              f"pythons=(pid, parent, windows)={dbg}")
         target.kill()
         return 1
     wins = wm.top_windows_of_pids([real_pid])
