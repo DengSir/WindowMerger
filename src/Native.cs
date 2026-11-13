@@ -79,6 +79,32 @@ internal static partial class Native
     public const int GCLP_HICON = -14;
     public const int GCLP_HICONSM = -34;
 
+    // shell exe 图标（snap 接管：UWP/框架窗窗口本身无图标素材——实测设置窗四连全 miss，
+    // shell 的按钮图标走 app tile——按进程 exe 兜底；框架窗经子 CoreWindow 找真实应用进程）
+    public const uint SHGFI_ICON = 0x0100;
+    public const uint SHGFI_LARGEICON = 0x0000;
+    public const uint FILE_ATTRIBUTE_NORMAL = 0x0080;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct SHFILEINFOW
+    {
+        public IntPtr hIcon;
+        public int iIcon;
+        public uint dwAttributes;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szDisplayName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
+        public string szTypeName;
+    }
+
+    // 字符串入参（路径/类名）：按本仓库惯例走经典 DllImport + CharSet.Unicode，不用源生成器路线
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr SHGetFileInfoW(string pszPath, uint dwFileAttributes,
+        ref SHFILEINFOW psfi, uint cbFileInfo, uint uFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string? className, string? windowName);
+
     /// <summary>
     /// 设进程显式 AUMID（真实导出名无 W 后缀）。必须先于任何窗口创建、每进程仅一次；
     /// 返回 HRESULT，S_OK=0。设了它任务栏身份不再被指向本 exe 的快捷方式按目标路径

@@ -499,8 +499,25 @@ public sealed partial class HostWindow : Window
 
     // ---------- 生命周期 ----------
 
+    /// <summary>时序打点（WM_TRACE=1 才写 %TEMP%\wm_trace.log）：验证 SourceInitialized →
+    /// Loaded → 吸附 → 拼图 的真实顺序用，模态 MessageBox 会泵 dispatcher 扭曲时序不能用。</summary>
+    private static void TracePoint(string msg)
+    {
+        if (Environment.GetEnvironmentVariable("WM_TRACE") != "1") return;
+        try
+        {
+            File.AppendAllText(Path.Combine(Path.GetTempPath(), "wm_trace.log"),
+                $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
+        }
+        catch
+        {
+            // trace 只是诊断，失败忽略
+        }
+    }
+
     protected override void OnSourceInitialized(EventArgs e)
     {
+        TracePoint("OnSourceInitialized enter");
         base.OnSourceInitialized(e);
         _handle = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(_handle)!.AddHook(WndProc);
@@ -519,8 +536,9 @@ public sealed partial class HostWindow : Window
         _lastOrigin = PointToScreen(new Point(0, 0));
         _drag = new DragAttach(this);
         _timer.Start();
-        SetFallbackIcon();
+        UpdateHostIcon(); // 初始即走统一图标管线（此刻 _left/_right 必空 → 内部落 SetFallbackIcon）
         UpdateStatus(); // 首帧就显示空格占位提示（不等 250ms 维护定时器）
+        TracePoint("OnSourceInitialized exit");
     }
 
     /// <summary>从内嵌 ico 资源流解码最大帧（窗口图标与顶条图标共用）。</summary>
@@ -552,7 +570,7 @@ public sealed partial class HostWindow : Window
 
     /// <summary>
     /// 应用图标作为窗口基础图标：未吸附子窗口时任务栏/Alt+Tab 显示它，
-    /// 吸附后由 UpdateHostIcon 换成双子窗口合成图标。
+    /// 吸附后由 UpdateHostIcon 换成双子窗口合成图标（OnSourceInitialized 起统一走 UpdateHostIcon）。
     /// </summary>
     private void SetFallbackIcon()
     {
@@ -929,12 +947,53 @@ public sealed partial class HostWindow : Window
             hIcon = Native.SendMessage(hwnd, Native.WM_GETICON, (IntPtr)Native.ICON_SMALL2, IntPtr.Zero);
         if (hIcon == IntPtr.Zero)
             hIcon = (IntPtr)Native.GetClassLong(hwnd, Native.GCLP_HICONSM);
+        bool shellCopy = false;
+        if (hIcon == IntPtr.Zero)
+        {
+            // UWP/框架窗兜底（snap 接管实测：设置等 ApplicationFrameWindow 四连全 miss——
+            // 其任务栏图标走 app tile，窗口本身无素材）：按进程 exe 取 shell 图标；
+            // 框架窗的外框进程是 ApplicationFrameHost（通用窗图标），经子 CoreWindow
+            // 找真实应用进程（SystemSettings 等，exe 图标即应用图标）
+            hIcon = GetShellIconForWindow(hwnd);
+            shellCopy = hIcon != IntPtr.Zero;
+        }
         if (hIcon == IntPtr.Zero) return null;
 
         var src = Imaging.CreateBitmapSourceFromHIcon(hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+        if (shellCopy)
+        {
+            Native.DestroyIcon(hIcon); // SHGetFileInfo 返回的是副本，用完销毁；
+        }
         // WM_GETICON/GetClassLong 返回的是子窗口自有的图标句柄（非副本），绝不能 DestroyIcon
         src.Freeze();
         return src;
+    }
+
+    /// <summary>按窗口所属进程 exe 取 shell 图标（ApplicationFrameWindow 走子 CoreWindow 进程）。
+    /// 返回的 HICON 是 shell 分配的副本，调用方必须 DestroyIcon。</summary>
+    private IntPtr GetShellIconForWindow(IntPtr hwnd)
+    {
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        string path = Native.GetProcessImagePath(pid) ?? "";
+        if (Native.GetClassNameOf(hwnd) == "ApplicationFrameWindow")
+        {
+            IntPtr core = Native.FindWindowEx(hwnd, IntPtr.Zero, "Windows.UI.Core.CoreWindow", null);
+            if (core != IntPtr.Zero)
+            {
+                Native.GetWindowThreadProcessId(core, out uint corePid);
+                string corePath = Native.GetProcessImagePath(corePid) ?? "";
+                if (corePath.Length > 0) path = corePath;
+            }
+        }
+        if (path.Length == 0) return IntPtr.Zero;
+        var shfi = new Native.SHFILEINFOW();
+        if (Native.SHGetFileInfoW(path, Native.FILE_ATTRIBUTE_NORMAL, ref shfi,
+                (uint)Marshal.SizeOf<Native.SHFILEINFOW>(), Native.SHGFI_ICON | Native.SHGFI_LARGEICON)
+            != IntPtr.Zero)
+        {
+            return shfi.hIcon;
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>任务栏大图标目标尺寸：PMv2 进程下随 DPI 缩放（32px@100% ↔ 48px@150%）。
@@ -965,6 +1024,8 @@ public sealed partial class HostWindow : Window
     {
         var l = TryGetIconSource(_left?.Hwnd ?? IntPtr.Zero);
         var r = TryGetIconSource(_right?.Hwnd ?? IntPtr.Zero);
+        TracePoint($"UpdateHostIcon: left={(l != null ? "素材" : "无")} right={(r != null ? "素材" : "无")} " +
+                   $"({_left?.Hwnd.ToInt64() ?? 0}/{_right?.Hwnd.ToInt64() ?? 0})");
         if (l == null && r == null)
         {
             SetFallbackIcon(); // 无吸附窗口时回到应用图标（而非默认 WPF 图标）

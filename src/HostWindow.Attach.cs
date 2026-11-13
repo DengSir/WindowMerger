@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace WindowMerger;
 
@@ -20,6 +21,7 @@ public sealed partial class HostWindow : Window
     /// </summary>
     private async void AttachStartupTargets(StartupOptions? opts)
     {
+        TracePoint("AttachStartupTargets enter (Loaded)");
         if (opts is null
             || (string.IsNullOrWhiteSpace(opts.Left) && string.IsNullOrWhiteSpace(opts.Right)
                 && string.IsNullOrWhiteSpace(opts.LeftExe) && string.IsNullOrWhiteSpace(opts.RightExe)
@@ -85,6 +87,11 @@ public sealed partial class HostWindow : Window
             {
                 ShowNotice($"启动 {label} 超时（窗口未出现），已跳过");
             }
+
+            // 任务栏按钮图标加固：按钮由 shell 在窗口可见后才异步创建，Loaded 帧内连续三次
+            // WM_SETICON（fallback→单侧占位拼图→双窗拼图）可能撞上按钮创建竞态被吞——
+            // 空闲优先级再断言一次最终态（幂等重设；运行中路径的 UpdateHostIcon 不走这里）
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(UpdateHostIcon));
         }
         catch (Exception ex)
         {
