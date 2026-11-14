@@ -110,16 +110,33 @@ public sealed partial class HostWindow : Window
 
         if (opts?.Snap is { } snap)
         {
-            // snap 接管落位：两窗口可见边界并集（物理 px，现场实测非陈旧保存值）——跳过
-            // config 几何恢复（接管几何由当前布局决定，不是用户偏好），只钳最小尺寸防极端；
-            // 比例 = 左窗宽占比（与工作区分界的偏差 ≈ 边框 2 DIP，可忽略）。
-            // 直接最大化：检测要求并集 ≈ 目标屏工作区（±8px），最大化矩形即工作区——
-            // 顶条 overlay 自动隐藏（触顶唤出）随之生效，子窗占满全高
-            double scale = Native.MonitorDpiScale(Native.MonitorFromPoint(
+            // snap 接管：宿主直接最大化（用户确认的最终行为），最大化矩形 = 布局所在屏
+            // 工作区（两窗拼满工作区，接管必须罩住它们）。正常态几何**不取布局并集**——
+            // 并集 ≈ 工作区会让"取消最大化"落回同样大的矩形（还原像没生效，用户实测
+            // 质疑）；改取 profile 上次几何的宽高（还原后用户调过的大小），无/垃圾值
+            // → 960×600 默认，居中于布局所在屏。比例仍 = 左窗宽占比（分隔条随布局），
+            // 与宿主大小无关。
+            nint hMon = Native.MonitorFromPoint(
                 new Native.POINT { X = (int)(snap.Rect.X + snap.Rect.W / 2), Y = (int)(snap.Rect.Y + snap.Rect.H / 2) },
-                Native.MONITOR_DEFAULTTONEAREST));
-            _pendingPlacement = (snap.Rect.X, snap.Rect.Y,
-                Math.Max(snap.Rect.W, MinWidth * scale), Math.Max(snap.Rect.H, MinHeight * scale), true);
+                Native.MONITOR_DEFAULTTONEAREST);
+            var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
+            if (!Native.GetMonitorInfo(hMon, ref mi))
+                throw new InvalidOperationException("snap 接管：布局所在屏工作区获取失败");
+            var wa = mi.rcWork;
+            double scale = Native.MonitorDpiScale(hMon);
+            double maxW = Math.Max(MinWidth * scale, wa.Right - wa.Left);
+            double maxH = Math.Max(MinHeight * scale, wa.Bottom - wa.Top);
+            double w = 960 * scale, h = 600 * scale;
+            if (config.WinLeft is double l && config.WinRight is double r
+                && config.WinTop is double t && config.WinBottom is double b
+                && r > l && b > t)
+            {
+                w = Math.Clamp(r - l, MinWidth * scale, maxW);
+                h = Math.Clamp(b - t, MinHeight * scale, maxH);
+            }
+            int x = wa.Left + Math.Max(0, ((wa.Right - wa.Left) - (int)w) / 2);
+            int y = wa.Top + Math.Max(0, ((wa.Bottom - wa.Top) - (int)h) / 2);
+            _pendingPlacement = (x, y, w, h, true);
             _ratio = Math.Clamp(snap.Ratio, MinRatio, MaxRatio);
         }
         else
