@@ -51,6 +51,7 @@ internal static partial class Native
     // 置顶带（IntPtr 不能作 const，用 static readonly）
     public static readonly IntPtr HwndTopmost = new(-1);
     public static readonly IntPtr HwndNotTopmost = new(-2);
+    public static readonly IntPtr HwndTop = new(0);
 
     // GetWindowLong / GetWindow
     public const int GWL_EXSTYLE = -20;
@@ -150,6 +151,12 @@ internal static partial class Native
 
     [LibraryImport("user32.dll")]
     public static partial IntPtr GetForegroundWindow();
+
+    /// <summary>把前台转交给指定窗口。调用方须持有前台（否则被前台锁静默拒绝），
+    /// 返回 false = 被拒（前台锁/UIPI），不致命。</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetForegroundWindow(IntPtr hWnd);
 
     public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data);
 

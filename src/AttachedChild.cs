@@ -92,8 +92,16 @@ internal sealed class AttachedChild
         Native.SetWindowPos(Hwnd, Native.HwndNotTopmost, 0, 0, 0, 0,
             Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
             | Native.SWP_NOOWNERZORDER);
-        Native.SetWindowPos(Hwnd, IntPtr.Zero, r.Left, r.Top, r.Width, r.Height,
-            Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
+        // 跨 DPI 还原两步走（与宿主 OnSourceInitialized 落位同配方）：吸附在异 DPI 屏
+        // 宿主里的窗口释放回原屏时，一步到位会先落位再收 WM_DPICHANGED，其"建议矩形"
+        // = 原物理尺寸 × DPI 比，应用照单全收就把还原尺寸按比例改写（实测 ×1.5，
+        // H7_RECT_RESTORED 抓出，CI 单屏测不到）。先移动触发 DPI 收敛、再设尺寸
+        Native.SetWindowPos(Hwnd, IntPtr.Zero, r.Left, r.Top, 0, 0,
+            Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE
+            | Native.SWP_NOOWNERZORDER);
+        Native.SetWindowPos(Hwnd, IntPtr.Zero, 0, 0, r.Width, r.Height,
+            Native.SWP_NOMOVE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE
+            | Native.SWP_NOOWNERZORDER);
     }
 
     /// <summary>

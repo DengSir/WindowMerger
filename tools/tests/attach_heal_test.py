@@ -149,6 +149,10 @@ def main() -> int:
     # 吸附态下外部污染置顶，释放必须摘除 + 矩形回吸附前位置
     wm.set_topmost(mh2, True)
     time.sleep(0.3)
+    # 用户主动释放 → 被释放窗口拉回前台：UIA Invoke 不改前台，宿主须先持前台
+    # （SetForegroundWindow 转交仅在前台锁规则内成立），释放后断言前台 = mspaint
+    wm.set_foreground_window(hm)
+    time.sleep(0.3)
     wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm),
                                                "_releaseButton"))
     time.sleep(1.5)
@@ -159,6 +163,9 @@ def main() -> int:
     check("H5C_RESTORE_UNTOPMOST", not wm.is_topmost(mh2),
           f"topmost={wm.is_topmost(mh2)}")
     check("H5D_RELEASE_UNTOOL", not wm.is_attached(mh2))
+    fg = wm.get_foreground_window()
+    check("H5E_RELEASE_FOREGROUND", fg == mh2,
+          f"fg={fg}({wm.proc_name_of(fg) if fg else None}) expect={mh2}")
 
     # ---------- H6 单侧吸附交换 ----------
     wm.graceful_close_by_name("WindowMerger")

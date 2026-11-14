@@ -209,7 +209,19 @@ public sealed partial class HostWindow : Window
         _pickLeftButton.Click += (_, _) => ToggleSide(AttachSide.Left);
         _pickRightButton.Click += (_, _) => ToggleSide(AttachSide.Right);
         _swapButton.Click += (_, _) => SwapSides();
-        _releaseButton.Click += (_, _) => ReleaseAll();
+        // 顶条「全部释放」：用户主动释放 → 两窗置顶回原位并激活右窗。前台只能转交
+        // 一次（首次 SetForegroundWindow 已交出宿主的前台，第二次被前台锁拒绝），
+        // 所以置顶走无激活 z 序、激活只做一次；ReleaseAll 本体保持纯净——宿主关闭
+        // 清理路径复用它，不拉前台
+        _releaseButton.Click += (_, _) =>
+        {
+            var l = _left?.Hwnd ?? IntPtr.Zero;
+            var r = _right?.Hwnd ?? IntPtr.Zero;
+            ReleaseAll();
+            RaiseReleasedWindow(l);
+            RaiseReleasedWindow(r);
+            Native.SetForegroundWindow(r != IntPtr.Zero ? r : l);
+        };
         _shortcutButton.Click += (_, _) => CreateShortcutForCurrent();
         _themeButton.Content = ThemeGlyph();
         _themeButton.Click += (_, _) => OpenThemeMenu();
@@ -1305,13 +1317,30 @@ public sealed partial class HostWindow : Window
         }
     }
 
-    /// <summary>释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）。</summary>
+    /// <summary>用户主动释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）并拉回前台：
+    /// Restore 按 NOZORDER+NOACTIVATE 放回普通层，窗口常埋在其他窗口后面，用户点
+    /// 释放就是想接着用它。仅侧按钮路径调用；替换/关闭清理等非主动释放不拉前台。</summary>
     private void ReleaseSide(AttachSide side)
     {
-        ChildAt(side)?.Restore();
+        var child = ChildAt(side);
+        if (child is null) return;
+        var hwnd = child.Hwnd;
+        child.Restore();
         if (side == AttachSide.Left) _left = null; else _right = null;
+        RaiseReleasedWindow(hwnd);
+        Native.SetForegroundWindow(hwnd); // 单侧释放只有一次前台转交，必然在授权内
         UpdateStatus();
         UpdateHostIcon();
+    }
+
+    /// <summary>释放后把窗口置顶（无激活）：Restore 把窗口放回普通层且不带 z 序写入，
+    /// 窗口常埋在其他窗口后面，先保证可见。z 序重排不受前台锁限制（受限的是激活）。</summary>
+    private static void RaiseReleasedWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return;
+        Native.SetWindowPos(hwnd, Native.HwndTop, 0, 0, 0, 0,
+            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
+            | Native.SWP_NOOWNERZORDER);
     }
 
     /// <summary>单侧吸附态自愈入口：应用自行隐藏（连续两个维护周期不可见）→ 走释放；
