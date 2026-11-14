@@ -60,7 +60,7 @@ def main() -> int:
     measure(hm, "NORMAL")
     wm.show_window(hm, 3)  # SW_MAXIMIZE
     time.sleep(1.2)
-    wm.set_cursor_pos(wa.Left + 20 + 450, wa.Top + 8)  # 入带触发顶条滑入
+    wm.set_cursor_pos(wa.Left + 20 + 450, wa.Top + 2)  # 触顶唤出顶条滑入（条内中部不再触发，issue #1）
     time.sleep(0.7)  # 轮询 100ms + 滑入 120ms 裕量
     measure(hm, "MAXIMIZED")
 
@@ -81,7 +81,7 @@ def main() -> int:
         measure(hm, "NORMAL@150")
         wm.show_window(hm, 3)
         time.sleep(1.2)
-        wm.set_cursor_pos(r.Left + 20 + 450, r.Top + 8)
+        wm.set_cursor_pos(r.Left + 20 + 450, r.Top + 2)  # 触顶唤出（同上，issue #1）
         time.sleep(0.7)
         measure(hm, "MAXIMIZED@150")
 

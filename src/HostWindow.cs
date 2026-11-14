@@ -840,7 +840,7 @@ public sealed partial class HostWindow : Window
         UpdateMaxGlyph();
     }
 
-    // ---------- 最大化顶条自动隐藏（移入显示） ----------
+    // ---------- 最大化顶条自动隐藏（触顶唤出、移出隐藏） ----------
 
     private bool BarOverlayMode => WindowState == WindowState.Maximized;
 
@@ -860,7 +860,10 @@ public sealed partial class HostWindow : Window
         _topBarFrame.BorderThickness = overlay ? new Thickness(barFrame) : default;
         if (overlay)
         {
-            SetBarShown(CursorInTopStrip()); // 点最大化按钮时鼠标就在带内 → 先显示
+            // 点最大化按钮时鼠标就在带内 → 先显示。此刻 _barHidden 恒 false
+            // （离开最大化必经 SetBarShown(true)）→ 走整条带判定，顶条不会在
+            // 光标底下当场消失；之后的收起交给轮询（移出顶条 / 触顶再唤出）
+            SetBarShown(CursorInTopStrip());
             _revealTimer.Start();
         }
         else
@@ -870,13 +873,19 @@ public sealed partial class HostWindow : Window
         }
     }
 
+    // 触顶唤出阈值带（DIP，issue #1）：隐藏态只有光标贴住窗口最上沿才滑入顶条，
+    // 整条顶条高度都触发会盖住顶部内容；显示态沿用同值作底边迟滞带
+    private const double TopTouchBand = 6;
+
     private bool CursorInTopStrip()
     {
         if (!Native.GetCursorPos(out var p)) return false;
         var w = PointFromScreen(new Point(p.X, p.Y)); // 物理像素 → 窗口 DIP
-        // 已显示时加 6px 迟滞带：光标停在顶条底边附近不因 ±1px 抖动闪烁
-        double grace = _barHidden ? 0 : 6;
-        return w.Y <= _topBarFrame.ActualHeight + grace && w.X >= -8 && w.X <= ActualWidth + 8;
+        // 触顶唤出、移出隐藏（issue #1，Windows 自动隐藏任务栏语义）：隐藏态只在
+        // 触顶阈值带内才滑入；已显示时停留区 = 顶条全高 + 迟滞带——光标停在底边
+        // 附近不因 ±1px 抖动闪烁，移出顶条才收起
+        double band = _barHidden ? TopTouchBand : _topBarFrame.ActualHeight + TopTouchBand;
+        return w.Y <= band && w.X >= -8 && w.X <= ActualWidth + 8;
     }
 
     private void PollTopBarReveal()

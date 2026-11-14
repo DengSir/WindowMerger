@@ -56,6 +56,10 @@ def main() -> int:
     print(f"AFTER_DBLCLICK zoomed={max_ok} {'OK' if max_ok else 'MISMATCH'}")
 
     hr_max = wm.get_window_rect(hm)
+    # 顶条自动隐藏（触顶唤出，issue #1）：隐藏期顶条带是透明穿透区，条内中部
+    # 直接双击会落空——先触顶等轮询滑入，再回条内双击还原
+    wm.set_cursor_pos(gx, hr_max.Top + 2)
+    time.sleep(0.6)  # 轮询 100ms + 滑入 120ms
     double_click(gx, hr_max.Top + 14)
     restore_ok = not wm.is_zoomed(hm)
     r = wm.get_window_rect(hm)

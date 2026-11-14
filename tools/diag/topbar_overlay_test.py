@@ -92,8 +92,8 @@ def main() -> int:
     ok = ok and a2
     strip_shot(hm, "hidden")
 
-    # ---- 光标移入顶条带 → 滑入盖在子窗上方 ----
-    wm.set_cursor_pos(cx, mr.Top + 8)
+    # ---- 光标触顶 → 滑入盖在子窗上方（issue #1：只认最上沿阈值带，条内中部不再触发）----
+    wm.set_cursor_pos(cx, mr.Top + 2)
     time.sleep(0.7)
     t_shown = close_btn_top(hm)
     b1 = t_shown is not None and t_shown >= mr.Top

@@ -62,9 +62,10 @@ def main() -> int:
           f"max=({rmax.Left},{rmax.Top})-({rmax.Right},{rmax.Bottom}) "
           f"wa=({wa.Left},{wa.Top})-({wa.Right},{wa.Bottom})")
 
-    # T2 最大化态原地单击不还原（位移 0）。顶条自动隐藏（移入显示）：入带后等轮询滑入
-    scale = wm.get_dpi_for_window(hm) / 96.0
-    cx, cy = hr.Left + int(hr.width * 0.3), rmax.Top + round(14 * scale)
+    # T2 最大化态原地单击不还原（位移 0）。顶条自动隐藏（触顶唤出，issue #1）：
+    # 只有贴住窗口最上沿才滑入——条内中部不再触发（隐藏期顶条带是透明穿透区，
+    # 停在那儿直接单击会落空）；触顶等轮询滑入后在原地单击（armed 未超阈值）
+    cx, cy = hr.Left + int(hr.width * 0.3), rmax.Top + 2
     wm.set_cursor_pos(cx, cy)
     time.sleep(0.5)
     wm.mouse_event(wm.MOUSEEVENTF_LEFTDOWN)
