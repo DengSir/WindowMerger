@@ -4,12 +4,14 @@
 
 | 目录 | 用途 | 数量 |
 |---|---|---|
-| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单），32 项全覆盖 | 1 |
+| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单），44 项全覆盖（32 tests + 12 visual） | 1 |
 | `publish/` | 本地打包发布 | 1 |
-| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 20 |
+| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 32 |
+| `diag/` | 一次性诊断探针（bug 排查期产物，留档复用；非常驻回归） | 24 |
+| `targets/` | 测试靶窗（tkinter/ctypes 受控窗口，供 tests 拉起） | 5 |
 | `manual/` | 人工交互排查工具（对应场景已有自动版在 tests/，此处留作诊断） | 2 |
-| `visual/` | 视觉/主题/字形/截图验证——**11 个带自动判定已入 run_all**，theme_menu_shot 出 PNG 兼断言 | 12 |
-| `utils/` | 单项工具：查询/控制/截图/配置 | 18 |
+| `visual/` | 视觉/主题/字形/截图验证——**12 个带自动判定已入 run_all**，theme_menu_shot 出 PNG 兼断言 | 12 |
+| `utils/` | 单项工具：查询/控制/截图/配置/CI | 24 |
 | `archive/` | 一次性历史脚本（**PowerShell 留档，不再维护**） | 6 |
 | `lib/` | 公共库：`wm.py`（ctypes Win32/截图/进程/config/调色板）、`wm_uia.py`（uiautomation UIA） | 2 |
 
@@ -53,6 +55,50 @@
 | `drag_switch_side_test.py` | 拖到另一侧换侧（新增 2026-11；**挖出并修复 src 换侧分支引用反向 + TryAttach 拒收 toolwindow 两个真 bug**） |
 | `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
+| `topbar_state_test.py` | 顶条状态回归：最大化矩形=工作区（WM_GETMINMAXINFO）、最大化顶条原地单击不还原、空吸附快捷方式通知、侧按钮字形翻转（TopbarStateTest） |
+| `max_top_drag_test.py` | 最大化顶边死区拖还原：WM_NCHITTEST 最大化整窗 HTCLIENT 逐行探针 + 顶边注入拖还原（MaxTopDragTest） |
+| `child_fg_raise_test.py` | 子窗口激活联动升顶：EVENT_SYSTEM_FOREGROUND → 宿主升顶 + 子窗口粘回，净空校验 GA_ROOT（ChildFgRaiseTest） |
+| `attach_heal_test.py` | 自愈与释放全量语义：外部最大化拉回、子窗死亡格子清空、释放矩形逐像素回位+摘置顶、单侧交换、H7 外部隐藏自动释放、H8 真托盘链路、H5E 释放拉回前台（AttachHealTest） |
+| `pane_drag_rules_test.py` | 格子拖入规则：占用格拒绝/Ctrl 替换/拖出自愈/宿主拖动子窗跟随（PaneDragRulesTest） |
+| `picker_filter_test.py` | 选窗候选过滤：负向过滤（toolwindow/owned/排除类名）、大小写不敏感、未选中点吸附无操作（PickerFilterTest） |
+| `config_edge_test.py` | 配置边界：损坏 JSON 回退默认、Ratio 钳制、几何过小钳 MinWidth/MinHeight、非法 Theme 回退（ConfigEdgeTest） |
+| `cli_args_test.py` | CLI 参数边界：位置参数≡命名参数、缺参/未知旗标报因、大小写/.exe 后缀、找不到的报因文案（CliArgsTest） |
+| `pid_fallback_test.py` | PID 三级回退后两级：后代进程树 + 同名兜底 + 面积最大（PidFallbackTest） |
+| `snap_capture_test.py` | snap 捕捉接管 e2e：检测命中/比例、接管双吸附、拼图图标、宿主矩形=工作区、释放回捕获矩形、profile 隔离、报因四场景、托盘单实例（SnapCaptureTest） |
+| `update_e2e_test.py` | 自动更新 e2e：假 releases/latest → 自动弹框 → 下载换装重启全链（UpdateE2ETest） |
+| `update_edge_test.py` | 更新边界：版本前缀解析/404/开关持久化/坏 zip 保留/.old 占用自愈（UpdateEdgeTest） |
+
+## diag/（一次性诊断探针，bug 排查期产物留档）
+
+| 脚本 | 排查对象 |
+|---|---|
+| `snap_detect_dump.py` | snap 检测逐屏逐窗判据对照（定位 NO_LAYOUT 卡在哪条判据） |
+| `snap_hdpi_repro.py` | 高 DPI 屏捕捉/接管 e2e 复现（ctypes Win32 靶窗；等待期必须泵本进程消息） |
+| `snap_restore_probe.py` | 接管宿主最大化/还原路径矩形观测 |
+| `snap_align_probe.py` | 靶窗 EFB 对齐逐轮差值（跨 DPI 屏界不收敛实锤） |
+| `efb_boundary_probe.py` | EFB 跨 DPI 屏界读数一致性（排除 EFB 虚拟化假说） |
+| `dblclk_restore_probe.py` | 双击还原逐 100ms 时间线采样（还原竞态排查） |
+| `topbar_overlay_test.py` | 最大化顶条 overlay 显隐可视化验证（子窗占满全高/滑入滑出截图） |
+| `border_probe.py` | 隐形边/边框测量（NORMAL/MAXIMIZED/跨 DPI） |
+| `divider_seam_test.py` / `divider_seam_diff.py` | 分隔条缝隙测量/像素对照 |
+| `thirds_align_probe.py` | 三分靶窗对齐探针 |
+| `trace_order_check.py` | WM_TRACE=1 时序打点检查（SourceInitialized→Loaded→吸附→图标顺序） |
+| `corner_pref_test.py` | 圆角偏好探针（吸附态黑盒判定口径） |
+| `attachable_probe.py` | 吸附资格探针（IsAttachable 判定逐窗核对） |
+| `taskbar_button_probe.py` / `taskbar_hide_probe.py` | 任务栏按钮收录/隐藏探针 |
+| `host_icon_probe.py` / `exe_icon_fallback_probe.py` / `iconless_fallback_check.py` | 宿主图标管线/exe 图标兜底/无图标窗兜底检查 |
+| `ico_format_probe.py` / `icon_map_probe.py` | ico 资源解码/图标映射探针 |
+| `snap_uwp_icon_check.py` / `store_paint_icon_probe.py` / `system_windows_icon_probe.py` | UWP/商店/系统窗口图标素材检查 |
+
+## targets/（测试靶窗）
+
+| 脚本 | 用途 |
+|---|---|
+| `drag_target.py` | 拖动测试靶窗（零 Ribbon/零 DPI 感知声明，标题几何已知） |
+| `snap_target.py` | snap 检测/接管靶窗（单进程单顶层无 owner 窗） |
+| `multi_win.py` | 一进程两窗靶（PID 后代树回退测试） |
+| `tray_target.py` | 托盘行为靶窗（收 WM_CLOSE 自我 withdraw 不销毁，模拟微信关闭到托盘） |
+| `color_pad.py` | 纯色窗（视觉验证靶） |
 
 **visual/ 中已入 run_all 的自动判定测试**（调色板期望值见 `lib/wm.py` PALETTES）：
 
@@ -117,6 +163,9 @@
 | `restore_theme.py` | 主题恢复 Auto（RestoreTheme） |
 | `reset_ratio.py` | 分隔比例复位 0.5（ResetRatio） |
 | `orphan_rescue.py` | 孤儿扫描/救援：扫描全部 TOOLWINDOW 孤儿，`--rescue --proc-name xxx` 摘样式+拉回屏（OrphanRescue） |
+| `ci_status.py` / `ci_log_read.py` / `ci_log_fetch.py` / `ci_check.py` | GitHub Actions 运行状态/日志读取/拉取/检查（CI 排查） |
+| `list_action_tags.py` | 列 GitHub Action 可用 tag（核对 setup-uv 等钉版） |
+| `env_probe.py` | 运行环境探针（DPI/显示器/系统信息）（EnvProbe） |
 
 ## archive/（一次性历史脚本，PowerShell 留档不维护；ASCII-only）
 
