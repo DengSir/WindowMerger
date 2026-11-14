@@ -51,24 +51,10 @@ internal static class SnapLayoutDetector
             var wins = (buckets.TryGetValue(hMon, out var b) ? b : new List<SnapWindow>())
                 .Where(w => ZoneEligible(w.Bounds, wa))
                 .ToList();
-            var kept = KeepNonOverlapping(wins);
-            if (kept.Count < 2 || !TilesWorkArea(kept, wa)) continue;
-            if (kept.Count == 2 && SharesVerticalEdge(kept[0].Bounds, kept[1].Bounds))
-            {
-                var ordered = kept.OrderBy(w => w.Bounds.Left).ToList();
-                int unionW = Math.Max(ordered[1].Bounds.Right, ordered[0].Bounds.Right)
-                           - Math.Min(ordered[0].Bounds.Left, ordered[1].Bounds.Left);
-                double fraction = unionW > 0 ? (double)ordered[0].Bounds.Width / unionW : 0.5;
-                pairs.Add(new SnapGroup(i, hMon, wa, ordered, fraction));
-            }
-            else if (kept.Count == 2 && SharesHorizontalEdge(kept[0].Bounds, kept[1].Bounds))
-            {
-                stacked.Add(i); // 上下排列（v1 不支持，报因）
-            }
-            else if (kept.Count > 2)
-            {
-                many.Add((i, kept.Count));
-            }
+            var (pair, isStacked, manyCount) = Classify(wins, wa, i, hMon);
+            if (pair is not null) pairs.Add(pair);
+            else if (manyCount >= 3) many.Add((i, manyCount));
+            else if (isStacked) stacked.Add(i);
             // 其余（两窗 bbox 拼满但互不贴边 = 中间有缝）：不成布局，跳过
         }
 
@@ -158,36 +144,89 @@ internal static class SnapLayoutDetector
         return work > 0 && zone >= work * MinZoneFraction;
     }
 
-    /// <summary>按面积降序贪心收录互不重叠（容差内贴合不算重叠）的窗口——
-    /// 漂浮在 snap 组上的小窗被丢弃，盖住半屏的大窗让该屏判不成布局。</summary>
-    private static List<SnapWindow> KeepNonOverlapping(List<SnapWindow> wins)
+    /// <summary>
+    /// 在合格窗集合里搜索"恰好拼满工作区"的贴合子集（2^N 枚举；合格窗已过面积 ≥5% 与
+    /// 出屏过滤，真实桌面 N≤~10，毫秒级）：双窗子集共享竖边 = 左右对分（接管目标），
+    /// 共享横边 = 上下排列（报因 STACKED），三窗以上 = 多格布局（报因 TOO_MANY:n）。
+    /// 不做面积降序贪心去重叠——旧法把"互不重叠的窗口集合"当布局成员，盖住 snap 组的
+    /// 漂浮大窗（如恢复态全屏的游戏）会把成员全部挤掉 → kept&lt;2 抓不到布局
+    /// （2026-11-14 用户实测 4K@150 屏）；子集搜索只要求<b>存在</b>一个贴合子集，
+    /// 其余窗口（无论盖不盖住布局）一律无关。多对候选取成员总面积最大者（确定性）。
+    /// </summary>
+    private static (SnapGroup? Pair, bool Stacked, int Many) Classify(
+        List<SnapWindow> elig, Native.RECT wa, int monitorIndex, IntPtr hMon)
     {
-        var kept = new List<SnapWindow>();
-        foreach (var w in wins.OrderByDescending(w => (long)w.Bounds.Width * w.Bounds.Height))
+        SnapGroup? best = null;
+        long bestArea = -1;
+        bool stacked = false;
+        int many = 0;
+        int n = elig.Count;
+        if (n < 2 || n > 20) return (null, false, 0); // ≥21 窗（病理桌面）放弃枚举，报 NO_LAYOUT
+
+        var sub = new List<SnapWindow>(n);
+        for (int mask = 3; mask < (1 << n); mask++)
         {
-            if (kept.All(k => !Overlaps(k.Bounds, w.Bounds))) kept.Add(w);
+            int cnt = System.Numerics.BitOperations.PopCount((uint)mask);
+            if (cnt < 2) continue;
+            sub.Clear();
+            bool disjoint = true;
+            for (int j = 0; j < n && disjoint; j++)
+            {
+                if ((mask & (1 << j)) == 0) continue;
+                foreach (var s in sub)
+                    if (Overlaps(s.Bounds, elig[j].Bounds)) { disjoint = false; break; }
+                if (disjoint) sub.Add(elig[j]);
+            }
+            if (!disjoint) continue;
+            int l = sub.Min(w => w.Bounds.Left), t = sub.Min(w => w.Bounds.Top);
+            int r = sub.Max(w => w.Bounds.Right), b = sub.Max(w => w.Bounds.Bottom);
+            if (Math.Abs(l - wa.Left) > TileTolerance || Math.Abs(t - wa.Top) > TileTolerance
+                || Math.Abs(r - wa.Right) > TileTolerance || Math.Abs(b - wa.Bottom) > TileTolerance)
+            {
+                continue; // 子集并集拼不满工作区
+            }
+            if (cnt == 2)
+            {
+                var first = sub[0];
+                var second = sub[1];
+                if (SharesVerticalEdge(first.Bounds, second.Bounds))
+                {
+                    var (a, z) = first.Bounds.Left <= second.Bounds.Left
+                        ? (first, second) : (second, first);
+                    int unionW = Math.Max(a.Bounds.Right, z.Bounds.Right)
+                               - Math.Min(a.Bounds.Left, z.Bounds.Left);
+                    double fraction = unionW > 0 ? (double)a.Bounds.Width / unionW : 0.5;
+                    long area = (long)a.Bounds.Width * a.Bounds.Height
+                              + (long)z.Bounds.Width * z.Bounds.Height;
+                    if (area > bestArea)
+                    {
+                        bestArea = area;
+                        best = new SnapGroup(monitorIndex, hMon, wa,
+                            new List<SnapWindow> { a, z }, fraction);
+                    }
+                }
+                else if (SharesHorizontalEdge(first.Bounds, second.Bounds))
+                {
+                    stacked = true;
+                }
+            }
+            else if (cnt > many)
+            {
+                many = cnt;
+            }
         }
-        return kept;
+        return (best, stacked, many);
     }
 
     private static bool Overlaps(Native.RECT a, Native.RECT b)
         => Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left) > TileTolerance
         && Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top) > TileTolerance;
 
-    /// <summary>并集 ≈ 工作区（四边都在容差内）：snap 布局铺满工作区的判据。</summary>
-    private static bool TilesWorkArea(List<SnapWindow> wins, Native.RECT wa)
-    {
-        int l = wins.Min(w => w.Bounds.Left), t = wins.Min(w => w.Bounds.Top);
-        int r = wins.Max(w => w.Bounds.Right), b = wins.Max(w => w.Bounds.Bottom);
-        return Math.Abs(l - wa.Left) <= TileTolerance && Math.Abs(t - wa.Top) <= TileTolerance
-            && Math.Abs(r - wa.Right) <= TileTolerance && Math.Abs(b - wa.Bottom) <= TileTolerance;
-    }
-
     /// <summary>左右对分：两窗共享一条竖直边（矩形二分矩形必沿一条整线，此判据排除上下排列）。</summary>
     private static bool SharesVerticalEdge(Native.RECT a, Native.RECT b)
         => Math.Abs(a.Right - b.Left) <= TileTolerance || Math.Abs(b.Right - a.Left) <= TileTolerance;
 
-    /// <summary>上下排列：两窗共享一条水平边。共享边判据缺一不可——TilesWorkArea 只看
+    /// <summary>上下排列：两窗共享一条水平边。共享边判据缺一不可——并集判据只看
     /// 并集外接矩形，两窗中间留缝时 bbox 仍等于工作区，会被它漏过（自测推演实锤）。</summary>
     private static bool SharesHorizontalEdge(Native.RECT a, Native.RECT b)
         => Math.Abs(a.Bottom - b.Top) <= TileTolerance || Math.Abs(b.Bottom - a.Top) <= TileTolerance;
