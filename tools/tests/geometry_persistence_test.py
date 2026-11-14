@@ -3,7 +3,7 @@
 S1 保存+恢复：关→起→钉到固定矩形→优雅关（落盘）→校验 config 物理 px→再起→矩形一致
 S2 最大化：最大化状态优雅关→config WinMaximized=True→再起→IsZoomed→还原→矩形=保存值
 S3 屏外钳制：手工写超屏 config→再起→矩形完整落在主屏工作区（不出幽灵窗）
-S4 垃圾回退：手工写 L≥R 的 config→再起→宿主存在且矩形合法（默认居中 1280x800 DIP）
+S4 垃圾回退：手工写 L≥R 的 config→再起→宿主存在且矩形合法（默认居中 960x600 DIP）
 对应 ef15752 的五场景手工验证，首次脚本化（2026-11）。
 用法: uv run tools/\tests\\geometry_persistence_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad/mspaint。
@@ -123,7 +123,7 @@ def main() -> int:
     hm = launch(a.exe)
     r = wm.get_window_rect(hm)
     s4 = r.Left < r.Right and r.Top < r.Bottom
-    print(f"  rect=({r.Left},{r.Top})-({r.Right},{r.Bottom}) valid={s4} (默认 1280x800 DIP 居中)")
+    print(f"  rect=({r.Left},{r.Top})-({r.Right},{r.Bottom}) valid={s4} (默认 960x600 DIP 居中)")
     close_host()
     results.append(("S4_garbage_fallback", s4))
 

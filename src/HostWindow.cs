@@ -112,23 +112,25 @@ public sealed partial class HostWindow : Window
         {
             // snap 接管落位：两窗口可见边界并集（物理 px，现场实测非陈旧保存值）——跳过
             // config 几何恢复（接管几何由当前布局决定，不是用户偏好），只钳最小尺寸防极端；
-            // 比例 = 左窗宽占比（与工作区分界的偏差 ≈ 边框 2 DIP，可忽略）
+            // 比例 = 左窗宽占比（与工作区分界的偏差 ≈ 边框 2 DIP，可忽略）。
+            // 直接最大化：检测要求并集 ≈ 目标屏工作区（±8px），最大化矩形即工作区——
+            // 顶条 overlay 自动隐藏（触顶唤出）随之生效，子窗占满全高
             double scale = Native.MonitorDpiScale(Native.MonitorFromPoint(
                 new Native.POINT { X = (int)(snap.Rect.X + snap.Rect.W / 2), Y = (int)(snap.Rect.Y + snap.Rect.H / 2) },
                 Native.MONITOR_DEFAULTTONEAREST));
             _pendingPlacement = (snap.Rect.X, snap.Rect.Y,
-                Math.Max(snap.Rect.W, MinWidth * scale), Math.Max(snap.Rect.H, MinHeight * scale), false);
+                Math.Max(snap.Rect.W, MinWidth * scale), Math.Max(snap.Rect.H, MinHeight * scale), true);
             _ratio = Math.Clamp(snap.Ratio, MinRatio, MaxRatio);
         }
         else
         {
             // 几何恢复（Windows 原生惯例）：正常态矩形（物理像素）+ 是否最大化，校验钳制到
             // 可见显示器工作区后暂存，hwnd 建好后 OnSourceInitialized 落位——显示器断开/
-            // 分辨率变化/配置损坏都不能产生屏外幽灵窗。无有效几何默认 1280×800 主屏居中
+            // 分辨率变化/配置损坏都不能产生屏外幽灵窗。无有效几何默认 960×600 主屏居中
             _pendingPlacement = ResolvePlacement(config);
         }
-        Width = 1280;
-        Height = 800;
+        Width = 960;
+        Height = 600;
         // hwnd 建好前的初始值（无有效几何时即最终状态）；有保存几何时 OnSourceInitialized
         // 用 SetWindowPos 写物理像素落位，绕开 WPF 对 DIP 属性的初始主屏 DPI 解释
 
