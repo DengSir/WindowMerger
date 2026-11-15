@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace WindowMerger;
@@ -98,51 +99,69 @@ public sealed partial class HostWindow : Window
 
     private void DividerOnMouseDown(object sender, MouseButtonEventArgs e)
     {
+        var divider = (Border)sender;
         if (e.ClickCount >= 2)
         {
-            _ratio = 0.5;
-            UpdatePaneWidths();
-            ApplyLayout();
+            SetRatio((int)divider.Tag, 0.5); // 双击该比例回中
             e.Handled = true;
             return;
         }
-        _divider.CaptureMouse();
+        divider.CaptureMouse();
         e.Handled = true;
     }
 
     private void DividerOnMouseMove(object sender, MouseEventArgs e)
     {
-        if (!_divider.IsMouseCaptured) return;
-        var p = e.GetPosition(_content);
-        double avail = Math.Max(1, ActualWidth - 2 * CurBorderW - _dividerW);
-        _ratio = Math.Clamp((p.X + 2 * CurBorderW) / avail, MinRatio, MaxRatio);
-        UpdatePaneWidths();
-        ApplyLayout();
+        var divider = (Border)sender;
+        if (!divider.IsMouseCaptured) return;
+        var p = e.GetPosition(_paneHost); // 内容区相对坐标（与布局几何同一原点）
+        SetRatio((int)divider.Tag, Layout.RatioFromDivider((int)divider.Tag, p, ContentW, ContentH, _ratio, _ratio2, _dividerW));
         e.Handled = true;
     }
 
     private void DividerOnMouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (_divider.IsMouseCaptured) _divider.ReleaseMouseCapture();
+        if (sender is Border { IsMouseCaptured: true } divider) divider.ReleaseMouseCapture();
         e.Handled = true;
     }
 
-    /// <summary>命中检测：返回命中的槽位（null=不在任何格子内）。</summary>
-    internal AttachSide? HitTestPaneAt(int deviceX, int deviceY)
+    /// <summary>写入比例（0=主 / 1=次，按当前布局钳制）并立即重摆。</summary>
+    private void SetRatio(int index, double value)
+    {
+        double other = index == 0 ? _ratio2 : _ratio;
+        double clamped = Layout.ClampRatio(index, value, other, ContentW, ContentH, _dividerW, MinPaneDip);
+        if (index == 0) _ratio = clamped;
+        else _ratio2 = clamped;
+        UpdatePaneVisuals();
+        ApplyLayout();
+    }
+
+    /// <summary>命中检测：返回命中的格子索引（null=不在任何格子内）。
+    /// 判定矩形向四周外扩半条分隔条宽——分隔条带本身也算命中（归最近格，
+    /// 与旧版"分隔条中心为左右分界"一致）；用 ActualWidth 直算，
+    /// _content.ActualWidth 在布局回缩未完成时是旧值，会把命中算错。</summary>
+    internal int? HitTestPaneAt(int deviceX, int deviceY)
     {
         if (_handle == IntPtr.Zero || !IsLoaded || WindowState == WindowState.Minimized) return null;
         var p = PointFromScreen(new Point(deviceX, deviceY));
         double bw = CurBorderW;
-        double x0 = bw;
-        double x1 = ActualWidth - bw;
-        double y0 = bw + TopInset; // 最大化浮层模式顶条不占布局，命中区从边框下沿开始
-        double y1 = ActualHeight - bw;
-        if (p.X < x0 || p.X > x1 || p.Y < y0 || p.Y > y1) return null;
-        // 与 PaneRectDevice/UpdatePaneWidths 同一公式（ActualWidth 直算）：
-        // _content.ActualWidth 在布局回缩未完成时是旧值，会把命中分界算错
-        double avail = Math.Max(1, ActualWidth - 2 * bw - _dividerW);
-        double split = x0 + avail * _ratio + _dividerW / 2;
-        return p.X < split ? AttachSide.Left : AttachSide.Right;
+        // 内容区相对坐标（最大化浮层模式顶条不占布局，命中区从边框下沿开始）
+        double cx = p.X - bw;
+        double cy = p.Y - bw - TopInset;
+        double cw = ContentW, ch = ContentH;
+        if (cx < 0 || cx > cw || cy < 0 || cy > ch) return null;
+        var rects = Layout.PaneRects(cw, ch, _ratio, _ratio2, _dividerW);
+        double half = _dividerW / 2;
+        for (int i = 0; i < rects.Length; i++)
+        {
+            var r = rects[i];
+            if (cx >= r.X - half && cx <= r.X + r.Width + half
+                && cy >= r.Y - half && cy <= r.Y + r.Height + half)
+            {
+                return i;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -161,7 +180,7 @@ public sealed partial class HostWindow : Window
         {
             if (h == draggedHwnd) continue;
             // 自家子窗口属于本单元（点击激活的瞬态会升到宿主上方），不算遮挡
-            if (h == _left?.Hwnd || h == _right?.Hwnd) continue;
+            if (IsAttachedChild(h)) continue;
             if (!Native.IsWindowVisible(h) || Native.IsCloaked(h)) continue;
             if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TRANSPARENT) != 0) continue;
             if (!Native.GetWindowRect(h, out var r)) continue;
@@ -170,10 +189,12 @@ public sealed partial class HostWindow : Window
         return false;
     }
 
-    internal void SetDragHighlight(AttachSide? side)
+    internal void SetDragHighlight(int? pane)
     {
-        _highlight = side;
-        _leftGlow.Visibility = side == AttachSide.Left ? Visibility.Visible : Visibility.Collapsed;
-        _rightGlow.Visibility = side == AttachSide.Right ? Visibility.Visible : Visibility.Collapsed;
+        _highlight = pane;
+        for (int i = 0; i < _paneGlows.Length; i++)
+        {
+            _paneGlows[i].Visibility = pane == i ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 }

@@ -26,6 +26,9 @@ public sealed partial class HostWindow : Window
 
     private const double MinRatio = 0.2;
     private const double MaxRatio = 0.8;
+    /// <summary>拖动钳制的每格最小宽度（DIP）：LCR 双比例下 0.2~0.8 区间允许中格缩到 4%，
+    /// 联合钳制保证任何格子不低于此宽度。</summary>
+    private const double MinPaneDip = 80;
 
     private const int WM_NCHITTEST = 0x0084;
     private const int WM_GETMINMAXINFO = 0x0024;
@@ -33,19 +36,26 @@ public sealed partial class HostWindow : Window
     private const int HTCLIENT = 1;
 
     private double _ratio;
+    private double _ratio2 = 0.5;   // 次比例（含义随布局：LCR 中格占比 / LTR·Quad 上下分界）
+    private PaneLayoutDef _layout = PaneLayoutDef.LeftRight; // 当前布局（config Layout，非法回退 LR）
 
     private IntPtr _handle;
-    private AttachedChild? _left;    // 左格当前吸附态（null=空格）
-    private AttachedChild? _right;   // 右格当前吸附态
+    private AttachedChild?[] _panes = Array.Empty<AttachedChild?>(); // 按布局格序持有的吸附态（null=空格）
     // 待落位的保存几何（物理像素）：hwnd 建好后 OnSourceInitialized 用 SetWindowPos 写入——
     // 不能在 hwnd 前设 DIP 属性（WPF 按初始主屏 DPI 解释，跨屏落位漂移）
     private (double X, double Y, double W, double H, bool Maximized)? _pendingPlacement;
     private DragAttach? _drag;
     private readonly DispatcherTimer _timer;
     private Point _lastOrigin;
-    private AttachSide? _highlight;   // 当前拖放高亮的槽位（null=无）
+    private int? _highlight;   // 当前拖放高亮的格子（null=无）
     private string? _notice;
     private DateTime _noticeUntil;
+
+    // 窗格区动态元素（BuildPaneVisuals 按布局生成，SwitchLayout 重建）
+    private Border[] _paneBorders = Array.Empty<Border>();
+    private Button[] _paneHints = Array.Empty<Button>(); // 空格提示（可点击选窗）
+    private Border[] _paneGlows = Array.Empty<Border>();
+    private Border[] _dividers = Array.Empty<Border>();
 
     // 自动更新（逻辑在 Updater.cs，这里只做状态机与 UI）
     private bool _checkUpdates;                 // 启动自动检查开关（config.CheckUpdates，托盘菜单可切）
@@ -59,10 +69,23 @@ public sealed partial class HostWindow : Window
     /// <summary>当前生效的边框宽度：最大化时边框隐藏，格子铺满窗口。</summary>
     private double CurBorderW => WindowState == WindowState.Maximized ? 0 : _borderW;
 
-    /// <summary>槽位 → 吸附态（null=空格）。</summary>
-    private AttachedChild? ChildAt(AttachSide side) => side == AttachSide.Left ? _left : _right;
+    /// <summary>布局（当前布局的静态定义；字段别名，几何/命中/生成统一入口）。</summary>
+    private PaneLayoutDef Layout => _layout;
 
-    private IntPtr HwndOf(AttachSide side) => ChildAt(side)?.Hwnd ?? IntPtr.Zero;
+    /// <summary>内容区尺寸（DIP，窗格可用 + 分隔条占地）：几何公式的基准，
+    /// 从窗口 ActualWidth 直算——_content.ActualWidth 在布局回缩未完成时是旧值。</summary>
+    private double ContentW => Math.Max(0, ActualWidth - 2 * CurBorderW);
+    private double ContentH => Math.Max(0, ActualHeight - 2 * CurBorderW - TopInset);
+
+    /// <summary>格 → 吸附态（null=空格）；越界安全（空数组/索引超限时返回 null）。</summary>
+    private AttachedChild? ChildAt(int pane)
+        => pane >= 0 && pane < _panes.Length ? _panes[pane] : null;
+
+    private IntPtr HwndOf(int pane) => ChildAt(pane)?.Hwnd ?? IntPtr.Zero;
+
+    /// <summary>格的中文名（状态栏/选择器/通知用）。</summary>
+    private string PaneName(int pane)
+        => pane >= 0 && pane < _layout.PaneNames.Length ? _layout.PaneNames[pane] : "?";
 
     /// <summary>解析保存的几何（物理像素）为启动落位矩形；无效（无保存/垃圾值）返回 null（默认居中）。
     /// 目标屏 = 保存矩形中心最近的可见显示器（断屏/改分辨率时自然回拉），尺寸与位置都钳到其工作区。</summary>
@@ -93,17 +116,13 @@ public sealed partial class HostWindow : Window
         return (x, y, w, h, config.WinMaximized);
     }
 
-    /// <summary>侧按钮点击：空格=打开选择器吸附，已吸附=释放该侧。</summary>
-    private void ToggleSide(AttachSide side)
-    {
-        if (HwndOf(side) == IntPtr.Zero) Pick(side);
-        else ReleaseSide(side);
-    }
-
     public HostWindow(AppConfig config, StartupOptions? opts = null)
     {
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
+        _layout = PaneLayoutDef.FromConfig(config.Layout) ?? PaneLayoutDef.LeftRight;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
+        _ratio2 = Math.Clamp(config.Ratio2, MinRatio, MaxRatio);
+        _panes = new AttachedChild?[_layout.PaneCount];
         _checkUpdates = config.CheckUpdates;
         _startToTray = config.StartToTray;
         var orphanPids = config.AttachedPids;
@@ -167,18 +186,17 @@ public sealed partial class HostWindow : Window
         _revealTimer.Tick += (_, _) => PollTopBarReveal();
 
         LocationChanged += (_, _) => OnHostMoved();
-        SizeChanged += (_, _) => { UpdatePaneWidths(); ApplyLayout(); };
+        SizeChanged += (_, _) => { UpdatePaneVisuals(); ApplyLayout(); };
         StateChanged += (_, _) => OnStateChanged();
         Activated += (_, _) =>
         {
-            EnsureChildDocked(AttachSide.Left);
-            EnsureChildDocked(AttachSide.Right);
+            EnsureAllChildrenDocked();
             RaiseChildrenBelow();
             // 宿主激活把宿主单独升到 z 序顶端，子窗口留在原地；低优先级再插回一次加固
             Dispatcher.BeginInvoke(RaiseChildrenBelow, DispatcherPriority.Background);
         };
         DpiChanged += (_, _) => ApplyLayout();
-        Loaded += (_, _) => { UpdatePaneWidths(); ApplyLayout(); CleanupOrphanedChildren(orphanPids, orphanHwnds); AttachStartupTargets(opts); };
+        Loaded += (_, _) => { UpdatePaneVisuals(); ApplyLayout(); CleanupOrphanedChildren(orphanPids, orphanHwnds); AttachStartupTargets(opts); };
         Closing += OnClosing;
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -215,32 +233,28 @@ public sealed partial class HostWindow : Window
         // 布局尺寸单一来源 = XAML；这里读入，几何公式不再手工维护同值常量
         _borderW = _outer.BorderThickness.Left;
         _topBarH = _topBar.Height;
-        _dividerW = _content.ColumnDefinitions[1].Width.Value;
+        _dividerW = (double)FindResource("DividerW");
 
-        _divider.MouseLeftButtonDown += DividerOnMouseDown;
-        _divider.MouseMove += DividerOnMouseMove;
-        _divider.MouseLeftButtonUp += DividerOnMouseUp;
+        // 窗格区按当前布局生成（窗格边框/提示/高亮/分隔条）
+        BuildPaneVisuals();
 
         // 顶条左端应用图标
         _appIcon.Source = LoadAppIconFrame();
 
-        // 顶条功能组：[左][右][交换][释放][主题] | [─][□][✕]
-        // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题月亮/太阳、最大化/还原）
-        _pickLeftButton.Click += (_, _) => ToggleSide(AttachSide.Left);
-        _pickRightButton.Click += (_, _) => ToggleSide(AttachSide.Right);
-        _swapButton.Click += (_, _) => SwapSides();
-        // 顶条「全部释放」：用户主动释放 → 两窗置顶回原位并激活右窗。前台只能转交
-        // 一次（首次 SetForegroundWindow 已交出宿主的前台，第二次被前台锁拒绝），
-        // 所以置顶走无激活 z 序、激活只做一次；ReleaseAll 本体保持纯净——宿主关闭
-        // 清理路径复用它，不拉前台
+        // 顶条功能组：[布局][释放][快捷方式][主题] | [─][□][✕]
+        // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题月亮/太阳、最大化/还原）。
+        // 选窗 = 点空格提示区（拖入或点击开选择器），布局切换 = 布局按钮下拉
+        _layoutButton.Click += (_, _) => OpenLayoutMenu();
+        // 顶条「全部释放」：用户主动释放 → 全部子窗置顶回原位并激活最高序占用格的窗口
+        // （两格布局即旧"右窗"语义）。前台只能转交一次（首次 SetForegroundWindow 已交出
+        // 宿主的前台，第二次被前台锁拒绝），所以置顶走无激活 z 序、激活只做一次；
+        // ReleaseAll 本体保持纯净——宿主关闭清理路径复用它，不拉前台
         _releaseButton.Click += (_, _) =>
         {
-            var l = _left?.Hwnd ?? IntPtr.Zero;
-            var r = _right?.Hwnd ?? IntPtr.Zero;
+            var hwnds = _panes.Where(c => c is not null).Select(c => c!.Hwnd).ToList();
             ReleaseAll();
-            RaiseReleasedWindow(l);
-            RaiseReleasedWindow(r);
-            Native.SetForegroundWindow(r != IntPtr.Zero ? r : l);
+            foreach (var h in hwnds) RaiseReleasedWindow(h);
+            if (hwnds.Count > 0) Native.SetForegroundWindow(hwnds[^1]);
         };
         _shortcutButton.Click += (_, _) => CreateShortcutForCurrent();
         _themeButton.Content = ThemeGlyph();
@@ -283,20 +297,9 @@ public sealed partial class HostWindow : Window
     private void OpenThemeMenu()
     {
         var p = AppTheme.Current();
-        // 默认 ContextMenu 模板里有一层不随主题的白色圆角内边框，必须整体替换为
-        // 极简模板（Border+ItemsPresenter），配色才完全由当前主题决定
-        var menuTemplate = new ControlTemplate(typeof(ContextMenu));
-        var menuBorder = new FrameworkElementFactory(typeof(Border));
-        menuBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(ContextMenu.BackgroundProperty));
-        menuBorder.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(ContextMenu.BorderBrushProperty));
-        menuBorder.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(ContextMenu.BorderThicknessProperty));
-        menuBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(ContextMenu.PaddingProperty));
-        menuBorder.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
-        menuTemplate.VisualTree = menuBorder;
-
         var menu = new ContextMenu
         {
-            Template = menuTemplate,
+            Template = MenuShellTemplate(), // 默认模板的白色圆角内边框不随主题，整体替换
             Background = AppTheme.Brush(p.Bar),
             BorderBrush = AppTheme.Brush(p.Border),
             BorderThickness = new Thickness(1),
@@ -381,33 +384,35 @@ public sealed partial class HostWindow : Window
     // ---------- 快捷方式 ----------
 
     /// <summary>按当前吸附生成桌面快捷方式：参数用进程名（重启后仍能复现组合），PID 易失不入参；
-    /// 另记录各侧 exe 完整路径（--left-exe/--right-exe），双击时目标未运行可自动拉起再吸附。
-    /// 提权/受保护进程取不到路径，降级为仅名字。</summary>
+    /// 另记录 exe 完整路径（--left-exe/--right-exe，仅前两格支持），双击时目标未运行可自动拉起
+    /// 再吸附。多格布局取格序前两个占用格；提权/受保护进程取不到路径，降级为仅名字。</summary>
     private void CreateShortcutForCurrent()
     {
-        string? left = ProcessNameOfChild(_left);
-        string? right = ProcessNameOfChild(_right);
-        if (left is null && right is null)
+        // 占用格按格序取前两个（两格布局即旧左右语义）
+        var used = Enumerable.Range(0, _panes.Length).Where(i => _panes[i] is not null).Take(2).ToArray();
+        if (used.Length == 0)
         {
             ShowNotice("未吸附窗口：先吸附再创建快捷方式");
             return;
         }
 
-        string? leftExe = ImagePathOfChild(_left);
-        string? rightExe = ImagePathOfChild(_right);
+        string? first = ProcessNameOfChild(_panes[used[0]]);
+        string? second = used.Length > 1 ? ProcessNameOfChild(_panes[used[1]]) : null;
+        string? firstExe = ImagePathOfChild(_panes[used[0]]);
+        string? secondExe = used.Length > 1 ? ImagePathOfChild(_panes[used[1]]) : null;
 
         var argv = new List<string> { "merge" }; // 命令式 CLI：快捷方式走 merge 子命令
-        if (left is not null)
+        if (first is not null)
         {
-            argv.Add($"--left \"{left}\"");
-            if (leftExe is not null) argv.Add($"--left-exe \"{leftExe}\"");
+            argv.Add($"--left \"{first}\"");
+            if (firstExe is not null) argv.Add($"--left-exe \"{firstExe}\"");
         }
-        if (right is not null)
+        if (second is not null)
         {
-            argv.Add($"--right \"{right}\"");
-            if (rightExe is not null) argv.Add($"--right-exe \"{rightExe}\"");
+            argv.Add($"--right \"{second}\"");
+            if (secondExe is not null) argv.Add($"--right-exe \"{secondExe}\"");
         }
-        string display = string.Join(" + ", new[] { left, right }.Where(n => n is not null));
+        string display = string.Join(" + ", new[] { first, second }.Where(n => n is not null));
 
         // 文件名剔除非法字符（进程名源自 exe 文件名，防御性处理）
         string safe = string.Concat(display.Split(Path.GetInvalidFileNameChars()));
@@ -495,15 +500,17 @@ public sealed partial class HostWindow : Window
         var cfg = new AppConfig
         {
             Ratio = _ratio,
+            Layout = _layout.ConfigName,
+            Ratio2 = _ratio2,
             Theme = AppTheme.Mode.ToString(),
             CheckUpdates = _checkUpdates,
             StartToTray = _startToTray,
         };
-        cfg.AttachedPids = new[] { _left, _right }
+        cfg.AttachedPids = _panes
             .Where(c => c is not null)
             .Select(c => (long)c!.Pid)
             .ToList();
-        cfg.AttachedHwnds = new[] { _left, _right }
+        cfg.AttachedHwnds = _panes
             .Where(c => c is not null)
             .Select(c => c!.Hwnd.ToInt64())
             .ToList();
@@ -587,7 +594,7 @@ public sealed partial class HostWindow : Window
         _lastOrigin = PointToScreen(new Point(0, 0));
         _drag = new DragAttach(this);
         _timer.Start();
-        UpdateHostIcon(); // 初始即走统一图标管线（此刻 _left/_right 必空 → 内部落 SetFallbackIcon）
+        UpdateHostIcon(); // 初始即走统一图标管线（此刻 _panes 必空 → 内部落 SetFallbackIcon）
         UpdateStatus(); // 首帧就显示空格占位提示（不等 250ms 维护定时器）
         TracePoint("OnSourceInitialized exit");
     }
@@ -734,7 +741,7 @@ public sealed partial class HostWindow : Window
         _lastOrigin = now;
         if (dx == 0 && dy == 0) return;
 
-        foreach (var child in new[] { _left, _right })
+        foreach (var child in _panes)
         {
             child?.MoveBy(dx, dy);
         }
@@ -743,43 +750,256 @@ public sealed partial class HostWindow : Window
     private void ApplyLayout()
     {
         if (_handle == IntPtr.Zero || !IsLoaded) return;
-        ApplyLayoutTo(_left, AttachSide.Left);
-        ApplyLayoutTo(_right, AttachSide.Right);
+        for (int i = 0; i < _panes.Length; i++)
+        {
+            ApplyLayoutTo(_panes[i], i);
+        }
     }
 
-    private bool ApplyLayoutTo(AttachedChild? child, AttachSide side)
+    private bool ApplyLayoutTo(AttachedChild? child, int pane)
     {
         if (child is null || !child.CanPlace) return false;
         if (ActualWidth < 50 || ActualHeight < 50) return false;
 
-        var (x, y, w, h) = PaneRectDevice(side);
+        var (x, y, w, h) = PaneRectDevice(pane);
 
         // 外扩自身隐形边 + 插到宿主正下方，都在 child 内部完成
         return child.PlaceInPane(x, y, w, h);
     }
 
-    private (int X, int Y, int W, int H) PaneRectDevice(AttachSide side)
+    /// <summary>格子的设备像素矩形：布局几何（内容区相对 DIP）经 PointToScreen 逐角转换。
+    /// LR 布局公式与旧版逐值一致（净宽 = W-2bw-dv，左宽 = 净宽 × ratio）。</summary>
+    private (int X, int Y, int W, int H) PaneRectDevice(int pane)
     {
         double bw = CurBorderW;
-        bool isLeft = side == AttachSide.Left;
-        double availDip = Math.Max(0, ActualWidth - 2 * bw - _dividerW);
-        double contentHDip = Math.Max(0, ActualHeight - 2 * bw - TopInset);
-        double leftWDip = availDip * _ratio;
-        double xDip = isLeft ? bw : bw + leftWDip + _dividerW;
-        double wDip = isLeft ? leftWDip : availDip - leftWDip;
-
-        var tl = PointToScreen(new Point(xDip, bw + TopInset));
-        var br = PointToScreen(new Point(xDip + wDip, bw + TopInset + contentHDip));
+        var rects = Layout.PaneRects(ContentW, ContentH, _ratio, _ratio2, _dividerW);
+        var r = rects[pane];
+        var tl = PointToScreen(new Point(bw + r.X, bw + TopInset + r.Y));
+        var br = PointToScreen(new Point(bw + r.X + r.Width, bw + TopInset + r.Y + r.Height));
         return ((int)Math.Round(tl.X), (int)Math.Round(tl.Y),
                 (int)Math.Round(br.X - tl.X), (int)Math.Round(br.Y - tl.Y));
     }
 
-    private void UpdatePaneWidths()
+    /// <summary>窗格视觉对账：按当前布局把窗格边框与分隔条摆到几何矩形上（Canvas 定位）。
+    /// 用窗口 ActualWidth 直算（与 PaneRectDevice 同一公式），不能用 _content.ActualWidth——
+    /// 最大化还原时 StateChanged 早于尺寸回缩完成，读到的旧值会把分隔条顶到错误位置。</summary>
+    private void UpdatePaneVisuals()
     {
-        // 用窗口 ActualWidth 直算（与 PaneRectDevice 同一公式），不能用 _content.ActualWidth——
-        // 最大化还原时 StateChanged 早于尺寸回缩完成，读到的旧值会把分隔条顶到错误位置
-        double avail = Math.Max(0, ActualWidth - 2 * CurBorderW - _dividerW);
-        _leftCol.Width = new GridLength(avail * _ratio);
+        if (_paneBorders.Length == 0) return;
+        double cw = ContentW, ch = ContentH;
+        var rects = Layout.PaneRects(cw, ch, _ratio, _ratio2, _dividerW);
+        for (int i = 0; i < _paneBorders.Length; i++)
+        {
+            var r = rects[i];
+            Canvas.SetLeft(_paneBorders[i], r.X);
+            Canvas.SetTop(_paneBorders[i], r.Y);
+            _paneBorders[i].Width = Math.Max(0, r.Width);
+            _paneBorders[i].Height = Math.Max(0, r.Height);
+        }
+        var divs = Layout.DividerRects(cw, ch, _ratio, _ratio2, _dividerW);
+        for (int i = 0; i < _dividers.Length; i++)
+        {
+            var (_, r) = divs[i];
+            Canvas.SetLeft(_dividers[i], r.X);
+            Canvas.SetTop(_dividers[i], r.Y);
+            _dividers[i].Width = Math.Max(0, r.Width);
+            _dividers[i].Height = Math.Max(0, r.Height);
+        }
+    }
+
+    /// <summary>按当前布局生成窗格区元素（窗格边框 + 空格提示 + 拖放高亮 + 分隔条），
+    /// 旧元素整体丢弃重建。不碰 _panes（吸附态归属由构造/SwitchLayout 管理）。
+    /// 主题刷色全部 SetResourceReference（DynamicResource 跟随 ApplyTheme）；
+    /// 空格提示可点击 = 手动选窗入口（拖入吸附之外的第二条路）。分隔条拖拽事件在此挂接
+    /// （分隔条随布局增减，不能在 WireUi 一次性挂死）。</summary>
+    private void BuildPaneVisuals()
+    {
+        _paneHost.Children.Clear();
+        int n = _layout.PaneCount;
+        _paneBorders = new Border[n];
+        _paneHints = new Button[n];
+        _paneGlows = new Border[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            // 空格占位：填充不透明 + 提示文案，点击打开该格选择器（吸附后隐藏恢复透明，
+            // 子窗口要靠透明格子透出、点击穿透下去交互）。用 Button 承载（自定义模板去默认
+            // 外观）→ 有 AutomationPeer，UIA Invoke 可定位（选窗测试入口，与拖入吸附并行）
+            var hint = new Button
+            {
+                Template = HintTemplate(),
+                Cursor = Cursors.Hand,
+                Visibility = Visibility.Collapsed,
+                Content = "拖窗口到此处吸附\n或点击此处选择窗口",
+                FontSize = 13,
+                FontFamily = SystemFonts.MessageFontFamily,
+                Margin = new Thickness(0),
+                Width = double.NaN, // 显式盖掉隐式按钮样式的 Width=36
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(hint, $"_paneHint{i}");
+            hint.SetResourceReference(Button.BackgroundProperty, "ThemeBarBrush");
+            hint.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush");
+            int pane = i; // for 循环变量跨迭代共享，闭包必须落局部副本（否则点击时 i==n 越界）
+            hint.Click += (_, _) => Pick(pane);
+
+            // 拖放目标高亮（拖动中亮起，盖在占位上）
+            var glow = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)),
+                BorderThickness = new Thickness(5),
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(1),
+                IsHitTestVisible = false,
+                Visibility = Visibility.Collapsed,
+            };
+
+            var inner = new Grid();
+            inner.Children.Add(hint);
+            inner.Children.Add(glow);
+
+            var border = new Border
+            {
+                BorderThickness = new Thickness(2),
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(border, $"_paneBorder{i}");
+            border.SetResourceReference(Border.BorderBrushProperty, "ThemeBorderBrush");
+            border.Child = inner;
+
+            _paneHost.Children.Add(border);
+            _paneBorders[i] = border;
+            _paneHints[i] = hint;
+            _paneGlows[i] = glow;
+        }
+
+        _dividers = new Border[_layout.DividerCount];
+        var dividerStyle = (Style)FindResource("DividerStyle");
+        for (int i = 0; i < _layout.DividerCount; i++)
+        {
+            var divider = new Border
+            {
+                Style = dividerStyle,
+                Tag = i,
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(divider, $"_divider{i}");
+            bool horizontal = Layout.DividerRects(1, 1, _ratio, _ratio2, _dividerW)[i].Axis == DividerAxis.Horizontal;
+            divider.Cursor = horizontal ? Cursors.SizeNS : Cursors.SizeWE;
+            var grip = new TextBlock
+            {
+                Text = "\uF338",
+                FontFamily = (FontFamily)FindResource("FaSolid"),
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+            };
+            if (horizontal) grip.LayoutTransform = new RotateTransform(90); // 横条 = 同字形旋转
+            divider.Child = grip;
+            divider.MouseLeftButtonDown += DividerOnMouseDown;
+            divider.MouseMove += DividerOnMouseMove;
+            divider.MouseLeftButtonUp += DividerOnMouseUp;
+
+            _paneHost.Children.Add(divider);
+            _dividers[i] = divider;
+        }
+    }
+
+    /// <summary>切换布局：子窗口按新旧格子矩形重叠面积迁移到最接近的新格（并列取低索引），
+    /// 放不下（目标格已被占用）的释放回原位。随后重建窗格视觉、重摆、刷状态与图标并落盘。</summary>
+    private void SwitchLayout(PaneLayoutDef next)
+    {
+        if (next == _layout) return;
+        double cw = ContentW, ch = ContentH;
+        var oldRects = _layout.PaneRects(cw, ch, _ratio, _ratio2, _dividerW);
+        var newRects = next.PaneRects(cw, ch, _ratio, _ratio2, _dividerW);
+
+        var newPanes = new AttachedChild?[next.PaneCount];
+        for (int i = 0; i < _panes.Length; i++)
+        {
+            var child = _panes[i];
+            if (child is null) continue;
+            int best = -1;
+            double bestArea = 0;
+            for (int j = 0; j < newRects.Length; j++)
+            {
+                var o = Rect.Intersect(oldRects[i], newRects[j]);
+                double area = o.IsEmpty ? 0 : o.Width * o.Height;
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    best = j;
+                }
+            }
+            if (best >= 0 && newPanes[best] is null) newPanes[best] = child;
+            else child.Restore(); // 多个子窗挤同一格：放不下的回原位
+        }
+
+        _layout = next;
+        _panes = newPanes;
+        _ratio = Math.Clamp(_ratio, MinRatio, MaxRatio);
+        _ratio2 = Math.Clamp(_ratio2, MinRatio, MaxRatio);
+        _highlight = null;
+        BuildPaneVisuals();
+        UpdatePaneVisuals();
+        ApplyLayout();
+        UpdateStatus();
+        UpdateHostIcon();
+        SaveConfig();
+    }
+
+    /// <summary>布局按钮下拉菜单：四种布局（主题化菜单 + mini 布局预览 + 当前项对勾）。</summary>
+    private void OpenLayoutMenu()
+    {
+        var p = AppTheme.Current();
+        var menu = new ContextMenu
+        {
+            Template = MenuShellTemplate(),
+            Background = AppTheme.Brush(p.Bar),
+            BorderBrush = AppTheme.Brush(p.Border),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(4),
+            PlacementTarget = _layoutButton,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+        };
+        foreach (var def in new[] { PaneLayoutDef.LeftRight, PaneLayoutDef.LeftCenterRight, PaneLayoutDef.LeftTopRightBottom, PaneLayoutDef.Quad })
+        {
+            menu.Items.Add(LayoutMenuItem(def, p));
+        }
+        menu.IsOpen = true;
+    }
+
+    private MenuItem LayoutMenuItem(PaneLayoutDef def, AppTheme.Palette p)
+        => MenuItemWithCheck($"{string.Join("｜", def.PaneNames)}（{def.PaneCount} 格）", def == _layout, p, () => SwitchLayout(def));
+
+    /// <summary>ContextMenu 极简外壳模板：默认模板有一层不随主题的白色圆角内边框，
+    /// 整体替换为 Border+ItemsPresenter（主题菜单同款）。</summary>
+    private static ControlTemplate MenuShellTemplate()
+    {
+        var menuTemplate = new ControlTemplate(typeof(ContextMenu));
+        var menuBorder = new FrameworkElementFactory(typeof(Border));
+        menuBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(ContextMenu.BackgroundProperty));
+        menuBorder.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(ContextMenu.BorderBrushProperty));
+        menuBorder.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(ContextMenu.BorderThicknessProperty));
+        menuBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(ContextMenu.PaddingProperty));
+        menuBorder.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
+        menuTemplate.VisualTree = menuBorder;
+        return menuTemplate;
+    }
+
+    /// <summary>空格提示按钮模板：Border（背景 TemplateBinding）+ 居中文本，去默认 chrome。
+    /// 用 Button 而非 Border 是为了带 AutomationPeer（UIA Invoke = 测试的选窗入口）。</summary>
+    private static ControlTemplate HintTemplate()
+    {
+        var t = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        var pres = new FrameworkElementFactory(typeof(ContentPresenter));
+        pres.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        pres.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        pres.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
+        border.AppendChild(pres);
+        t.VisualTree = border;
+        return t;
     }
 
     /// <summary>
@@ -807,11 +1027,11 @@ public sealed partial class HostWindow : Window
     private void RaiseChildrenBelow()
     {
         if (_handle == IntPtr.Zero) return;
-        // 插到宿主正下方（先右后左，最终顺序上→下：宿主、左、右）。
+        // 插到宿主正下方（从最高格序往回插，最终顺序上→下：宿主、格 0、格 1…）。
         // 不用 HWND_TOP：实测 Alt+Tab 切回宿主后它是静默无效调用（返回 true 但 z 序不变）
-        foreach (var child in new[] { _right, _left })
+        for (int i = _panes.Length - 1; i >= 0; i--)
         {
-            child?.PlaceBelowHost();
+            _panes[i]?.PlaceBelowHost();
         }
     }
 
@@ -822,31 +1042,48 @@ public sealed partial class HostWindow : Window
         // 就整体插回宿主正下方。最小化（移出屏幕外但非 iconic）的子窗口豁免。
         // 跳过隐藏/cloaked 窗口：它们不渲染、不参与命中，为它们翻转子窗口 z 纯属浪费，
         // 且每次写入都是一次 DWM 重合成（闪烁）——与 IsCoveredAtCursor 同一判定标准。
-        IntPtr b1 = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetWindow(_handle, Native.GW_HWNDNEXT);
-        IntPtr below = b1;
-        bool leftOk = false, rightOk = false;
-        for (int seen = 0, hops = 0; seen < 2 && below != IntPtr.Zero && hops < 32; hops++)
+        var children = _panes.Where(c => c is not null).ToArray();
+        if (children.Length == 0) return;
+        var matched = new bool[children.Length];
+        IntPtr below = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetWindow(_handle, Native.GW_HWNDNEXT);
+        for (int seen = 0, hops = 0; seen < children.Length && below != IntPtr.Zero && hops < 32; hops++)
         {
             if (!Native.IsWindowVisible(below) || Native.IsCloaked(below))
             {
                 below = Native.GetWindow(below, Native.GW_HWNDNEXT);
                 continue;
             }
-            if (_left is not null && below == _left.Hwnd) leftOk = true;
-            if (_right is not null && below == _right.Hwnd) rightOk = true;
+            for (int i = 0; i < children.Length; i++)
+            {
+                if (below == children[i]!.Hwnd) matched[i] = true;
+            }
             seen++;
             below = Native.GetWindow(below, Native.GW_HWNDNEXT);
         }
-        bool needLeft = _left is not null && _left.IsAlive && !Native.IsIconic(_left.Hwnd) && !leftOk;
-        bool needRight = _right is not null && _right.IsAlive && !Native.IsIconic(_right.Hwnd) && !rightOk;
-        if (needLeft || needRight) RaiseChildrenBelow();
+        bool needRaise = false;
+        for (int i = 0; i < children.Length; i++)
+        {
+            var c = children[i]!;
+            if (c.IsAlive && !Native.IsIconic(c.Hwnd) && !matched[i])
+            {
+                needRaise = true;
+                break;
+            }
+        }
+        if (needRaise) RaiseChildrenBelow();
     }
 
     private void Maintain()
     {
         bool childLost = false;
-        if (_left is not null && !_left.IsAlive) { _left = null; childLost = true; }
-        if (_right is not null && !_right.IsAlive) { _right = null; childLost = true; }
+        for (int i = 0; i < _panes.Length; i++)
+        {
+            if (_panes[i] is { } child && !child.IsAlive)
+            {
+                _panes[i] = null;
+                childLost = true;
+            }
+        }
         UpdateStatus();
         if (childLost) { UpdateHostIcon(); }
 
@@ -860,10 +1097,9 @@ public sealed partial class HostWindow : Window
         // 还原；独立最大化则摧毁合并布局——宿主可见期间一律拉回格子自愈（子窗口自身
         // 没有"最大化"概念）。例外：应用自行隐藏（关闭/最小化到托盘类）→ 上报后走
         // 释放还原，不拉回（见 ReleaseHiddenSide）
-        EnsureChildDocked(AttachSide.Left);
-        EnsureChildDocked(AttachSide.Right);
+        EnsureAllChildrenDocked();
 
-        UpdatePaneWidths(); // 分隔条视觉位置与 _ratio 的持续对账（自愈任何布局漂移）
+        UpdatePaneVisuals(); // 分隔条视觉位置与比例的持续对账（自愈任何布局漂移）
         ApplyLayout();
         FixZOrder();
     }
@@ -878,7 +1114,7 @@ public sealed partial class HostWindow : Window
             case WindowState.Minimized:
                 // 子窗口是 tool window，最小化会缩成标题条留在桌面左下——直接移出屏幕外
                 // （对所有窗口类型有效，还原时 ApplyLayout 按格子矩形拉回）
-                foreach (var child in new[] { _left, _right })
+                foreach (var child in _panes)
                 {
                     child?.MoveOffscreen();
                 }
@@ -889,12 +1125,11 @@ public sealed partial class HostWindow : Window
                 // 最大化只改布局：吸附窗口随格子放大，不触发系统最大化；边框同步隐藏/恢复。
                 // 立即按当前窗口宽校一次；WPF 尺寸回缩/边框变化完成后再校一次（Loaded 优先级），
                 // 消除事件时序导致的分隔条位置漂移
-                EnsureChildDocked(AttachSide.Left);
-                EnsureChildDocked(AttachSide.Right);
+                EnsureAllChildrenDocked();
                 if (_outer is not null) _outer.BorderThickness = new Thickness(CurBorderW);
-                UpdatePaneWidths();
+                UpdatePaneVisuals();
                 ApplyLayout();
-                Dispatcher.BeginInvoke(() => { UpdatePaneWidths(); ApplyLayout(); }, DispatcherPriority.Loaded);
+                Dispatcher.BeginInvoke(() => { UpdatePaneVisuals(); ApplyLayout(); }, DispatcherPriority.Loaded);
                 break;
         }
 
@@ -1092,35 +1327,45 @@ public sealed partial class HostWindow : Window
 
     private void UpdateHostIcon()
     {
-        var l = TryGetIconSource(_left?.Hwnd ?? IntPtr.Zero);
-        var r = TryGetIconSource(_right?.Hwnd ?? IntPtr.Zero);
-        TracePoint($"UpdateHostIcon: left={(l != null ? "素材" : "无")} right={(r != null ? "素材" : "无")} " +
-                   $"({_left?.Hwnd.ToInt64() ?? 0}/{_right?.Hwnd.ToInt64() ?? 0})");
-        if (l == null && r == null)
+        // 各格图标素材（取不到的格用应用图标占位——一眼能看出哪格空着）
+        var sources = new BitmapSource?[_panes.Length];
+        for (int i = 0; i < _panes.Length; i++)
+        {
+            sources[i] = TryGetIconSource(_panes[i]?.Hwnd ?? IntPtr.Zero);
+        }
+        TracePoint($"UpdateHostIcon: panes={_panes.Length} 素材={sources.Count(s => s != null)} " +
+                   $"hwnds={string.Join("/", _panes.Select(c => c?.Hwnd.ToInt64() ?? 0))}");
+        if (sources.All(s => s == null))
         {
             SetFallbackIcon(); // 无吸附窗口时回到应用图标（而非默认 WPF 图标）
             return;
         }
 
-        // 两枚图标对角叠放：右窗右上（先画在下），左窗左下（后画盖在上面）；
-        // 单侧吸附时空位叠本程序图标占位——一眼能看出还有一格空着。
-        // 画布随任务栏 DPI（比例：子图标 3/4、偏移 1/4）
         BitmapSource? app = LoadAppIconFrame();
         if (app is null)
         {
-            Icon = OnTaskbarCanvas(l ?? r!); // 应用图标资源损坏时退化到现有源
+            Icon = OnTaskbarCanvas(sources.First(s => s != null)!); // 应用图标资源损坏时退化到现有源
             return;
         }
-        var topRight = r ?? app;
-        var bottomLeft = l ?? app;
+
+        // 象限合成：按布局 IconSlots 把各格图标画进 2×2 象限（各自锚定象限外角），
+        // 按槽位序绘制——两格布局与旧版双子对角合成逐像素一致（右上先画在下、左下后画盖顶）。
+        // 画布随任务栏 DPI（子图标：≤2 格 3/4、3/4 格 1/2）
         var (w, h) = TaskbarIconSize();
         double cell = Math.Min(w, h);
-        double iconSize = cell * 3 / 4;
+        double iconSize = sources.Length <= 2 ? cell * 3 / 4 : cell / 2;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            dc.DrawImage(topRight, new Rect(cell / 4, 0, iconSize, iconSize));
-            dc.DrawImage(bottomLeft, new Rect(0, cell / 4, iconSize, iconSize));
+            for (int slot = 0; slot < 4; slot++)
+            {
+                int pane = Array.IndexOf(_layout.IconSlots, slot);
+                if (pane < 0) continue;
+                var src = sources[pane] ?? app;
+                double x = slot % 2 == 0 ? 0 : cell - iconSize; // 左列贴左、右列贴右
+                double y = slot < 2 ? 0 : cell - iconSize;      // 上行贴顶、下行贴底
+                dc.DrawImage(src, new Rect(x, y, iconSize, iconSize));
+            }
         }
         var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
@@ -1128,7 +1373,7 @@ public sealed partial class HostWindow : Window
         Icon = rtb;
     }
 
-    // 吸附编排（TryAttach/Release*/SwapSides/Pick 及 CLI 匹配）见 HostWindow.Attach.cs
+    // 吸附编排（TryAttach/Release*/Pick 及 CLI 匹配）见 HostWindow.Attach.cs
     // 拖拽交互（顶条拖动/最大化拖动还原/分隔条拖动）见 HostWindow.Drag.cs
 
     // ---------- 自动更新（网络/换装逻辑在 Updater.cs） ----------
@@ -1312,25 +1557,27 @@ public sealed partial class HostWindow : Window
         else
         {
             _notice = null;
-            if (_left is null && _right is null)
+            if (_panes.All(c => c is null))
             {
-                _status.Text = "把任意窗口拖进来吸附，或点顶条 ← / → 选择左/右窗";
+                _status.Text = "把任意窗口拖进来吸附，或点击空格选择窗口";
             }
             else
             {
-                _status.Text = $"左: {PaneTitle(_left?.Hwnd ?? IntPtr.Zero)}    右: {PaneTitle(_right?.Hwnd ?? IntPtr.Zero)}";
+                _status.Text = string.Join("    ", Enumerable.Range(0, _panes.Length)
+                    .Select(i => $"{PaneName(i)}: {PaneTitle(_panes[i]?.Hwnd ?? IntPtr.Zero)}"));
             }
         }
-        UpdateSideButtons();
         UpdatePaneHints();
     }
 
-    /// <summary>空格显示填充与提示文案（不再透明穿透）；该侧吸附后隐藏占位恢复透明——
+    /// <summary>空格显示填充与提示文案（不再透明穿透）；该格吸附后隐藏占位恢复透明——
     /// 子窗口要靠透明格子透出、点击穿透下去交互，吸附格必须回到透明。</summary>
     private void UpdatePaneHints()
     {
-        _leftHint.Visibility = _left is null ? Visibility.Visible : Visibility.Collapsed;
-        _rightHint.Visibility = _right is null ? Visibility.Visible : Visibility.Collapsed;
+        for (int i = 0; i < _paneHints.Length; i++)
+        {
+            _paneHints[i].Visibility = _panes[i] is null ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private void ShowNotice(string text)
@@ -1343,43 +1590,6 @@ public sealed partial class HostWindow : Window
     private static bool IsCtrlHeld()
         => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
 
-    /// <summary>左右按钮随格子占用状态翻转：空格=吸附选择（左←/右→），已吸附=释放该侧
-    /// （f08b 退出括号：左侧 ScaleX 镜像成 ←]、右侧原向 [→——FA 无原生镜像字形，实测扫描）。</summary>
-    private void UpdateSideButtons()
-    {
-        var sides = new[]
-        {
-            (Button: _pickLeftButton, Child: ChildAt(AttachSide.Left), EmptyGlyph: "\uF060",
-             PickTip: "选择左窗…", ReleaseTip: "释放左窗（回到原位）", Mirror: true),
-            (Button: _pickRightButton, Child: ChildAt(AttachSide.Right), EmptyGlyph: "\uF061",
-             PickTip: "选择右窗…", ReleaseTip: "释放右窗（回到原位）", Mirror: false),
-        };
-        foreach (var (btn, child, emptyGlyph, pickTip, releaseTip, mirror) in sides)
-        {
-            bool used = child is not null;
-            // Content 保持字符串：UIA Name 跟随字形，topbar_state_test 按它断言翻转
-            btn.Content = used ? "\uF08B" : emptyGlyph;
-            btn.RenderTransform = used && mirror ? new ScaleTransform(-1, 1) : null;
-            btn.ToolTip = used ? releaseTip : pickTip;
-        }
-    }
-
-    /// <summary>用户主动释放指定侧的吸附窗口（回原位、恢复任务栏与圆角）并拉回前台：
-    /// Restore 按 NOZORDER+NOACTIVATE 放回普通层，窗口常埋在其他窗口后面，用户点
-    /// 释放就是想接着用它。仅侧按钮路径调用；替换/关闭清理等非主动释放不拉前台。</summary>
-    private void ReleaseSide(AttachSide side)
-    {
-        var child = ChildAt(side);
-        if (child is null) return;
-        var hwnd = child.Hwnd;
-        child.Restore();
-        if (side == AttachSide.Left) _left = null; else _right = null;
-        RaiseReleasedWindow(hwnd);
-        Native.SetForegroundWindow(hwnd); // 单侧释放只有一次前台转交，必然在授权内
-        UpdateStatus();
-        UpdateHostIcon();
-    }
-
     /// <summary>释放后把窗口置顶（无激活）：Restore 把窗口放回普通层且不带 z 序写入，
     /// 窗口常埋在其他窗口后面，先保证可见。z 序重排不受前台锁限制（受限的是激活）。</summary>
     private static void RaiseReleasedWindow(IntPtr hwnd)
@@ -1390,23 +1600,26 @@ public sealed partial class HostWindow : Window
             | Native.SWP_NOOWNERZORDER);
     }
 
-    /// <summary>单侧吸附态自愈入口：应用自行隐藏（连续两个维护周期不可见）→ 走释放；
+    /// <summary>全部占用格的吸附态自愈入口：应用自行隐藏（连续两个维护周期不可见）→ 走释放；
     /// 其余（任务栏重断言、最小化/独立最大化拉回）由 EnsureDockedState 处理。</summary>
-    private void EnsureChildDocked(AttachSide side)
+    private void EnsureAllChildrenDocked()
     {
-        var child = ChildAt(side);
-        if (child is null || !child.EnsureDockedState()) return;
-        ReleaseHiddenSide(side);
+        for (int i = 0; i < _panes.Length; i++)
+        {
+            var child = _panes[i];
+            if (child is null || !child.EnsureDockedState()) continue;
+            ReleaseHiddenSide(i);
+        }
     }
 
     /// <summary>子窗口自行隐藏（关闭/最小化到托盘类应用收到关闭后隐藏而非销毁）：解除吸附
     /// 外观并回吸附前矩形，保持隐藏——尊重应用意图，不把僵尸窗顶回屏幕（应用已认为自己
     /// 关闭，强拉回的窗不响应不重绘）。</summary>
-    private void ReleaseHiddenSide(AttachSide side)
+    private void ReleaseHiddenSide(int pane)
     {
-        ChildAt(side)?.RestoreHidden();
-        if (side == AttachSide.Left) _left = null; else _right = null;
-        ShowNotice($"{(side == AttachSide.Left ? "左" : "右")}: 窗口已自行隐藏（可能已关闭到托盘），已自动释放");
+        ChildAt(pane)?.RestoreHidden();
+        if (pane >= 0 && pane < _panes.Length) _panes[pane] = null;
+        ShowNotice($"{PaneName(pane)}: 窗口已自行隐藏（可能已关闭到托盘），已自动释放");
         UpdateHostIcon();
     }
 

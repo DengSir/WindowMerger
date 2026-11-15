@@ -27,6 +27,9 @@ public sealed record StartupOptions
     public LaunchMode Mode { get; set; } = LaunchMode.None;
     public string? Left { get; set; }
     public string? Right { get; set; }
+    // 第 3/4 格目标（位置参数专属，按布局格序填入；--left/--right = 前 2 格的命名别名）
+    public string? Pane2 { get; set; }
+    public string? Pane3 { get; set; }
     public string? LeftExe { get; set; }
     public string? RightExe { get; set; }
     public long? LeftHwnd { get; set; }
@@ -54,11 +57,12 @@ public static class Cli
           WindowMerger                    合并宿主 + 托盘常驻（「启动到托盘」勾选决定是否弹主窗）
           WindowMerger tray               托盘常驻：Ctrl+Alt+M 捕捉 snap 布局
           WindowMerger detect             检测一次 snap 布局，输出一行 JSON 后退出
-          WindowMerger merge [左] [右]    吸附两个独立窗口（位置参数 ≡ 左右目标）
+          WindowMerger merge [格1] [格2] [格3] [格4]
+                                          吸附独立窗口（位置参数按布局格序填入）
 
         merge 选项:
-          --left <名|PID> / --right <名|PID>    吸附目标（别名 -l / -r）
-          --left-exe / --right-exe <完整路径>   目标 exe 不存在时按路径拉起
+          --left <名|PID> / --right <名|PID>    前 2 格吸附目标（别名 -l / -r）
+          --left-exe / --right-exe <完整路径>   前 2 格目标 exe 不存在时按路径拉起
           --left-hwnd / --right-hwnd <句柄>     snap 接管直连（十进制或 0x 十六进制）
           --profile <名>                        实例隔离（config-<名>.json）
 
@@ -85,14 +89,28 @@ public static class Cli
         // 与「未知旗标报因退出」语义冲突（cli_args_test C3 钉死）
         var leftArg = new Argument<string?>("left")
         {
-            Description = "左侧目标：进程名或 PID",
+            Description = "第 1 格目标：进程名或 PID",
             DefaultValueFactory = _ => null,
             Arity = ArgumentArity.ZeroOrOne,
             CustomParser = ParsePositional,
         };
         var rightArg = new Argument<string?>("right")
         {
-            Description = "右侧目标：进程名或 PID",
+            Description = "第 2 格目标：进程名或 PID",
+            DefaultValueFactory = _ => null,
+            Arity = ArgumentArity.ZeroOrOne,
+            CustomParser = ParsePositional,
+        };
+        var pane2Arg = new Argument<string?>("pane2")
+        {
+            Description = "第 3 格目标：进程名或 PID",
+            DefaultValueFactory = _ => null,
+            Arity = ArgumentArity.ZeroOrOne,
+            CustomParser = ParsePositional,
+        };
+        var pane3Arg = new Argument<string?>("pane3")
+        {
+            Description = "第 4 格目标：进程名或 PID",
             DefaultValueFactory = _ => null,
             Arity = ArgumentArity.ZeroOrOne,
             CustomParser = ParsePositional,
@@ -104,7 +122,7 @@ public static class Cli
         var detectCmd = new Command("detect", "检测一次 snap 布局，输出一行 JSON 后退出");
         detectCmd.SetAction(_ => { opts.Mode = LaunchMode.Detect; return 0; });
 
-        var mergeCmd = new Command("merge", "吸附两个独立窗口进宿主（位置参数 ≡ 左右目标）");
+        var mergeCmd = new Command("merge", "吸附独立窗口进宿主（位置参数按布局格序填入）");
         mergeCmd.Options.Add(leftOption);
         mergeCmd.Options.Add(rightOption);
         mergeCmd.Options.Add(leftExeOption);
@@ -114,11 +132,15 @@ public static class Cli
         mergeCmd.Options.Add(profileOption);
         mergeCmd.Arguments.Add(leftArg);
         mergeCmd.Arguments.Add(rightArg);
+        mergeCmd.Arguments.Add(pane2Arg);
+        mergeCmd.Arguments.Add(pane3Arg);
         mergeCmd.SetAction(parseResult =>
         {
             opts.Mode = LaunchMode.Merge;
             opts.Left = parseResult.GetValue(leftOption) ?? parseResult.GetValue(leftArg);
             opts.Right = parseResult.GetValue(rightOption) ?? parseResult.GetValue(rightArg);
+            opts.Pane2 = parseResult.GetValue(pane2Arg);
+            opts.Pane3 = parseResult.GetValue(pane3Arg);
             opts.LeftExe = parseResult.GetValue(leftExeOption);
             opts.RightExe = parseResult.GetValue(rightExeOption);
             opts.LeftHwnd = ParseHwnd(parseResult.GetValue(leftHwndOption));
@@ -127,7 +149,7 @@ public static class Cli
             return 0;
         });
 
-        var root = new RootCommand("把任意两个独立窗口合并进同一个带边框宿主窗口（无参 = 合并宿主 + 托盘常驻）");
+        var root = new RootCommand("把任意独立窗口合并进同一个带边框宿主窗口（无参 = 合并宿主 + 托盘常驻）");
         root.Subcommands.Add(trayCmd);
         root.Subcommands.Add(detectCmd);
         root.Subcommands.Add(mergeCmd);

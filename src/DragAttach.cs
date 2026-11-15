@@ -5,8 +5,8 @@ namespace WindowMerger;
 /// <summary>
 /// 全局窗口事件编排，两路职责：
 /// 拖入吸附——监听任意窗口的移动（EVENT_SYSTEM_MOVESIZE / MOVESIZEEND），
-///   光标落在宿主左/右洞内时高亮目标格，松手后吸附进该格——以光标为准，
-///   窗口中心在洞内但光标在洞外不吸附（拖标题条时窗口体悬在洞上不算抓取）；
+///   光标落在宿主格子内时高亮目标格，松手后吸附进该格——以光标为准，
+///   窗口中心在格内但光标在格外不吸附（拖标题条时窗口体悬在格上不算抓取）；
 /// 前台联动——监听 EVENT_SYSTEM_FOREGROUND，吸附子窗口成为前台时把整个
 ///   合并单元升到普通窗口之上（见 HostWindow.OnChildActivated）。
 /// </summary>
@@ -61,11 +61,11 @@ internal sealed class DragAttach : IDisposable
         {
             _poll.Stop();
             _dragHwnd = IntPtr.Zero;
-            var side = HitTestSlot(hwnd);
+            var pane = HitTestSlot(hwnd);
             _host.SetDragHighlight(null);
-            if (side is not null)
+            if (pane is not null)
             {
-                _host.TryAttach(side.Value, hwnd);
+                _host.TryAttach(pane.Value, hwnd);
             }
         }
     }
@@ -80,18 +80,18 @@ internal sealed class DragAttach : IDisposable
         _host.SetDragHighlight(HitTestSlot(_dragHwnd));
     }
 
-    private AttachSide? HitTestSlot(IntPtr hwnd)
+    private int? HitTestSlot(IntPtr hwnd)
     {
         // 已吸附子窗口拖动也亮框（归位语义），其余窗口走常规吸附判定
         if (!_host.IsAttachable(hwnd) && !_host.IsAttachedChild(hwnd)) return null;
         // 光标位置为准（MOVESIZEEND 时即松手点），物理设备像素与窗口矩形同坐标系
         if (!Native.GetCursorPos(out var p)) return null;
-        var side = _host.HitTestPaneAt(p.X, p.Y);
-        if (side is null) return null;
+        var pane = _host.HitTestPaneAt(p.X, p.Y);
+        if (pane is null) return null;
         // 光标处宿主上层有别的窗口（如另一实例的宿主）：用户看到的不是我们的格子，
         // 不亮框也不吸附——同一可见层只有一个实例能抓到
         if (_host.IsCoveredAtCursor(hwnd)) return null;
-        return _host.IsDropAllowed(hwnd, side.Value) ? side : null; // 不允许就不显示高亮
+        return _host.IsDropAllowed(hwnd, pane.Value) ? pane : null; // 不允许就不显示高亮
     }
 
     public void Dispose()

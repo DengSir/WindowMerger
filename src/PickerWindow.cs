@@ -6,12 +6,6 @@ using System.Windows.Input;
 
 namespace WindowMerger;
 
-public enum AttachSide
-{
-    Left,
-    Right,
-}
-
 public sealed class PickerWindow : Window
 {
     private readonly IntPtr _excludeHwnd;
@@ -21,11 +15,11 @@ public sealed class PickerWindow : Window
 
     public WindowCandidate? Result { get; private set; }
 
-    public PickerWindow(AttachSide side, IntPtr excludeHwnd)
+    public PickerWindow(string paneName, IntPtr excludeHwnd)
     {
         _excludeHwnd = excludeHwnd;
 
-        Title = side == AttachSide.Left ? "选择吸附到【左侧】的窗口" : "选择吸附到【右侧】的窗口";
+        Title = $"选择吸附到【{paneName}】的窗口";
         Width = 640;
         Height = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;

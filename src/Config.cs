@@ -6,6 +6,10 @@ namespace WindowMerger;
 public sealed class AppConfig
 {
     public double Ratio { get; set; } = 0.5;
+    // 布局种类（PaneLayoutDef.ConfigName：LR/LCR/LTR/Quad）与次比例（含义随布局）；
+    // 非法 Layout 由宿主回退 LR
+    public string Layout { get; set; } = "LR";
+    public double Ratio2 { get; set; } = 0.5;
     public string Theme { get; set; } = "Auto";
     public bool CheckUpdates { get; set; } = true; // 启动自动检查更新（GitHub Release）
     public bool StartToTray { get; set; } // 勾选 = 无参启动不弹主窗，仅托盘常驻（托盘菜单可切）

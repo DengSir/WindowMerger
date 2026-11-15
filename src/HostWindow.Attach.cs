@@ -5,25 +5,26 @@ using System.Windows.Threading;
 
 namespace WindowMerger;
 
-// ---------- 吸附编排（CLI/选择器/拖入 → TryAttach；释放/交换/替换） ----------
+// ---------- 吸附编排（CLI/选择器/拖入 → TryAttach；释放/替换/换格） ----------
 
 public sealed partial class HostWindow : Window
 {
     /// <summary>
-    /// 命令行吸附：WindowMerger.exe [左进程名|左PID] [右进程名|右PID]，Loaded 后执行一次。
-    /// 参数为纯数字时按 PID 匹配（脚本 Start-Process -PassThru 可直接拿到），否则按进程名
-    /// （可带可不带 .exe，大小写不敏感）；--left-exe/--right-exe 提供目标 exe 完整路径：
-    /// 名字/PID 匹配不到时先按镜像路径匹配已运行窗口，仍没有就拉起该 exe 并轮询窗口出现
-    /// （上限 12 秒，异步等待不阻塞 UI）——快捷方式双击复现组合时目标应用可以还没开。
-    /// 同候选多窗口取面积最大的；未找到的跳过并在状态栏提示；已吸附的 hwnd 去重。
-    /// --left-hwnd/--right-hwnd（snap 接管）绕开名字/PID 解析直连句柄——同进程多窗
-    /// （记事本多标签、explorer 多窗）靠 PID 匹配会有歧义，句柄才能精确指定。
+    /// 命令行吸附：WindowMerger.exe merge [格1] [格2] [格3] [格4]（位置参数按布局格序填入），
+    /// Loaded 后执行一次。参数为纯数字时按 PID 匹配（脚本 Start-Process -PassThru 可直接拿到），
+    /// 否则按进程名（可带可不带 .exe，大小写不敏感）；--left-exe/--right-exe 提供目标 exe
+    /// 完整路径（仅前两格）：名字/PID 匹配不到时先按镜像路径匹配已运行窗口，仍没有就拉起
+    /// 该 exe 并轮询窗口出现（上限 12 秒，异步等待不阻塞 UI）——快捷方式双击复现组合时
+    /// 目标应用可以还没开。同候选多窗口取面积最大的；未找到的跳过并在状态栏提示；
+    /// 已吸附的 hwnd 去重。--left-hwnd/--right-hwnd（snap 接管）绕开名字/PID 解析直连句柄
+    /// ——同进程多窗（记事本多标签、explorer 多窗）靠 PID 匹配会有歧义，句柄才能精确指定。
     /// </summary>
     private async void AttachStartupTargets(StartupOptions? opts)
     {
         TracePoint("AttachStartupTargets enter (Loaded)");
         if (opts is null
             || (string.IsNullOrWhiteSpace(opts.Left) && string.IsNullOrWhiteSpace(opts.Right)
+                && string.IsNullOrWhiteSpace(opts.Pane2) && string.IsNullOrWhiteSpace(opts.Pane3)
                 && string.IsNullOrWhiteSpace(opts.LeftExe) && string.IsNullOrWhiteSpace(opts.RightExe)
                 && opts.LeftHwnd is null && opts.RightHwnd is null))
         {
@@ -33,24 +34,27 @@ public sealed partial class HostWindow : Window
         try
         {
             // 直连句柄先吸（无效句柄报因跳过，不做名字解析回退）
-            if (opts.LeftHwnd is long lh) AttachHwndTarget(AttachSide.Left, lh);
-            if (opts.RightHwnd is long rh) AttachHwndTarget(AttachSide.Right, rh);
+            if (opts.LeftHwnd is long lh) AttachHwndTarget(0, lh);
+            if (opts.RightHwnd is long rh) AttachHwndTarget(1, rh);
 
+            // 目标按布局格序填入（--left/--right = 前 2 格的命名别名；第 3/4 格仅位置参数）
             var targets = new[]
             {
-                (Side: AttachSide.Left, Raw: opts.Left, Exe: opts.LeftExe),
-                (Side: AttachSide.Right, Raw: opts.Right, Exe: opts.RightExe),
+                (Pane: 0, Raw: opts.Left, Exe: (string?)opts.LeftExe),
+                (Pane: 1, Raw: opts.Right, Exe: (string?)opts.RightExe),
+                (Pane: 2, Raw: opts.Pane2, Exe: (string?)null),
+                (Pane: 3, Raw: opts.Pane3, Exe: (string?)null),
             };
 
             // 先把能直接吸附的吸掉、缺失的并行拉起，再统一轮询等窗口出现
-            var pending = new List<(AttachSide Side, string Exe, string Label)>();
-            foreach (var (side, raw, exe) in targets)
+            var pending = new List<(int Pane, string Exe, string Label)>();
+            foreach (var (pane, raw, exe) in targets)
             {
                 if (string.IsNullOrWhiteSpace(raw) && string.IsNullOrWhiteSpace(exe)) continue;
                 IntPtr hwnd = FindStartupTarget(raw, exe);
                 if (hwnd != IntPtr.Zero)
                 {
-                    AttachFound(side, hwnd);
+                    AttachFound(pane, hwnd);
                     continue;
                 }
                 if (string.IsNullOrWhiteSpace(exe))
@@ -66,7 +70,7 @@ public sealed partial class HostWindow : Window
                 }
                 if (LaunchTarget(path))
                 {
-                    pending.Add((side, path, string.IsNullOrWhiteSpace(raw) ? Path.GetFileName(path) : raw.Trim()));
+                    pending.Add((pane, path, string.IsNullOrWhiteSpace(raw) ? Path.GetFileName(path) : raw.Trim()));
                 }
             }
 
@@ -79,7 +83,7 @@ public sealed partial class HostWindow : Window
                 {
                     IntPtr hwnd = FindWindowByExePath(pending[i].Exe);
                     if (hwnd == IntPtr.Zero) continue;
-                    AttachFound(pending[i].Side, hwnd);
+                    AttachFound(pending[i].Pane, hwnd);
                     pending.RemoveAt(i);
                 }
             }
@@ -89,7 +93,7 @@ public sealed partial class HostWindow : Window
             }
 
             // 任务栏按钮图标加固：按钮由 shell 在窗口可见后才异步创建，Loaded 帧内连续三次
-            // WM_SETICON（fallback→单侧占位拼图→双窗拼图）可能撞上按钮创建竞态被吞——
+            // WM_SETICON（fallback→占位拼图→多窗拼图）可能撞上按钮创建竞态被吞——
             // 空闲优先级再断言一次最终态（幂等重设；运行中路径的 UpdateHostIcon 不走这里）
             _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(UpdateHostIcon));
         }
@@ -101,15 +105,15 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>snap 接管的直连句柄目标：句柄失效（目标已关/句柄复用）报因跳过，无名字解析。</summary>
-    private void AttachHwndTarget(AttachSide side, long hwnd)
+    private void AttachHwndTarget(int pane, long hwnd)
     {
         IntPtr h = new(hwnd);
         if (!Native.IsWindow(h))
         {
-            ShowNotice($"{(side == AttachSide.Left ? "左" : "右")}: 窗口句柄无效，已跳过");
+            ShowNotice($"{PaneName(pane)}: 窗口句柄无效，已跳过");
             return;
         }
-        AttachFound(side, h);
+        AttachFound(pane, h);
     }
 
     /// <summary>启动目标匹配：名字/PID（raw）优先，其次按镜像路径匹配已运行窗口（exe）。</summary>
@@ -123,10 +127,10 @@ public sealed partial class HostWindow : Window
         return hwnd;
     }
 
-    private void AttachFound(AttachSide side, IntPtr hwnd)
+    private void AttachFound(int pane, IntPtr hwnd)
     {
         if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
-        TryAttach(side, hwnd);
+        TryAttach(pane, hwnd);
     }
 
     /// <summary>ShellExecute 拉起目标 exe（打包应用别名也能走通）；失败状态栏报因返回 false。</summary>
@@ -202,7 +206,7 @@ public sealed partial class HostWindow : Window
         foreach (var c in candidates)
         {
             if (!match(c)) continue;
-            if (c.Hwnd == (_left?.Hwnd ?? IntPtr.Zero) || c.Hwnd == (_right?.Hwnd ?? IntPtr.Zero)) continue; // 已吸附的跳过
+            if (IsAttachedChild(c.Hwnd)) continue; // 已吸附的跳过
             if (!Native.GetWindowRect(c.Hwnd, out var r)) continue;
             long area = (long)r.Width * r.Height;
             if (area > bestArea)
@@ -227,59 +231,73 @@ public sealed partial class HostWindow : Window
     }
 
     internal bool IsAttachedChild(IntPtr hwnd)
-        => hwnd != IntPtr.Zero && (hwnd == (_left?.Hwnd ?? IntPtr.Zero) || hwnd == (_right?.Hwnd ?? IntPtr.Zero));
+        => hwnd != IntPtr.Zero && IndexOfChildHwnd(hwnd) >= 0;
+
+    /// <summary>hwnd 当前挂在哪个格（未吸附返回 -1）。</summary>
+    private int IndexOfChildHwnd(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return -1;
+        for (int i = 0; i < _panes.Length; i++)
+        {
+            if (_panes[i]?.Hwnd == hwnd) return i;
+        }
+        return -1;
+    }
 
     /// <summary>拖放是否被允许：空格、拖回自己、或按住 Ctrl 替换。不允许则不显示高亮。</summary>
-    internal bool IsDropAllowed(IntPtr hwnd, AttachSide side)
+    internal bool IsDropAllowed(IntPtr hwnd, int pane)
     {
-        IntPtr cur = HwndOf(side);
+        IntPtr cur = HwndOf(pane);
         if (cur == IntPtr.Zero || cur == hwnd) return true;
         return IsCtrlHeld();
     }
 
-    internal void TryAttach(AttachSide side, IntPtr hwnd)
+    internal void TryAttach(int pane, IntPtr hwnd)
     {
-        // 已吸附子窗口（toolwindow）被 IsAttachable 排除，但"拖走拖回归位/拖到另一侧
-        // 换侧/Ctrl 拖入替换"都以此为入口——豁免之，存活校验在 IsAttachedChild 内
+        // 目标格必须存在于当前布局：CLI 4 位置参数落在 LR 宿主（第 3/4 格不存在）时静默跳过
+        if (pane < 0 || pane >= _panes.Length)
+        {
+            ShowNotice($"{(pane >= 0 ? $"第 {pane + 1} 格" : "目标格")}超出当前布局（{_layout.ConfigName}），已跳过");
+            return;
+        }
+        // 已吸附子窗口（toolwindow）被 IsAttachable 排除，但"拖走拖回归位/拖到其他格
+        // 换格/Ctrl 拖入替换"都以此为入口——豁免之，存活校验在 IsAttachedChild 内
         if (!IsAttachable(hwnd) && !IsAttachedChild(hwnd)) return;
-        var otherSide = side == AttachSide.Left ? AttachSide.Right : AttachSide.Left;
-        var child = ChildAt(side);
-        var other = ChildAt(otherSide);
+        var child = ChildAt(pane);
         IntPtr cur = child?.Hwnd ?? IntPtr.Zero;
-        IntPtr otherHwnd = other?.Hwnd ?? IntPtr.Zero;
 
         if (hwnd == cur)
         {
-            ApplyLayoutTo(child, side); // 拖走又拖回来：吸附回原格
+            ApplyLayoutTo(child, pane); // 拖走又拖回来：吸附回原格
             return;
         }
         if (cur != IntPtr.Zero && !IsCtrlHeld())
         {
-            // 占用侧默认不替换；按住 Ctrl 才允许新窗口顶掉旧的
-            ShowNotice("该侧已吸附窗口：按住 Ctrl 拖入可替换");
+            // 占用格默认不替换；按住 Ctrl 才允许新窗口顶掉旧的
+            ShowNotice("该格已吸附窗口：按住 Ctrl 拖入可替换");
             return;
         }
-        if (hwnd == otherHwnd)
+        int from = IndexOfChildHwnd(hwnd); // ≠ pane（hwnd != cur 已排除），-1 = 新窗口
+        if (from >= 0)
         {
-            // 拖到另一侧 = 换到另一侧（吸附态整体搬家）：被拖子窗口当前挂在另一侧
-            // 引用上（hwnd == otherHwnd），把它挂到目标侧、另一侧清空。
-            // （旧赋值方向反了：side=Right 时写成 _left=_right/_right=null，被拖窗口
-            // 引用直接丢失 → 孤儿停在松手位置，实测 2026-11）
-            if (side == AttachSide.Left) { _left = other; _right = null; }
-            else { _right = other; _left = null; }
-            ApplyLayoutTo(ChildAt(side), side);
+            // 拖到其他格 = 换格（吸附态整体搬家）：把被拖子窗口挂到目标格、原格清空。
+            // （2026-11 旧两格版曾因赋值方向反了丢引用 → 孤儿停在松手位置，泛化时保持
+            // "先清原格再挂目标格"的顺序）
+            _panes[from] = null;
+            _panes[pane] = child;
+            ApplyLayoutTo(child, pane);
             UpdateStatus();
             return;
         }
 
         if (child is not null) child.Restore(); // 替换：原窗口回到吸附前位置
         var attached = AttachedChild.Attach(_handle, hwnd);
-        if (side == AttachSide.Left) _left = attached; else _right = attached;
+        _panes[pane] = attached;
         attached.PrepareForDock();
-        if (!ApplyLayoutTo(attached, side))
+        if (!ApplyLayoutTo(attached, pane))
         {
             // SetWindowPos 被拒：最常见是目标窗口以更高权限运行（UIPI 拦截跨完整性级别操作）
-            DetachStateOnly(side, attached);
+            DetachStateOnly(pane, attached);
             ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
             return;
         }
@@ -290,11 +308,11 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>吸附失败时只清理状态，不尝试恢复窗口几何（窗口从未被移动过）。</summary>
-    private void DetachStateOnly(AttachSide side, AttachedChild child)
+    private void DetachStateOnly(int pane, AttachedChild child)
     {
-        if (ChildAt(side) == child)
+        if (ChildAt(pane) == child)
         {
-            if (side == AttachSide.Left) _left = null; else _right = null;
+            _panes[pane] = null;
         }
         child.Undock();
         UpdateStatus();
@@ -303,30 +321,23 @@ public sealed partial class HostWindow : Window
 
     private void ReleaseAll()
     {
-        _left?.Restore();
-        _right?.Restore();
-        _left = null;
-        _right = null;
+        foreach (var child in _panes)
+        {
+            child?.Restore();
+        }
+        Array.Clear(_panes);
         UpdateStatus();
         UpdateHostIcon();
     }
 
-    private void SwapSides()
+    private void Pick(int pane)
     {
-        (_left, _right) = (_right, _left);
-        ApplyLayout();
-        UpdateStatus();
-        UpdateHostIcon();
-    }
-
-    private void Pick(AttachSide side)
-    {
-        var picker = new PickerWindow(side, _handle) { Owner = this };
+        var picker = new PickerWindow(PaneName(pane), _handle) { Owner = this };
         picker.ShowDialog();
         var result = picker.Result;
         if (picker.DialogResult == true && result is not null)
         {
-            TryAttach(side, result.Hwnd);
+            TryAttach(pane, result.Hwnd);
         }
     }
 }
