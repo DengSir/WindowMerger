@@ -4,9 +4,9 @@
 
 | 目录 | 用途 | 数量 |
 |---|---|---|
-| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单），44 项全覆盖（32 tests + 12 visual） | 1 |
+| `run_all.py` | **一键完整回归**：按依赖顺序跑全部自动测试 + 汇总表（`--only` 子集 / `--list` 清单），45 项全覆盖（33 tests + 12 visual） | 1 |
 | `publish/` | 本地打包发布 | 1 |
-| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 32 |
+| `tests/` | 自动回归测试（自动清理/还原，可无人值守跑） | 33 |
 | `diag/` | 一次性诊断探针（bug 排查期产物，留档复用；非常驻回归） | 24 |
 | `targets/` | 测试靶窗（tkinter/ctypes 受控窗口，供 tests 拉起） | 5 |
 | `manual/` | 人工交互排查工具（对应场景已有自动版在 tests/，此处留作诊断） | 2 |
@@ -62,11 +62,12 @@
 | `pane_drag_rules_test.py` | 格子拖入规则：占用格拒绝/Ctrl 替换/拖出自愈/宿主拖动子窗跟随（PaneDragRulesTest） |
 | `picker_filter_test.py` | 选窗候选过滤：负向过滤（toolwindow/owned/排除类名）、大小写不敏感、未选中点吸附无操作（PickerFilterTest） |
 | `config_edge_test.py` | 配置边界：损坏 JSON 回退默认、Ratio 钳制、几何过小钳 MinWidth/MinHeight、非法 Theme 回退（ConfigEdgeTest） |
-| `cli_args_test.py` | CLI 参数边界：位置参数≡命名参数、缺参/未知旗标报因、大小写/.exe 后缀、找不到的报因文案（CliArgsTest） |
+| `cli_args_test.py` | CLI 参数边界（命令式 CLI）：merge 位置参数≡命名参数、缺参/未知旗标/旧旗标/多余参数 → MessageBox 报因+退出码 1、`--help` 用法框 rc=0、大小写/.exe 后缀、找不到的报因文案（CliArgsTest） |
 | `pid_fallback_test.py` | PID 三级回退后两级：后代进程树 + 同名兜底 + 面积最大（PidFallbackTest） |
 | `snap_capture_test.py` | snap 捕捉接管 e2e：检测命中/比例、接管双吸附、拼图图标、宿主矩形=工作区、释放回捕获矩形、profile 隔离、报因四场景、托盘单实例（SnapCaptureTest） |
 | `update_e2e_test.py` | 自动更新 e2e：假 releases/latest → 自动弹框 → 下载换装重启全链（UpdateE2ETest） |
-| `update_edge_test.py` | 更新边界：版本前缀解析/404/开关持久化/坏 zip 保留/.old 占用自愈（UpdateEdgeTest） |
+| `update_edge_test.py` | 更新边界：版本前缀解析/404/坏 zip 保留/.old 占用自愈（开关翻转持久化迁至 noargs_tray_test）（UpdateEdgeTest） |
+| `noargs_tray_test.py` | 无参组合模式：主窗+托盘（mutex 佐证）/关窗常驻/第二实例回退纯窗口/启动到托盘零主窗/托盘菜单（检查更新翻转落盘、自启写无参 Run 值、打开主窗口、退出；图标被收纳进溢出 flyout 时 SKIP_TRAY_ICON_HIDDEN）（NoArgsTrayTest） |
 
 ## diag/（一次性诊断探针，bug 排查期产物留档）
 

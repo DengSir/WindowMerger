@@ -14,7 +14,7 @@
 |---|---|---|
 | 拖入吸附 | `DragAttach`（全局 WinEvent hook） | 拖动中目标格亮蓝框，**以光标位置为准**（窗口中心在格内但光标不在不算），松手吸附；`IsCoveredAtCursor` 遍历 z 序判定遮挡（透明格子 alpha=0 在 OS 层点击穿透，不能 `WindowFromPoint` 直判） |
 | 顶条选窗 | `PickerWindow` | 候选列表（标题/进程/PID/类名）+ 实时过滤 + 刷新；已吸附时按钮翻转成"释放该侧" |
-| 命令行 | `App.ParseArgs` + `HostWindow.Attach.cs` | `--left/--right` 进程名\|PID（位置参数兜底）；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用 stub）→ 同名进程；`--left-exe/--right-exe` 目标没开自动拉起（12s 轮询，宿主关闭中止） |
+| 命令行 | `merge` 子命令（`src/Cli.cs`，System.CommandLine）+ `HostWindow.Attach.cs` | `merge [左] [右]`（位置参数 ≡ `--left/--right`）进程名\|PID；PID 三级回退：精确 PID → 后代进程树（Win11 打包应用 stub）→ 同名进程；`--left-exe/--right-exe` 目标没开自动拉起（12s 轮询，宿主关闭中止） |
 | snap 捕捉接管 | 托盘热键 `TrayController` + `SnapLayoutDetector` | Ctrl+Alt+M 捕捉当前 Win11 snap 布局（见"捕捉接管"节） |
 
 ## 吸附行为规则
@@ -26,17 +26,30 @@
 - 启动时按上次配置的 HWND 精确清理孤儿（摘 TOOLWINDOW + 恢复任务栏收录 + 屏幕外 -32000 拉回）；PID 仅作句柄复用校验，**绝不按 PID 枚举进程全部窗口**（隐藏辅助窗口会被误显示成幽灵任务栏按钮）
 - 候选/吸附排除：shell 窗口、无标题、owned、toolwindow、`WS_EX_TRANSPARENT` 穿透层、"另一个自己"（其他 WindowMerger 实例，含发布重命名变体）
 
+## 启动模式（命令式 CLI）
+
+| 启动 | 语义 |
+|---|---|
+| 无参 | **组合模式**：托盘常驻 + 默认宿主（托盘菜单「启动到托盘」勾选则零窗口）；关窗不退出（首次 balloon 提醒），托盘「退出」才结束；托盘 mutex 被占 → 回退纯窗口模式（关窗即退出） |
+| `tray` | 只托盘常驻，零窗口（原 `--tray`） |
+| `detect` | 检测一次 snap 布局，stdout 输出一行 JSON 退出（原 `--detect-snap`） |
+| `merge [左] [右]` | 吸附宿主窗口模式，关窗即退出（原根旗标/位置参数） |
+
+- 解析用 System.CommandLine（3.0）；未知旗标/缺参/多余位置参数 = **MessageBox 中文报因 + 用法 → 退出码 1**，`--help` = 用法框退出码 0（GUI 无控制台，lib 输出不可见）
+- 托盘菜单即设置枢纽：立即捕捉 / 打开主窗口 / 启动到托盘 / 开机自启（Run 表写**无参**命令，开机形态由「启动到托盘」决定） / 启动时检查更新（自主题菜单迁入）/ 退出；设置开关经同进程宿主单一写者同步落盘，宿主不在则直写默认 config
+- 测试屏蔽：环境变量 `WM_NO_TRAY=1` 让无参启动回退旧语义（仅主窗、关窗即退出），不起托盘不占 mutex（wm.py 导入/run_all/test.yml 三层注入；`noargs_tray_test` 自行剥掉验证新语义）
+
 ## snap 捕捉接管（托盘）
 
-- **托盘模式**（`--tray`）：NotifyIcon 常驻 + 命名 mutex 单实例，热键 **Ctrl+Alt+M 固定**；右键菜单 立即捕捉 / 开机自启（HKCU Run）/ 退出
+- **托盘常驻**（`tray` 子命令 / 无参组合模式）：NotifyIcon + 命名 mutex 单实例，热键 **Ctrl+Alt+M 固定**
 - **检测 = 纯几何**（`SnapLayoutDetector`，snap 分区无公开查询 API）：可见顶层窗的 `DWMWA_EXTENDED_FRAME_BOUNDS`（EFB——`GetWindowRect` 带 ~7px 隐形边，snap 相邻窗在该域互相重叠）互不重叠 + 并集 ≈ 某屏工作区（8px 容差）+ 共享竖直边；**布局判定 = 贴合子集搜索**（2^N 枚举互不重叠且并集≈工作区的子集——双窗共享竖边 = 对分接管、共享横边 = STACKED 报因、≥3 窗 = TOO_MANY:n 报因，盖住布局的漂浮大窗无关）；单窗面积 ≥5% 工作区 + 完整在工作区内才参与；挑屏 = 前台所在屏 → 光标屏 → 任意
-- **接管**：按两窗的 EFB 并集派生比例，spawn `--left-hwnd/--right-hwnd --profile snap-<屏序号>` 新实例直连句柄吸附；**宿主直接最大化**（矩形 = 布局屏工作区），顶条自动隐藏随之生效、子窗占满全高；**取消最大化 = 宿主变小**（正常态 = profile 上次尺寸，无则 960×600，居中于布局所在屏；两窗缩进格子），并集只用于分隔比例；释放 = 子窗口回各自捕获时矩形
+- **接管**：按两窗的 EFB 并集派生比例，spawn `merge --left-hwnd/--right-hwnd --profile snap-<屏序号>` 新实例直连句柄吸附；**宿主直接最大化**（矩形 = 布局屏工作区），顶条自动隐藏随之生效、子窗占满全高；**取消最大化 = 宿主变小**（正常态 = profile 上次尺寸，无则 960×600，居中于布局所在屏；两窗缩进格子），并集只用于分隔比例；释放 = 子窗口回各自捕获时矩形
 - **profile 配置隔离**：接管实例读写 `config-snap-<屏序号>.json`（记孤儿清理 HWND + 还原尺寸），不触碰常规 `config.json`；CheckUpdates 强制 false（更新走主实例）
-- `--detect-snap`：检测一次输出一行 JSON 退出（reason ASCII 码 NO_LAYOUT/STACKED/TOO_MANY:n，中文报因只进托盘 balloon）；同屏已有存活接管实例则 balloon 拒绝重捕
+- `detect`：检测一次输出一行 JSON 退出（reason ASCII 码 NO_LAYOUT/STACKED/TOO_MANY:n，中文报因只进托盘 balloon）；同屏已有存活接管实例则 balloon 拒绝重捕
 
 ## 顶条功能（全部功能一个顶条，无右键菜单）
 
-- 更新组：无更新时隐藏；启动约 4s 自动检查一次 GitHub Release（主题菜单 `CheckUpdates` 开关，无手动检查入口），发现新版本 = 功能区最左现身「发现新版本 ⬇」+ 自动弹主题化确认框（一次性宣告）；确认或点 ⬇ 直接下载（状态栏进度）+ 优雅重启换装；取消后 ⬇ 保留，再点直接下载不重复询问；无更新/失败按钮保持隐藏
+- 更新组：无更新时隐藏；启动约 4s 自动检查一次 GitHub Release（托盘菜单「启动时检查更新」开关，无手动检查入口），发现新版本 = 功能区最左现身「发现新版本 ⬇」+ 自动弹主题化确认框（一次性宣告）；确认或点 ⬇ 直接下载（状态栏进度）+ 优雅重启换装；取消后 ⬇ 保留，再点直接下载不重复询问；无更新/失败按钮保持隐藏
 - `[←][→]` 选择左/右窗（空格）或释放该侧（已吸附，字形翻转）
 - `[⇄]` 交换左右（引用交换，几何重排）
 - `[⛓]` 全部释放（回吸附前矩形、恢复任务栏与圆角）

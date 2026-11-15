@@ -34,6 +34,9 @@ jobs:
       # 线上版本 vs CI 构建版本的版本差都会改变被测行为（模态框事故根因）；
       # update_e2e/update_edge 用 WM_UPDATE_API 指本地假服务，手动检查不受影响
       WM_UPDATE_OFF: 1
+      # 无参启动回退旧语义（仅主窗、关窗即退出）：不起托盘、不占 mutex、不注册热键；
+      # 组合模式新语义由 noargs_tray_test 自行剥掉验证
+      WM_NO_TRAY: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v7

@@ -48,7 +48,9 @@ public sealed partial class HostWindow : Window
     private DateTime _noticeUntil;
 
     // 自动更新（逻辑在 Updater.cs，这里只做状态机与 UI）
-    private bool _checkUpdates;                 // 启动自动检查开关（config.CheckUpdates，主题菜单可切）
+    private bool _checkUpdates;                 // 启动自动检查开关（config.CheckUpdates，托盘菜单可切）
+    private bool _startToTray;                  // 启动到托盘镜像（config.StartToTray，托盘菜单可切，
+                                                // SaveConfig 回写防丢——托盘翻转经 SetStartToTray 同步进来）
     private Updater.UpdateInfo? _update;        // 发现的可用更新（null=无）
     private string? _updateZip;                 // 已下载的更新包路径（null=未下载）
     private UpdatePhase _updatePhase = UpdatePhase.Idle;
@@ -103,6 +105,7 @@ public sealed partial class HostWindow : Window
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
         _checkUpdates = config.CheckUpdates;
+        _startToTray = config.StartToTray;
         var orphanPids = config.AttachedPids;
         var orphanHwnds = config.AttachedHwnds;
 
@@ -304,9 +307,7 @@ public sealed partial class HostWindow : Window
         menu.Items.Add(ThemeMenuItem("跟随系统", AppThemeMode.Auto, p));
         menu.Items.Add(ThemeMenuItem("深色", AppThemeMode.Dark, p));
         menu.Items.Add(ThemeMenuItem("浅色", AppThemeMode.Light, p));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(MenuItemWithCheck("启动时检查更新", _checkUpdates, p,
-            () => { _checkUpdates = !_checkUpdates; SaveConfig(); }, "ToggleCheckUpdates"));
+        // 「启动时检查更新」已迁移至托盘菜单（托盘是常驻设置枢纽）
         menu.IsOpen = true;
     }
 
@@ -318,10 +319,8 @@ public sealed partial class HostWindow : Window
             SaveConfig();
         });
 
-    /// <summary>主题菜单通用项（主题三选 + 启动检查更新开关共用）：极简模板 + 对勾列 + 悬停高亮。
-    /// 自定义 Header 的 MenuItem UIA Name 为空（AGENTS 已知坑），可传 automationId 供测试定位。</summary>
-    private MenuItem MenuItemWithCheck(string label, bool checkmark, AppTheme.Palette p, Action onClick,
-        string? automationId = null)
+    /// <summary>主题菜单通用项（主题三选）：极简模板 + 对勾列 + 悬停高亮。</summary>
+    private MenuItem MenuItemWithCheck(string label, bool checkmark, AppTheme.Palette p, Action onClick)
     {
         // 极简模板只呈现 Background（默认模板的浅灰高亮会破坏深色主题），悬停色事件时从当前主题取
         var template = new ControlTemplate(typeof(MenuItem));
@@ -357,8 +356,6 @@ public sealed partial class HostWindow : Window
             FontSize = 12,
             Template = template,
         };
-        if (automationId is not null)
-            item.SetValue(System.Windows.Automation.AutomationProperties.AutomationIdProperty, automationId);
         item.MouseEnter += (_, _) => item.Background = AppTheme.Brush(AppTheme.Current().ButtonHover);
         item.MouseLeave += (_, _) => item.Background = Brushes.Transparent;
         item.Click += (_, _) => onClick();
@@ -495,7 +492,13 @@ public sealed partial class HostWindow : Window
         => target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value });
 
     private void SaveConfig()    {
-        var cfg = new AppConfig { Ratio = _ratio, Theme = AppTheme.Mode.ToString(), CheckUpdates = _checkUpdates };
+        var cfg = new AppConfig
+        {
+            Ratio = _ratio,
+            Theme = AppTheme.Mode.ToString(),
+            CheckUpdates = _checkUpdates,
+            StartToTray = _startToTray,
+        };
         cfg.AttachedPids = new[] { _left, _right }
             .Where(c => c is not null)
             .Select(c => (long)c!.Pid)
@@ -516,6 +519,23 @@ public sealed partial class HostWindow : Window
         cfg.WinBottom = normal.Bottom * scale;
         cfg.WinMaximized = WindowState == WindowState.Maximized;
         ConfigStore.Save(cfg);
+    }
+
+    /// <summary>托盘菜单翻转「启动时检查更新」的同步入口：改镜像字段并落盘。宿主活着时
+    /// 托盘不直写 config（SaveConfig 整文件回写会互相覆盖），经此方法走单一写者。</summary>
+    public void SetCheckUpdates(bool value)
+    {
+        if (_checkUpdates == value) return;
+        _checkUpdates = value;
+        SaveConfig();
+    }
+
+    /// <summary>托盘菜单翻转「启动到托盘」的同步入口：只影响下次无参启动，本次窗口不动。</summary>
+    public void SetStartToTray(bool value)
+    {
+        if (_startToTray == value) return;
+        _startToTray = value;
+        SaveConfig();
     }
 
     private void UpdateMaxGlyph()
@@ -675,20 +695,30 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>关闭收尾 + 重启安装：先还原子窗口/落盘配置（AttachedPids 随之清空，新实例
-    /// 不会误吸附），再换 exe 拉起新实例——此刻本进程已无窗口级状态可丢。换装任何一步失败
-    /// 都取消关闭（窗口留着）并报因，用户可重试或正常继续使用。</summary>
+    /// 不会误吸附）。非换装关闭：组合模式（托盘常驻）经托盘发一次性 balloon 提醒仍在运行；
+    /// 换装重启：先放掉托盘 mutex（新实例无参启动要起组合模式托盘，旧进程不先释放会误回退
+    /// 纯窗口模式），换 exe 拉起新实例后显式 Shutdown（组合模式 OnExplicitShutdown 下关窗
+    /// 不退出）。换装任何一步失败都取消关闭（窗口留着）并报因，用户可重试或正常继续使用。</summary>
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         OnClosingCleanup();
-        if (!_pendingInstall) return;
+        var app = Application.Current as App;
+        if (!_pendingInstall)
+        {
+            app?.Tray?.NotifyHostClosed();
+            return;
+        }
         try
         {
+            app?.ShutdownTrayForRestart();
             Updater.InstallAndRestart(_updateZip!);
+            Application.Current.Shutdown();
         }
         catch (Exception ex)
         {
             e.Cancel = true;
             _pendingInstall = false;
+            app?.RestoreTrayForRetry(); // teardown 已放掉 mutex/图标：取消关闭后必须重建托盘，否则关窗常驻变僵尸
             ShowNotice($"安装更新失败：{ex.Message}");
         }
     }

@@ -35,6 +35,10 @@ for _s in (sys.stdout, sys.stderr):
 # 这里有保障。要真实检查流程的脚本（update_e2e/update_edge）自行从 os.environ 剥掉
 os.environ.setdefault("WM_UPDATE_OFF", "1")
 
+# 无参启动回退旧语义（仅主窗、关窗即退出）：组合模式会起托盘、占 tray mutex、注册全局
+# 热键——测试宿主一律屏蔽（要验证组合模式的 noargs_tray_test 自行剥掉本变量）
+os.environ.setdefault("WM_NO_TRAY", "1")
+
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 _gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 _dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
@@ -369,6 +373,10 @@ def post_close(h: int) -> None:
 
 def find_window_by_title(title: str) -> int:
     return _user32.FindWindowW(None, title) or 0
+
+
+def find_window_by_class(class_name: str) -> int:
+    return _user32.FindWindowW(class_name, None) or 0
 
 
 # ---------- 进程 ----------
@@ -857,11 +865,14 @@ def config_path() -> str:
 
 
 def host_env() -> dict:
-    """被测宿主启动环境：强制 WM_UPDATE_OFF=1（测试环境与真实 GitHub API 断网）。
-    run_all 会全局注入并被子进程继承；直接单跑测试脚本时没有那层注入——读状态栏
-    的测试必须自带，否则启动 4s 自动检查发现线上新版本、通知顶掉状态栏 3s（实测）。"""
+    """被测宿主启动环境：强制 WM_UPDATE_OFF=1（测试环境与真实 GitHub API 断网）+ 
+    WM_NO_TRAY=1（无参启动不起托盘，不占 mutex/热键）。run_all 会全局注入并被子进程
+    继承；直接单跑测试脚本时没有那层注入——读状态栏的测试必须自带，否则启动 4s 自动
+    检查发现线上新版本、通知顶掉状态栏 3s（实测）。要真实流程的脚本自行剥掉对应变量
+    （update_e2e/update_edge 剥 WM_UPDATE_OFF，noargs_tray 剥 WM_NO_TRAY）。"""
     env = dict(os.environ)
     env["WM_UPDATE_OFF"] = "1"
+    env["WM_NO_TRAY"] = "1"
     return env
 
 

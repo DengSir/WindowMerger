@@ -53,18 +53,22 @@ git push origin v1.2.3
 
 ## 命令行
 
+命令式子命令 CLI（System.CommandLine；未知参数/缺参会弹框报错退出，`--help` 查看用法）：
+
 ```cmd
-WindowMerger.exe [--left 左进程名|PID] [--right 右进程名|PID] [--left-exe 左exe路径] [--right-exe 右exe路径]
-WindowMerger.exe Code ZCode          :: 位置参数（左、右）
-WindowMerger.exe --right mspaint     :: 只指定右格
-WindowMerger.exe 12345 mspaint       :: 纯数字参数按 PID 匹配
-WindowMerger.exe --left Code --left-exe "C:\...\Code.exe"  :: 附带完整路径
-WindowMerger.exe --tray              :: 托盘常驻，Ctrl+Alt+M 捕捉 snap 布局
-WindowMerger.exe --detect-snap       :: 检测一次输出 JSON 退出
-WindowMerger.exe --left-hwnd 123 --right-hwnd 456 --profile snap-0   :: snap 接管直连
+WindowMerger          :: 无参：托盘常驻 + 默认宿主（「启动到托盘」勾选决定是否弹窗）
+WindowMerger tray     :: 只托盘常驻，Ctrl+Alt+M 捕捉 snap 布局
+WindowMerger detect   :: 检测一次输出 JSON 退出
+WindowMerger merge [--left 左进程名|PID] [--right 右进程名|PID] [--left-exe 左exe路径] [--right-exe 右exe路径]
+WindowMerger merge Code ZCode          :: 位置参数（左、右）
+WindowMerger merge --right mspaint     :: 只指定右格
+WindowMerger merge 12345 mspaint       :: 纯数字参数按 PID 匹配
+WindowMerger merge --left Code --left-exe "C:\...\Code.exe"  :: 附带完整路径
+WindowMerger merge --left-hwnd 123 --right-hwnd 456 --profile snap-0   :: snap 接管直连
 ```
 
-- 启动即自动吸附对应进程的窗口；命名参数 `--left/-l`、`--right/-r` 可分别指定、任意顺序、只给一侧
+- 无参 = **组合模式**：托盘常驻（热键随时可用），默认宿主是否弹窗由托盘菜单「启动到托盘」勾选决定；**关窗不退出**（首次关窗气泡提醒，托盘菜单「退出」才结束），托盘已被其他实例占用时回退成纯窗口模式（双击 exe 再开一扇）
+- `merge` 启动即自动吸附对应进程的窗口；命名参数 `--left/-l`、`--right/-r` 可分别指定、任意顺序、只给一侧
 - 进程名带不带 `.exe` 都可以，大小写不敏感
 - 纯数字参数按 PID 匹配，三级回退：精确 PID → 后代进程树（Win11 打包应用经 stub 启动，真实窗口属后代进程）→ 同名进程兜底
 - `--left-exe`/`--right-exe` 记录目标 exe 完整路径（快捷方式自动生成）：名字/PID 匹配不到时先按镜像路径匹配已运行窗口，仍没有就**自动拉起**该 exe 并等窗口出现（最长 12 秒）后吸附——目标应用没开也能复现组合；单实例应用（如 Win11 记事本）与打包应用（stub→后代进程）天然覆盖；打包应用路径含版本号（WindowsApps 下），应用更新后路径会变——名字匹配照常生效，拉起会提示路径不存在（重新生成一次快捷方式即可）
@@ -73,13 +77,14 @@ WindowMerger.exe --left-hwnd 123 --right-hwnd 456 --profile snap-0   :: snap 接
 
 ## snap 捕捉接管（托盘）
 
-托盘常驻（`--tray`）后按 **Ctrl+Alt+M**，把当前 Win11 snap 布局（两窗左右对分）一键接管成合并宿主：
+托盘常驻（`tray` 子命令或无参组合模式）后按 **Ctrl+Alt+M**，把当前 Win11 snap 布局（两窗左右对分）一键接管成合并宿主：
 
+- **托盘菜单**：立即捕捉 snap 布局 / 打开主窗口 / ── / 启动到托盘 / 开机自启 / 启动时检查更新 / ── / 退出。「启动到托盘」勾选 = 下次无参启动不弹主窗；「开机自启」写无参启动项（开机形态同样由「启动到托盘」决定）；「启动时检查更新」从主题菜单迁入，与常驻宿主实时同步落盘
 - **检测**：纯几何判定（窗口可见边界互不贴合不行、必须并集 ≈ 某屏工作区且共享竖直边），两窗左右对分 / 2:1 都可接管；上下排列、三窗以上、留缝会报因不打扰
 - **接管**：新开接管实例**直接最大化**盖住布局（顶条触顶唤出），分隔条位置按两窗的实际宽度比例还原；**取消最大化宿主变小**（上次还原的大小，首次 960×600，居中于布局所在屏），两窗缩进格子
 - **释放**：窗口回到各自被捕捉时的位置；关闭接管宿主同样全部还原
 - **配置隔离**：接管实例用独立的 `config-snap-<屏序号>.json`，不影响常规宿主的几何与设置
-- 也可用 `--detect-snap` 命令行检测一次（输出 JSON 退出），供脚本/调试
+- 也可用 `detect` 命令行检测一次（输出 JSON 退出），供脚本/调试
 
 ## 主题
 

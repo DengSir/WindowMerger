@@ -8,7 +8,7 @@ update_e2e 的 UIA 探针）：
   U5 releases 404（仓库无 Release）→ NoRelease → 无更新
   U6 资产名不带 -win-x64.zip（异常发布物）→ 按无更新
   U7 config CheckUpdates=false → 8s 内 0 次 API 请求（_checkUpdates 守卫）
-  U8 主题菜单 ToggleCheckUpdates 翻转并持久化（false → 落盘 true）
+  U8 （迁出）CheckUpdates 开关已从主题菜单移到托盘菜单，翻转用例见 noargs_tray_test N5
   U9 zip 缺 WindowMerger.exe entry → 换装失败：Closing 取消、宿主保留、"安装更新失败"
   U10 .old 被占用 → 启动清理重试自愈：句柄释放后 ≤8s 内被删
 用法: uv run tools\\tests\\update_edge_test.py [--exe 路径]
@@ -138,46 +138,15 @@ def main() -> int:
         check("U7_CHECK_OFF_NO_REQUEST", bool(hm) and api.api_hits == 0,
               f"api_hits={api.api_hits}")
 
-        # ---------- U8 菜单翻转 CheckUpdates 并持久化 ----------
-        el = wm_uia.element_from_handle(hm)
-        import uiautomation as auto
-        theme_btn = None
-        for b in [c for c, _ in auto.WalkControl(el, includeTop=False, maxDepth=6)
-                  if c.ControlTypeName == "ButtonControl"]:
-            if (b.HelpText or "").startswith("主题"):
-                theme_btn = b
-                break
-        if theme_btn is None:
-            check("U8_TOGGLE_PERSIST", False, "no theme button")
-        else:
-            wm_uia.invoke(theme_btn)
-            time.sleep(0.8)
-            item = wm_uia.find_by_automation_id(el, "ToggleCheckUpdates")
-            if item is None:
-                # 菜单是独立弹层（all_windows_of_pid 才能走到）
-                item = None
-                for h in wm.all_windows_of_pid(wm.pid_of(hm)):
-                    try:
-                        item = wm_uia.find_by_automation_id(
-                            wm_uia.element_from_handle(h), "ToggleCheckUpdates")
-                    except Exception:
-                        continue
-                    if item is not None:
-                        break
-            if item is None:
-                check("U8_TOGGLE_PERSIST", False, "no ToggleCheckUpdates item")
-            else:
-                wm_uia.invoke(item)
-                time.sleep(0.8)
-                wm.post_close(hm)
-                time.sleep(2.0)
-                try:
-                    cfg = wm.load_config()
-                except Exception:
-                    cfg = {}
-                check("U8_TOGGLE_PERSIST", cfg.get("CheckUpdates") is True,
-                      f"config={cfg.get('CheckUpdates')}")
+        # ---------- U8 （已迁出） ----------
+        # CheckUpdates 菜单翻转持久化：开关从主题菜单迁到托盘菜单，用例随之迁至
+        # noargs_tray_test N5（托盘图标 UIA 右键开菜单）。原 U8 曾把翻转结果落盘，
+        # 隐式为 U9 恢复了自动检查前置——这里显式重置配置（默认 CheckUpdates=true）。
+        if hm:
+            wm.post_close(hm)
+            time.sleep(2.0)
         kill_hosts()
+        wm.remove_config()
 
         # ---------- U9 坏 zip → 换装失败宿主保留 ----------
         api.configure(tag="v9.9.9", assets=[(EXE_ASSET,

@@ -71,7 +71,7 @@ private PaneTemplate _template;
 
 - **拓扑重建替代模板穷举**：对一组贴合窗口，按共享边合并出"切分图"→ 递归二分拟合（每次找一条贯穿切线，二分成两子问题，直到每块恰含一个窗口）→ 直接产出 `PaneTemplate` + zone→hwnd 映射。拟合失败（存在无法用二分树表达的排布）→ 报因 `UNSUPPORTED_LAYOUT`。模板目录匹配只做**命名**（找 Id 最接近的内置模板），命中失败也可以用动态模板接管（split ratio 用实测值）。
 - v1 的判据全部保留复用：EFB 口径、面积 ≥5%、并集≈工作区（8px 容差）、**贴合子集搜索**（`Classify` 2^N 枚举互不重叠且并集≈工作区的子集，2026-11-14 替代旧的"面积降序贪心去重叠"——贪心会把盖住 snap 组的漂浮大窗当成员、把真成员挤掉）、共享边分类。`SharesVerticalEdge/STACKED` 的"只认二窗"特判删除，由拓扑重建统一吸收。
-- 输出结构升级：`SnapGroup` 增加 `Template PaneTemplate` 与 `List<(int ZoneId, IntPtr Hwnd)>`；`--detect-snap` JSON 相应扩展（保持 v1 字段兼容：2 窗时 `left/right/ratio` 继续输出）。
+- 输出结构升级：`SnapGroup` 增加 `Template PaneTemplate` 与 `List<(int ZoneId, IntPtr Hwnd)>`；`detect` JSON 相应扩展（保持 v1 字段兼容：2 窗时 `left/right/ratio` 继续输出）。
 - 上下排列（v1 报 STACKED）在 v2 是合法模板（`stack-v50`），报因移除。
 
 ## 5. 配置与迁移（改 `src/Config.cs` / `HostWindow.cs SaveConfig`）
@@ -109,7 +109,7 @@ private PaneTemplate _template;
 - 模板单元断言（C# 不可直接测，走黑盒）：`--template thirds-3 --zones` 接管 → 宿主矩形=工作区、各子窗 EFB≈zone 矩形（复用 efb_align 口径）。
 - 分隔条拖动：田字拖横线/竖线，断言同层另一 split 不动、ratio 持久化。
 - 释放/孤儿/隐藏释放：N 格各抽 1 例（复用 attach_heal 模式）。
-- 检测器：thirds/quad/stack 合成靶窗（`tools/targets/snap_target.py` 扩展多窗编排）→ `--detect-snap` JSON 断言模板与映射。
+- 检测器：thirds/quad/stack 合成靶窗（`tools/targets/snap_target.py` 扩展多窗编排）→ `detect` JSON 断言模板与映射。
 - 二格兼容：现有 43+ 项全量回归零改动通过（红 = 重构破坏特例，打回）。
 - 环境 SKIP 口径沿用 `pick_clean_monitor`（外来大窗污染检测场景）。
 

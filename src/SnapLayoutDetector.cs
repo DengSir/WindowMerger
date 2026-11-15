@@ -25,7 +25,7 @@ internal static class SnapLayoutDetector
     public sealed record SnapGroup(int MonitorIndex, IntPtr HMonitor, Native.RECT WorkArea,
         List<SnapWindow> Windows, double LeftFraction);
 
-    /// <summary>检测结果。Group != null = 可接管；ReasonCode 是 ASCII 报因码（--detect-snap stdout 用，
+    /// <summary>检测结果。Group != null = 可接管；ReasonCode 是 ASCII 报因码（detect 子命令 stdout 用，
     /// CI cp1252 控制台安全），Reason 是中文报因（托盘 balloon 用）。</summary>
     public sealed record DetectResult(SnapGroup? Group, string ReasonCode, string Reason);
 

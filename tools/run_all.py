@@ -23,6 +23,9 @@ for _s in (sys.stdout, sys.stderr):
 # 测试环境与真实 GitHub API 断网（子进程继承）：被测宿主不启动自动检查——
 # 匿名限流看脸、线上版本 vs 构建版本的版本差都会改变被测行为（模态框事故根因）
 os.environ.setdefault("WM_UPDATE_OFF", "1")
+# 无参启动回退旧语义（仅主窗、关窗即退出）：不起托盘、不占 tray mutex、不注册热键
+# （组合模式新语义由 noargs_tray_test 自行剥掉验证）
+os.environ.setdefault("WM_NO_TRAY", "1")
 
 TOOLS = Path(__file__).resolve().parent
 
@@ -42,6 +45,7 @@ TESTS = [
     ("shortcut_create_test", TOOLS / "tests" / "shortcut_create_test.py",     90),
     ("launch_attach_test",  TOOLS / "tests" / "launch_attach_test.py",        90),
     ("snap_capture_test",   TOOLS / "tests" / "snap_capture_test.py",        180),
+    ("noargs_tray_test",    TOOLS / "tests" / "noargs_tray_test.py",         150),
     ("orphan_e2e_test",     TOOLS / "tests" / "orphan_e2e_test.py",           90),
     ("update_e2e_test",     TOOLS / "tests" / "update_e2e_test.py",          120),
     ("update_edge_test",    TOOLS / "tests" / "update_edge_test.py",         420),
