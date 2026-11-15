@@ -37,8 +37,8 @@
 |---|---|
 | `run_test_flow.py` | 全流程：清理 → 开测试窗 → CLI 吸附 → 命中/矩形断言 → 还原置顶（RunTestFlow） |
 | `release_test.py` | 释放路径：UIA 点释放按钮，子窗口摘 TOOLWINDOW 且窗口完好（ReleaseTest） |
-| `picker_attach_test.py` | 顶条选窗吸附全链路：UIA 点 ← → 选窗对话框过滤/选中/吸附 → 左格断言（新增 2026-11） |
-| `swap_sides_test.py` | 交换左右：UIA 点交换按钮 → 两侧命中互换断言（新增 2026-11） |
+| `picker_attach_test.py` | 选窗吸附全链路：UIA 点左格空格提示按钮 `_paneHint0` → 选窗对话框过滤/选中/吸附 → 左格断言（新增 2026-11，多布局后入口改点空格） |
+| `layout_switch_test.py` | 多布局回归：四布局逐格中心探针（与 PaneLayout 同式复算）→ 布局菜单按索引切换 → 重叠迁移断言（左窗留格/右窗进右上）→ 每格选择器标题带格名 → 切回迁回 + config.Layout 落盘（新增 2026-11） |
 | `geometry_persistence_test.py` | 几何持久化四场景：保存/恢复、最大化保存/恢复、屏外钳制、垃圾回退（新增 2026-11，首次脚本化 ef15752 的手工验证） |
 | `cross_dpi_seam_test.py` | 跨 DPI 缝隙：96DPI mspaint 吸进 150% 宿主，子窗口可见缘与格子四边 ≤1px；左屏不在/非 100% 自动 SKIP（CrossDpiSeamTest） |
 | `shortcut_create_test.py` | 快捷方式生成：mspaint 单侧 + UIA 点按钮，校验 .lnk 参数含 `merge --left/--left-exe` 完整路径；mspaint 被占 SKIP 不强杀（ShortcutCreateTest） |
@@ -55,7 +55,7 @@
 | `drag_switch_side_test.py` | 拖到另一侧换侧（新增 2026-11；**挖出并修复 src 换侧分支引用反向 + TryAttach 拒收 toolwindow 两个真 bug**） |
 | `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
-| `topbar_state_test.py` | 顶条状态回归：最大化矩形=工作区（WM_GETMINMAXINFO）、最大化顶条原地单击不还原、空吸附快捷方式通知、侧按钮字形翻转（TopbarStateTest） |
+| `topbar_state_test.py` | 顶条状态回归：最大化矩形=工作区（WM_GETMINMAXINFO）、最大化顶条原地单击不还原、空吸附快捷方式通知、吸附后布局按钮存在+左格提示折叠（IsOffscreen）+逐格状态栏（TopbarStateTest） |
 | `max_top_drag_test.py` | 最大化顶边死区拖还原：WM_NCHITTEST 最大化整窗 HTCLIENT 逐行探针 + 顶边注入拖还原（MaxTopDragTest） |
 | `child_fg_raise_test.py` | 子窗口激活联动升顶：EVENT_SYSTEM_FOREGROUND → 宿主升顶 + 子窗口粘回，净空校验 GA_ROOT（ChildFgRaiseTest） |
 | `attach_heal_test.py` | 自愈与释放全量语义：外部最大化拉回、子窗死亡格子清空、释放矩形逐像素回位+摘置顶、单侧交换、H7 外部隐藏自动释放、H8 真托盘链路、H5E 释放拉回前台（AttachHealTest） |
@@ -111,7 +111,7 @@
 | `hover_visual_test.py` | 分隔条悬停蓝/基态灰、最大化悬停灰（采样取按钮顶部无字形区）、关闭悬停红 |
 | `divider_hover_test.py` | 分隔条 基态/悬停/移开 三态像素（snap 探针不得动光标，否则全变悬停色——原 PS 缺陷） |
 | `hint_pane_shot.py` | 空格填充=Bar 色、吸附断言成立（notepad 深色编辑器底色≈ThemeBar，"透出"不能靠像素比对）、右格填充保留 |
-| `pick_btn_dump.py` | 顶条 9 个按钮 AutomationId→字形码点逐个比对（兼验证 FA 内嵌字体没缺字回退） |
+| `pick_btn_dump.py` | 顶条按钮 AutomationId→字形码点逐个比对（兼验证 FA 内嵌字体没缺字回退；选窗/交换钮已退役，现为 布局/释放/快捷方式/主题 + 系统钮 7 个） |
 | `glyph_verify.py` / `side_btn_shot.py` / `top_bar_left_shot.py` | 按钮区/标签区存在 ThemeText 色像素（字形/文字画出来了），PNG 人工复核 |
 | `icon_verify.py` | exe 内嵌图标可提取 + 任务栏按钮存在；图标长相人工看 PNG |
 | `theme_menu_shot.py` | 真实点击主题按钮 → 断言菜单弹出（≥3 MenuItem）+ 截图 |
@@ -138,7 +138,7 @@
 | `hint_pane_shot.py` | 空格占位提示：空格填充+文案，吸附后该侧消失恢复透明（HintPaneShot） |
 | `glyph_verify.py` | 内嵌 FA 字形渲染验证（PrintWindow，z 序免疫）（GlyphVerify） |
 | `icon_verify.py` | exe 内嵌图标 + 运行中任务栏图标验证（IconVerify） |
-| `pick_btn_dump.py` | 选窗按钮字形码点 dump + 4x 放大截图（PickBtnDump） |
+| `pick_btn_dump.py` | 顶条按钮字形码点 dump + 4x 放大截图（PickBtnDump） |
 | `side_btn_shot.py` | 顶条右侧按钮区截图（SideBtnShot） |
 | `top_bar_left_shot.py` | 顶条左侧图标+标题截图（TopBarLeftShot） |
 

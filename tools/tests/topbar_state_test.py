@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""顶条状态回归（WM_GETMINMAXINFO / ShowNotice / UpdateSideButtons 黑盒）：
+"""顶条状态回归（WM_GETMINMAXINFO / ShowNotice / 布局按钮 黑盒）：
   T1 最大化矩形 = 所在显示器工作区（不盖任务栏，ptMaxPosition/ptMaxSize 修正）
   T2 最大化态顶条原地单击不还原（armed 未超阈值，TopBarOnMouseDown 原地点击语义）
   T3 空吸附点"快捷方式" → 状态栏"未吸附窗口：先吸附再创建快捷方式"，桌面无新增 .lnk
-  T4 吸附后侧按钮字形翻转 f060→f08b（左释放 ScaleX 镜像）、tooltip 换"释放…"（UpdateSideButtons）
+  T4 吸附后：布局按钮存在（f0db）、左格提示折叠（UIA IsOffscreen）、右格提示在屏、
+     状态栏"左: 标题 / 右: 空"（多布局后选窗入口 = 点空格，侧按钮已退役）
 用法: uv run tools\\tests\\topbar_state_test.py [--exe 路径]
 警告: 强杀所有 WindowMerger/Notepad；不在桌面留 .lnk。
 """
@@ -17,8 +18,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 import wm_uia
-
-EMPTY_HINT = "把任意窗口拖进来吸附"
 
 
 def main() -> int:
@@ -107,15 +106,34 @@ def main() -> int:
         return 1
     wm.set_window_pos(hm, None, *pin, wm.SWP_NOZORDER)
     time.sleep(1.5)
+    wm.set_topmost(hm, True)
+    time.sleep(0.4)
     el = wm_uia.element_from_handle(hm)
-    bl = wm_uia.find_by_automation_id(el, "_pickLeftButton")
-    br = wm_uia.find_by_automation_id(el, "_pickRightButton")
-    check("T4_LEFT_GLYPH_RELEASE", bl is not None and wm_uia.name_of(bl) == "\uF08B",
-          f"name={wm_uia.name_of(bl)!r}")
-    check("T4_RIGHT_GLYPH_STILL_PICK", br is not None and wm_uia.name_of(br) == "\uF061",
-          f"name={wm_uia.name_of(br)!r}")
-    check("T4_LEFT_TOOLTIP_RELEASE", bl is not None and "释放左窗" in wm_uia.help_text_of(bl),
-          f"help={wm_uia.help_text_of(bl)!r}")
+    lb = wm_uia.find_by_automation_id(el, "_layoutButton")
+    check("T4_LAYOUT_BUTTON_PRESENT", lb is not None and wm_uia.name_of(lb) == "\uF0DB",
+          f"name={wm_uia.name_of(lb)!r}")
+    hint0 = wm_uia.find_by_automation_id(el, "_paneHint0")
+    hint1 = wm_uia.find_by_automation_id(el, "_paneHint1")
+    # 占用格提示折叠：WPF peer 仍留在 UIA 树但 IsOffscreen=True（不是从树里消失）；
+    # 空格提示在场且在屏上（Invoke 可达）
+    def offscreen(e) -> bool:
+        try:
+            return bool(e.IsOffscreen)
+        except Exception:
+            return True
+
+    check("T4_HINT0_OFFSCREEN_WHEN_OCCUPIED", hint0 is None or offscreen(hint0),
+          f"hint0={hint0}")
+    check("T4_HINT1_ONSCREEN_WHEN_EMPTY", hint1 is not None and not offscreen(hint1),
+          f"hint1={hint1}")
+    st = wm_uia.status_text(hm) or ""
+    check("T4_STATUS_PER_PANE", "右: 空" in st and "左: " in st, f"status={st!r}")
+    hr = wm.get_window_rect(hm)
+    pane_w = (hr.width - 15) // 2
+    mid_y = hr.Top + 45 + (hr.height - 48) // 2
+    l = wm.proc_name_of(wm.window_from_point(hr.Left + 3 + pane_w // 2, mid_y)).lower()
+    r = wm.proc_name_of(wm.window_from_point(hr.Left + 3 + pane_w + 9 + pane_w // 2, mid_y)).lower()
+    check("T4_PANE_HITS", l == "notepad" and r != "notepad", f"LEFT_HIT={l} RIGHT_HIT={r}")
 
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.2)

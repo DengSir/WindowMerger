@@ -139,7 +139,7 @@ def main() -> int:
 
         # ---------- K1 负向/正向过滤 ----------
         wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm),
-                                                   "_pickLeftButton"))
+                                                   "_paneHint0"))
         picker = 0
         if not wm.wait_until(lambda: find_picker(hm), 5000, 200):
             print("FAIL_NO_PICKER")

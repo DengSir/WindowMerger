@@ -114,9 +114,9 @@ def main() -> int:
         return 1
     mh2 = wm.main_windows_by_name("mspaint")[0][1]
     mp_pre = wm.get_window_rect(mh2)
-    # picker 吸附到右格（空格）：UIA Invoke → 选中行 → 吸附按钮
+    # picker 吸附到右格（空格提示按钮）：UIA Invoke → 选中行 → 吸附按钮
     wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm),
-                                               "_pickRightButton"))
+                                               "_paneHint1"))
     picker = 0
 
     def find_picker() -> bool:
@@ -167,7 +167,7 @@ def main() -> int:
     check("H5E_RELEASE_FOREGROUND", fg == mh2,
           f"fg={fg}({wm.proc_name_of(fg) if fg else None}) expect={mh2}")
 
-    # ---------- H6 单侧吸附交换 ----------
+    # ---------- H6 单侧吸附（交换按钮已退役：直接断言左格持有、右格空） ----------
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.5)
     wm.force_kill_by_name("mspaint")
@@ -189,14 +189,13 @@ def main() -> int:
     rcx = hr2.Left + 3 + pane_w2 + 9 + pane_w2 // 2
     lcx = hr2.Left + 3 + pane_w2 // 2
     mid_y = hr2.Top + 45 + (hr2.height - 48) // 2
-    wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm2),
-                                               "_swapButton"))
-    time.sleep(1.5)
+    time.sleep(1.0)
     st = wm_uia.status_text(hm2) or ""
     right_hit = wm.proc_name_of(wm.window_from_point(rcx, mid_y)).lower()
     left_hit = wm.proc_name_of(wm.window_from_point(lcx, mid_y)).lower()
-    check("H6_SWAP_SINGLE_SIDE",
-          "左: 空" in st and right_hit == "notepad" and wm.is_attached(nh2),
+    check("H6_SINGLE_SIDE",
+          "右: 空" in st and left_hit == "notepad" and right_hit != "notepad"
+          and wm.is_attached(nh2),
           f"status={st!r} RIGHT_HIT={right_hit} LEFT_HIT={left_hit}")
 
     # ---------- H7 子窗口自行隐藏（关闭/最小化到托盘类应用）→ 不拉回，自动释放 ----------

@@ -48,9 +48,9 @@ def main() -> int:
     pane_cx = hx + 3 + (hw - 15) // 4
     pane_cy = hy + 45 + (hh - 48) // 2
 
-    # UIA Invoke 顶条 ← 按钮（空格=选择左窗）
+    # UIA Invoke 左格空格提示按钮（点击空格 = 打开该格选择器）
     main_el = auto.ControlFromHandle(hm)
-    btn = main_el.ButtonControl(AutomationId="_pickLeftButton")
+    btn = main_el.ButtonControl(AutomationId="_paneHint0")
     if not btn.Exists(3, 0.5):
         print("NO_PICK_BUTTON")
         return 1

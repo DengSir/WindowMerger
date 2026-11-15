@@ -363,7 +363,11 @@ def set_window_pos(h: int, insert_after: int | None, x: int, y: int, w: int, hh:
 
 def set_topmost(h: int, top: bool) -> None:
     after = HWND_TOPMOST if top else HWND_NOTOPMOST
-    _user32.SetWindowPos(wintypes.HWND(h), after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+    # SWP_NOACTIVATE 必带：隐式激活在前台被其他应用（如全屏工具窗）占住时会被
+    # 前台锁拒绝，连带整个置顶被静默丢弃（SetWindowPos 仍返回真但 z 序不动，
+    # 2026-11-16 实测——z 序重排不受前台锁限制，受限的是激活）
+    _user32.SetWindowPos(wintypes.HWND(h), after, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
 
 
 def post_close(h: int) -> None:

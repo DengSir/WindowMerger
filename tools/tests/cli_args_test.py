@@ -10,7 +10,8 @@
   C7 tray 冒烟：常驻无主窗（单实例 mutex/生命周期细节见 snap_capture_test S6）
   C8 detect 冒烟：stdout 一行 JSON、退出码 0（检测细节见 snap_capture_test S1/S4）
   C9 --help → 用法 MessageBox + 退出码 0（GUI 无控制台，lib 帮助输出不可见，改弹框）
-  C10 多余位置参数 `exe merge a b c` → MessageBox + 退出码 1
+  C10 多余位置参数 `exe merge a b c d e`（>4 个）→ MessageBox + 退出码 1
+  C11 4 位置参数合法 `exe merge a b c d`（格序填入，多格布局支持）→ 宿主正常出现
 通知 3 秒 TTL：宿主窗口出现后 ~1.5s 内读状态栏（attach/notice 在 Loaded 即发生）。
 用法: uv run tools\\tests\\cli_args_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint。
@@ -208,11 +209,18 @@ def main() -> int:
           f"rc={p.returncode} dialog={shown}")
     ensure_closed(p)
 
-    # ---------- C10 多余位置参数 ----------
-    p, shown = start_dialog_case(a.exe, "merge", "a1", "b2", "zzextra")
+    # ---------- C10 多余位置参数（位置参数上限 = 4，第 5 个报错） ----------
+    p, shown = start_dialog_case(a.exe, "merge", "a1", "b2", "c3", "d4", "zzextra5")
     check("C10_EXTRA_ARG_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
           f"rc={p.returncode} dialog={shown}")
     ensure_closed(p)
+
+    # ---------- C11 4 位置参数合法（格序填入，宿主正常出现不弹框） ----------
+    hm, st = start_and_status(a.exe, "merge", "zznopeA", "zznopeB", "zznopeC", "zznopeD")
+    check("C11_FOUR_POSITIONAL_OK", bool(hm), f"hm={bool(hm)} status={st!r}")
+    if hm:
+        wm.post_close(hm)
+        time.sleep(1.5)
 
     wm.remove_config()
     print(f"FAILURES {'; '.join(failures) if failures else 'NONE'}")

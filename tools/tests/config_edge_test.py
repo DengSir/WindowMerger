@@ -5,6 +5,7 @@
   S3 Ratio 超界（0.05 / 0.95）→ 钳制到 [0.2, 0.8]，优雅关后落盘值即钳后值
   S4 保存几何过小（< MinWidth 400 × MinHeight 300 DIP）→ 恢复时钳到最小尺寸且完整在屏内
   S5 非法 Theme 字符串 → 回退 Auto（跟随系统深浅色），优雅关后重写为 "Auto"
+  S6 非法 Layout 字符串 → 回退 LR（左右两格），优雅关后重写为 "LR"（PaneLayoutDef.FromConfig）
 每场景独立启动一次宿主（配置在启动时读取），优雅关即写回 config——断言以此为准。
 用法: uv run tools\\tests\\config_edge_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad（mspaint 不动）。
@@ -137,6 +138,29 @@ def main() -> int:
         check("S5_ALIVE", True)
         cfg = close_and_read_config(hm)
         check("S5_THEME_AUTO", bool(cfg) and cfg.get("Theme") == "Auto", f"cfg={cfg}")
+
+    # ---------- S6 非法 Layout → LR（宿主存活，落盘重写为 "LR"） ----------
+    wm.remove_config()
+    wm.save_config({"Layout": "Bogus", "Ratio": 0.35})
+    hm = start_host(a.exe, 3.5)
+    if not hm:
+        check("S6_ALIVE", False)
+    else:
+        check("S6_ALIVE", True)
+        # LR 两格布局行为佐证：左格 1/4 处命中宿主（空格提示填充 = 宿主自身）
+        wm.set_topmost(hm, True)
+        time.sleep(0.4)
+        hr = wm.get_window_rect(hm)
+        scale = wm.get_dpi_for_window(hm) / 96.0
+        avail = hr.width - (2 * 2 + 6) * scale
+        cx = int(hr.Left + 2 * scale + avail * 0.25)
+        # 内容区高 = H - 上下边框(2*bw) - 顶条(28)；pane 中心 = 上边框 + 顶条 + 内容高/2
+        content_h = hr.height - (2 * 2 + 28) * scale
+        cy = int(hr.Top + (2 + 28) * scale + content_h / 2)
+        hit = wm.proc_name_of(wm.window_from_point(cx, cy)).lower()
+        check("S6_LR_GEOMETRY", hit == "windowmerger", f"hit={hit}")
+        cfg = close_and_read_config(hm)
+        check("S6_LAYOUT_LR", bool(cfg) and cfg.get("Layout") == "LR", f"cfg={cfg}")
 
     # 还原干净状态（后续测试约定 config 存在且为默认）
     wm.remove_config()

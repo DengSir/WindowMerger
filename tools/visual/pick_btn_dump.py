@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-r"""顶条按钮字形全套断言：UIA 读 9 个按钮的 AutomationId→Name 码点逐个比对期望值
+r"""顶条按钮字形全套断言：UIA 读按钮的 AutomationId→Name 码点逐个比对期望值
 （功能组按钮同时验证 FA 内嵌字体没有缺字回退——Name 来自按钮 Content；系统钮三件
-= Segoe Fluent/MDL2 原版字形，266800b 起），并截两选窗按钮区 4x 放大图人工复核。
+= Segoe Fluent/MDL2 原版字形，266800b 起），并截功能组按钮区 4x 放大图人工复核。
+选窗左右钮/交换钮已随多布局退役（选窗 = 点空格提示按钮 _paneHint0，布局 = _layoutButton）。
 原 PickBtnDump.ps1。
 用法: uv run tools/visual/pick_btn_dump.py [--exe 路径]
 警告: 强杀运行中的 WindowMerger。
@@ -22,9 +23,7 @@ import wm_uia
 
 # 空宿主态的期望字形（x:Name → 按钮文本）
 EXPECTED = {
-    "_pickLeftButton": "\uf060",   # ←
-    "_pickRightButton": "\uf061",  # →
-    "_swapButton": "\uf0ec",       # ⇄
+    "_layoutButton": "\uf0db",     # ▤ 布局（table-columns）
     "_releaseButton": "\uf127",    # ⛓
     "_shortcutButton": "\uf360",   # 📎
     "_themeButton": "\uf042",      # ◐（跟随系统）
@@ -67,10 +66,11 @@ def main() -> int:
     if extra:
         print(f"EXTRA_BUTTONS: {extra}")
 
-    # 两选窗按钮区 4x 放大（人工复核渲染效果）
+    # 功能组按钮区（布局/释放/快捷方式/主题）4x 放大（人工复核渲染效果）
     img = wm.capture_window(hm)
-    crop = img.crop((155, 0, 275, 30))
-    crop.resize((480, 120), Image.NEAREST).save(
+    w = img.width
+    crop = img.crop((w - 250, 0, w - 125, 30))
+    crop.resize((500, 120), Image.NEAREST).save(
         str(Path(tempfile.gettempdir(), "wm_pickbtns_zoom.png")))
     print("PICK_ZOOM_DONE")
 
