@@ -21,6 +21,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- System.CommandLine 自带 13 种语言的卫星资源程序集，NuGet 会复制进输出目录（cs/ de/ …）；
+         本项目 UI 全是自绘中文，lib 英文报错经 Cli.MapError 兜底，卫星资源纯赘余——只留 en -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
