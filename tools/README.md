@@ -41,8 +41,8 @@
 | `swap_sides_test.py` | 交换左右：UIA 点交换按钮 → 两侧命中互换断言（新增 2026-11） |
 | `geometry_persistence_test.py` | 几何持久化四场景：保存/恢复、最大化保存/恢复、屏外钳制、垃圾回退（新增 2026-11，首次脚本化 ef15752 的手工验证） |
 | `cross_dpi_seam_test.py` | 跨 DPI 缝隙：96DPI mspaint 吸进 150% 宿主，子窗口可见缘与格子四边 ≤1px；左屏不在/非 100% 自动 SKIP（CrossDpiSeamTest） |
-| `shortcut_create_test.py` | 快捷方式生成：mspaint 单侧 + UIA 点按钮，校验 .lnk 参数含 `--left/--left-exe` 完整路径；mspaint 被占 SKIP 不强杀（ShortcutCreateTest） |
-| `launch_attach_test.py` | 拉起吸附：目标未运行，宿主带 `--left 名字 --left-exe 完整路径` 启动，断言宿主自己拉起并吸附成功（LaunchAttachTest） |
+| `shortcut_create_test.py` | 快捷方式生成：mspaint 单侧 + UIA 点按钮，校验 .lnk 参数含 `merge --left/--left-exe` 完整路径；mspaint 被占 SKIP 不强杀（ShortcutCreateTest） |
+| `launch_attach_test.py` | 拉起吸附：目标未运行，宿主带 `merge --left 名字 --left-exe 完整路径` 启动，断言宿主自己拉起并吸附成功（LaunchAttachTest） |
 | `orphan_e2e_test.py` | 孤儿清理端到端：强杀宿主留孤儿 → 重启宿主启动清理摘除 TOOLWINDOW（OrphanE2ETest） |
 | `pid_mode_test.py` | CLI PID 模式：PID/名字混合吸附 + 无窗口 PID 的报因路径（PidModeTest） |
 | `exclude_self_test.py` | 排除自身：另一个 WindowMerger 实例的宿主不可被 CLI 吸附（ExcludeSelfTest） |

@@ -31,7 +31,7 @@ def main() -> int:
     time.sleep(1.2)
     ha = wm.find_window_by_title("WM_TR_A")
     hb = wm.find_window_by_title("WM_TR_B")
-    p = subprocess.Popen([EXE, "--left-hwnd", str(ha), "--right-hwnd", str(hb),
+    p = subprocess.Popen([EXE, "merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                           "--profile", "snap-trace"], env=dict(os.environ))
     ok = wm.wait_until(lambda: wm.is_attached(ha) and wm.is_attached(hb), 10000, 200)
     time.sleep(1.5)

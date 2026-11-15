@@ -76,7 +76,7 @@ def main() -> int:
         print(f"{t}: align={ok} efb=({e.Left},{e.Top})-({e.Right},{e.Bottom}) "
               f"expect={target} zoomed={wm.is_zoomed(hs[t])}")
 
-    p = subprocess.run([EXE, "--detect-snap"], capture_output=True, timeout=30)
+    p = subprocess.run([EXE, "detect"], capture_output=True, timeout=30)
     print("detect:", p.stdout.decode("utf-8", errors="replace").strip().splitlines()[-1])
     for pr in procs:
         pr.terminate()

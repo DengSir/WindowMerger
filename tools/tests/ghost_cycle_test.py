@@ -65,7 +65,7 @@ def main() -> int:
         if not wm.wait_main_windows("Notepad", "mspaint"):
             print("FAIL_TARGETS_NOT_RUNNING")
             return 1
-        subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
+        subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
         time.sleep(4)
         hm = wm.host_hwnd()
         if not hm:

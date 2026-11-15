@@ -37,7 +37,7 @@ def main() -> int:
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
     # 目标先存在，再带参启动宿主（吸附发生在 Loaded）
-    subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:

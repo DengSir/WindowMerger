@@ -32,7 +32,7 @@ def main() -> int:
     time.sleep(1.2)
     subprocess.Popen(["mspaint"])
     time.sleep(1.8)
-    subprocess.Popen([wm.exe_path(), "--left", "notepad"])
+    subprocess.Popen([wm.exe_path(), "merge", "--left", "notepad"])
     time.sleep(4)
     hm = wm.host_hwnd()
     wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)

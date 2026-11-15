@@ -35,7 +35,7 @@ def main() -> int:
         return 1
 
     # 混合：左按 PID、右按名字
-    subprocess.Popen([a.exe, "--left", str(np.pid), "--right", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", str(np.pid), "--right", "mspaint"])
     time.sleep(4)
 
     hm = wm.host_hwnd()
@@ -57,7 +57,7 @@ def main() -> int:
                and wm.proc_name_of(h2).lower() == "mspaint")
 
     # 反例：无窗口的 PID（本 Python 进程自身）→ 报因路径，宿主不崩
-    subprocess.Popen([a.exe, "--left", str(os.getpid())])
+    subprocess.Popen([a.exe, "merge", "--left", str(os.getpid())])
     time.sleep(3)
     print("NO_WINDOW_PID_TEST_DONE (second instance shows notice; check no crash)")
     wm.graceful_close_by_name("WindowMerger")

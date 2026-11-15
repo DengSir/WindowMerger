@@ -144,7 +144,7 @@ def main() -> int:
     print(f"stripped A: icon hits={icon_hits(ha)} (期望 0)")
     print(f"B untouched: icon hits={icon_hits(hb)} (期望 ≥1)")
 
-    p = subprocess.Popen([EXE, "--left-hwnd", str(ha), "--right-hwnd", str(hb),
+    p = subprocess.Popen([EXE, "merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                           "--profile", "snap-ico"], env=wm.host_env())
     hm = wait_host(p.pid)
     ok = wm.wait_until(lambda: wm.is_attached(ha) and wm.is_attached(hb), 10000, 200)

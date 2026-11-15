@@ -1,6 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- 命令式 CLI 解析（tray / detect / merge 子命令）。注意：csproj XML 注释里不能出现
+         双连字符参数字样（MSB4025），新写注释时禁写具体旗标名 -->
+    <PackageReference Include="System.CommandLine" Version="3.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ApplicationDefinition Include="src\App.xaml" />
     <Page Remove="src\App.xaml" />
     <None Remove="assets\fa-*.ttf" />

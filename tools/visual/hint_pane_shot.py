@@ -71,7 +71,7 @@ def main() -> int:
     hint.write_text("hint-test", encoding="ascii")
     subprocess.Popen(["notepad", str(hint)])
     time.sleep(1.5)
-    subprocess.Popen([wm.exe_path(), "--left", "notepad"])
+    subprocess.Popen([wm.exe_path(), "merge", "--left", "notepad"])
     time.sleep(4)
     hm2 = wm.host_hwnd()
     if not hm2:

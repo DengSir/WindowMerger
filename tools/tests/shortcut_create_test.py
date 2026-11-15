@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """快捷方式生成回归：mspaint 单侧吸附（无 notepad）→ UIA Invoke _shortcutButton →
-读桌面新 .lnk（WScript.Shell COM）断言 TargetPath/Arguments 含 --left/--left-exe
+读桌面新 .lnk（WScript.Shell COM）断言 TargetPath/Arguments 含 merge --left/--left-exe
 完整路径 → 删掉 .lnk。只杀自己拉起的 mspaint，绝不碰 notepad。
 原 ShortcutCreateTest.ps1。
 用法: uv run tools/\tests\\shortcut_create_test.py [--exe 路径]
@@ -61,7 +61,7 @@ def main() -> int:
         wm.set_window_pos(wm.main_windows_of_pid(mp_pids[0])[0], None,
                           px, py, 900, 650, wm.SWP_NOZORDER)
 
-    subprocess.Popen([a.exe, "--left", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", "mspaint"])
     time.sleep(4)
 
     hosts = wm.host_hwnds()
@@ -124,7 +124,7 @@ def main() -> int:
     print(f"TARGET={s.TargetPath}")
     print(f"ARGS={s.Arguments}")
     print(f"ICON={s.IconLocation}")
-    ok_args = re.search(r'--left\s+"?mspaint"?', s.Arguments)
+    ok_args = re.search(r'merge --left\s+"?mspaint"?', s.Arguments)
     ok_exe = re.search(r'--left-exe\s+"?[^"]*mspaint\.exe', s.Arguments)
     ok_target = re.search(r"WindowMerger.*\.exe$", s.TargetPath)
     ok = bool(ok_args and ok_exe and ok_target)

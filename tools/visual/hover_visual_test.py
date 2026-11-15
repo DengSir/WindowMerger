@@ -24,7 +24,7 @@ def main() -> int:
 
     wm.force_kill_by_name("WindowMerger")
     time.sleep(0.8)
-    subprocess.Popen([wm.exe_path(), "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([wm.exe_path(), "merge", "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)
 
     hm = wm.host_hwnd()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""拉起吸附回归（无 notepad）：确保 mspaint 未运行 → 宿主带 --left mspaint
+"""拉起吸附回归（无 notepad）：确保 mspaint 未运行 → 宿主带 merge --left mspaint
 --left-exe 完整路径 启动 → 断言宿主自己拉起 mspaint 且 15s 内吸附成功
 （TOOLWINDOW 置位）。原 LaunchAttachTest.ps1。
 用法: uv run tools/\tests\\launch_attach_test.py [--exe 路径]
@@ -50,7 +50,7 @@ def main() -> int:
     print(f"TARGET_PATH={mp_path}")
 
     # 名字 + 完整路径：mspaint 已关，宿主必须自己拉起并吸附
-    host = subprocess.Popen([a.exe, "--left", "mspaint", "--left-exe", mp_path])
+    host = subprocess.Popen([a.exe, "merge", "--left", "mspaint", "--left-exe", mp_path])
     time.sleep(4)
     host_pid = host.pid
     # 测试宿主缩小 + 停到左显示器（config 尺寸可能巨大）

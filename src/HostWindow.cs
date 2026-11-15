@@ -399,7 +399,7 @@ public sealed partial class HostWindow : Window
         string? leftExe = ImagePathOfChild(_left);
         string? rightExe = ImagePathOfChild(_right);
 
-        var argv = new List<string>();
+        var argv = new List<string> { "merge" }; // 命令式 CLI：快捷方式走 merge 子命令
         if (left is not null)
         {
             argv.Add($"--left \"{left}\"");

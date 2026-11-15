@@ -228,7 +228,7 @@ def main() -> int:
     time.sleep(1.2)
     subprocess.Popen(["mspaint"])
     time.sleep(1.5)
-    subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:

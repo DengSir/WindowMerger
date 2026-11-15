@@ -149,7 +149,7 @@ def main() -> int:
         return 1
 
     # 3. 宿主 CLI 吸附（左=notepad 右=mspaint），等吸附落盘
-    subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
     host = 0
     for _ in range(40):
         time.sleep(0.25)

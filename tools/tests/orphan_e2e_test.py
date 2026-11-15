@@ -51,7 +51,7 @@ def main() -> int:
         return 1
 
     # 2. CLI 吸附后强杀宿主 → 孤儿
-    host = subprocess.Popen([a.exe, "--left", "notepad"])
+    host = subprocess.Popen([a.exe, "merge", "--left", "notepad"])
     time.sleep(4)
     if not wm.pids_by_name("WindowMerger"):
         print("NO_HOST")

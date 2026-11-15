@@ -2,12 +2,12 @@
 """PID 匹配三级回退 + 多候选取大 回归（HostWindow.Attach.cs FindWindowByArg）。
 进程链现实（实测）：venv python.exe 是启动器，窗口属于其子进程（真实解释器）——
 本测试进程天然就是"无窗口 stub"（AGENTS 记载的打包应用 stub 场景同构）：
-  P1 回退 1·后代进程树：`--left <本测试进程PID>`（自己无顶层窗口）→
+  P1 回退 1·后代进程树：`merge --left <本测试进程PID>`（自己无顶层窗口）→
      后代（multi_win 靶的真实解释器）的窗口被吸附
   P2 回退 2·同名进程：无窗口 python（CREATE_NO_WINDOW sleep）的 PID → 精确匹配无窗口、
      无后代 → 按其进程名 "python" 匹配现存窗口（GetProcessById 活进程才走得到——
      PID 已死会 ArgumentException 落空，实测）
-  P3 同候选多窗口取面积最大：`--left <真实解释器PID>`（精确命中，单进程双窗）→
+  P3 同候选多窗口取面积最大：`merge --left <真实解释器PID>`（精确命中，单进程双窗）→
      PickBestBy 吸附 800x500 大窗，500x300 小窗不动
 靶进程发现 = **按窗口标题全局找**（双窗齐备的 python 进程），结构无关——CI 曾在
 uv 0.13.7→0.13.8（2026-11-12/13）之间按"启动器→后代持窗"链找漏（8s 全耗尽
@@ -93,7 +93,7 @@ def main() -> int:
 
     try:
         # ---------- P1 后代进程树（本测试进程 = 无窗口 stub） ----------
-        hm = start_host(a.exe, "--left", str(os.getpid()))
+        hm = start_host(a.exe, "merge", "--left", str(os.getpid()))
         if not hm:
             check("P1_ATTACH", False, "no host")
         else:
@@ -106,7 +106,7 @@ def main() -> int:
         sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
                                     creationflags=CREATE_NO_WINDOW)
         time.sleep(1.0)
-        hm = start_host(a.exe, "--left", str(sentinel.pid))
+        hm = start_host(a.exe, "merge", "--left", str(sentinel.pid))
         if not hm:
             check("P2_ATTACH", False, "no host")
         else:
@@ -119,7 +119,7 @@ def main() -> int:
         # ---------- P3 精确 PID + 同候选多窗口取面积最大 ----------
         r_small = wm.get_window_rect(small)
         r_big = wm.get_window_rect(big_h)
-        hm = start_host(a.exe, "--left", str(real_pid))
+        hm = start_host(a.exe, "merge", "--left", str(real_pid))
         if not hm:
             check("P3_ATTACH", False, "no host")
         else:

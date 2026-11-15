@@ -47,7 +47,7 @@ def main() -> int:
 
     # 3. 带命名参数启动宿主 + 固定布局钉位（主屏，命中/矩形断言坐标静态可推）
     # CI 偶发 4s 起不来（run 6 首见）→ 失败再等 4s 重查一次
-    subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)
 
     hm = wm.host_hwnd()

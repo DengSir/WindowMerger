@@ -88,7 +88,7 @@ def main() -> int:
     print(f"targets A=0x{ha:X} B=0x{hb:X}")
 
     # E1 仅接管实例
-    p1 = subprocess.Popen([EXE, "--left-hwnd", str(ha), "--right-hwnd", str(hb),
+    p1 = subprocess.Popen([EXE, "merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                            "--profile", "snap-e1"], env=wm.host_env())
     h1 = wait_host(p1.pid)
     ok1 = wait_attached(ha, hb) if h1 else False
@@ -103,7 +103,7 @@ def main() -> int:
     p0 = subprocess.Popen([EXE], env=wm.host_env())
     h0 = wait_host(p0.pid)
     time.sleep(1.0)
-    p2 = subprocess.Popen([EXE, "--left-hwnd", str(ha), "--right-hwnd", str(hb),
+    p2 = subprocess.Popen([EXE, "merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                            "--profile", "snap-e2"], env=wm.host_env())
     h2 = wait_host(p2.pid)
     ok2 = wait_attached(ha, hb) if h2 else False

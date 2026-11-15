@@ -59,7 +59,7 @@ def main() -> int:
         return 0
 
     # 4. 宿主 CLI 吸附（纯数字 = PID）；宿主开在高 DPI 屏
-    host = subprocess.Popen([a.exe, "--left", str(mp.pid)])
+    host = subprocess.Popen([a.exe, "merge", "--left", str(mp.pid)])
     time.sleep(3.5)
     hws = wm.top_windows_of_pids([host.pid])
     if not hws:

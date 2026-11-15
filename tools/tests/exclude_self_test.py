@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""排除自身回归：实例 B 先起，实例 C 用 --left <B 的 PID> 抓 B——B 的宿主必须不被
+"""排除自身回归：实例 B 先起，实例 C 用 merge --left <B 的 PID> 抓 B——B 的宿主必须不被
 吸附（无 TOOLWINDOW、矩形不动）。原 ExcludeSelfTest.ps1。
 用法: uv run tools/\tests\\exclude_self_test.py [--exe 路径]
 """
@@ -39,7 +39,7 @@ def main() -> int:
     rb = wm.get_window_rect(hb)
 
     # 抓取者：实例 C 以 B 的 PID 为目标
-    subprocess.Popen([a.exe, "--left", str(pid_b)])
+    subprocess.Popen([a.exe, "merge", "--left", str(pid_b)])
     time.sleep(4)
 
     c_pids = [p for p in wm.pids_by_name("WindowMerger")

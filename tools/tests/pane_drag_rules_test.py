@@ -78,7 +78,7 @@ def main() -> int:
         return 1
     mh = wm.main_windows_by_name("mspaint")[0][1]
     npre = wm.get_window_rect(wm.main_windows_by_name("Notepad")[0][1])  # 吸附前矩形（D2 替换还原断言的基准）
-    subprocess.Popen([a.exe, "--left", "notepad"], env=wm.host_env())
+    subprocess.Popen([a.exe, "merge", "--left", "notepad"], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:

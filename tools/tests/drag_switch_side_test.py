@@ -51,7 +51,7 @@ def main() -> int:
         print("FAIL_NO_TARGET")
         target.kill()
         return 1
-    subprocess.Popen([a.exe, "--left", str(target.pid)])
+    subprocess.Popen([a.exe, "merge", "--left", str(target.pid)])
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:

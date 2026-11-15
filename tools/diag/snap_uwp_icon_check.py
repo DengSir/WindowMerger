@@ -86,7 +86,7 @@ def main() -> int:
     ht = wm.find_window_by_title("WM_UWP_TK")
 
     p = subprocess.Popen(["bin/Release/net10.0-windows/WindowMerger.exe",
-                          "--left-hwnd", str(frame), "--right-hwnd", str(ht),
+                          "merge", "--left-hwnd", str(frame), "--right-hwnd", str(ht),
                           "--profile", "snap-uwp"], env=wm.host_env())
     deadline = time.monotonic() + 8
     hm = 0

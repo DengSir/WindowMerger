@@ -1,25 +1,7 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Windows;
 
 namespace WindowMerger;
-
-/// <summary>启动参数（解析自命令行）：宿主模式目标、snap 接管直连句柄、实例隔离 profile、
-/// 托盘/检测模式开关。</summary>
-public sealed record StartupOptions
-{
-    public string? Left { get; set; }
-    public string? Right { get; set; }
-    public string? LeftExe { get; set; }
-    public string? RightExe { get; set; }
-    public long? LeftHwnd { get; set; }
-    public long? RightHwnd { get; set; }
-    public string? Profile { get; set; }
-    public bool Tray { get; set; }
-    public bool DetectSnap { get; set; }
-    // snap 接管落位（两窗口可见边界并集，物理 px + 左右比例）：由 --left-hwnd/--right-hwnd 派生
-    public ((double X, double Y, double W, double H) Rect, double Ratio)? Snap { get; set; }
-}
 
 public partial class App : Application
 {
@@ -36,14 +18,30 @@ public partial class App : Application
         int hr = Native.SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
         if (hr != 0) throw new InvalidOperationException($"设置 AUMID 失败：0x{hr:X8}");
 
-        var opts = ParseArgs(e.Args);
-        if (opts.DetectSnap)
+        // 命令式 CLI（src/Cli.cs）：解析失败/请求用法都在开任何窗口前弹框收场——GUI 进程
+        // 无控制台，lib 的报因与 help 输出不可见
+        var parsed = Cli.Parse(e.Args);
+        if (parsed.Help)
+        {
+            Cli.ShowUsage();
+            Shutdown(); // ExitCode 保持 0
+            return;
+        }
+        if (parsed.Errors.Length > 0)
+        {
+            Cli.ShowError(parsed.Errors);
+            Shutdown(1); // 解析失败以非零退出码结束（WPF 无 Application.ExitCode，走 Shutdown(int)）
+            return;
+        }
+        var opts = parsed.Options!;
+
+        if (opts.Mode == LaunchMode.Detect)
         {
             RunDetectSnap(); // 检测一次输出 JSON 即退出（测试/调试入口，与托盘共用检测代码）
             Shutdown();
             return;
         }
-        if (opts.Tray)
+        if (opts.Mode == LaunchMode.Tray)
         {
             // 托盘监听：无宿主窗口。ShutdownMode 必须显式——默认 OnLastWindowClose
             // 在零窗口下永不触发，应用会照常常驻；退出走 TrayController.Exit()
@@ -66,12 +64,14 @@ public partial class App : Application
         // 接管实例不检查更新：多实例并发换装会互抢 .old，更新走用户手动启动的主实例
         if (opts.LeftHwnd is not null || opts.RightHwnd is not null) config.CheckUpdates = false;
 
+        // merge 显式吸附与无参默认宿主当前同走窗口路径（无参组合模式在后续提交接入：
+        // 托盘常驻 + 按「启动到托盘」勾选决定主窗）
         var host = new HostWindow(config, opts);
         MainWindow = host;
         host.Show();
     }
 
-    /// <summary>--detect-snap：stdout 输出一行 JSON。reason 用 ASCII 报因码（CI cp1252
+    /// <summary>detect 子命令：stdout 输出一行 JSON。reason 用 ASCII 报因码（CI cp1252
     /// 控制台安全），中文报因只进托盘 balloon（RunDetectSnap 不产 UI）。</summary>
     private static void RunDetectSnap()
     {
@@ -88,74 +88,5 @@ public partial class App : Application
             }
             : new { ok = false, reason = r.ReasonCode, detail = r.Reason };
         Console.WriteLine(JsonSerializer.Serialize(payload));
-    }
-
-    /// <summary>
-    /// 命名参数 --left/-l、--right/-r、--left-exe、--right-exe（名字/PID/路径吸附，原语义不变）；
-    /// --left-hwnd/--right-hwnd（snap 接管直连句柄，十进制或 0x 十六进制）；--profile（实例隔离）；
-    /// --tray（托盘监听）、--detect-snap（检测一次输出退出）；其余位置参数按 [左] [右] 兜底。
-    /// </summary>
-    private static StartupOptions ParseArgs(string[] args)
-    {
-        var o = new StartupOptions();
-        for (int i = 0; i < args.Length; i++)
-        {
-            string a = args[i];
-            if ((a is "--left" or "-l" or "/left" or "/l") && i + 1 < args.Length)
-            {
-                o.Left = args[++i];
-            }
-            else if ((a is "--right" or "-r" or "/right" or "/r") && i + 1 < args.Length)
-            {
-                o.Right = args[++i];
-            }
-            else if ((a is "--left-exe" or "/left-exe") && i + 1 < args.Length)
-            {
-                o.LeftExe = args[++i];
-            }
-            else if ((a is "--right-exe" or "/right-exe") && i + 1 < args.Length)
-            {
-                o.RightExe = args[++i];
-            }
-            else if ((a is "--left-hwnd" or "/left-hwnd") && i + 1 < args.Length)
-            {
-                o.LeftHwnd = ParseHwnd(args[++i]);
-            }
-            else if ((a is "--right-hwnd" or "/right-hwnd") && i + 1 < args.Length)
-            {
-                o.RightHwnd = ParseHwnd(args[++i]);
-            }
-            else if ((a is "--profile" or "/profile") && i + 1 < args.Length)
-            {
-                o.Profile = args[++i];
-            }
-            else if (a is "--tray" or "/tray")
-            {
-                o.Tray = true;
-            }
-            else if (a is "--detect-snap" or "/detect-snap")
-            {
-                o.DetectSnap = true;
-            }
-            else if (o.Left is null)
-            {
-                o.Left = a;
-            }
-            else if (o.Right is null)
-            {
-                o.Right = a;
-            }
-        }
-        return o;
-    }
-
-    private static long? ParseHwnd(string raw)
-    {
-        raw = raw.Trim();
-        if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-        {
-            return long.TryParse(raw[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h) ? h : null;
-        }
-        return long.TryParse(raw, out var d) ? d : null;
     }
 }

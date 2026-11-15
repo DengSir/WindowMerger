@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """高 DPI 屏 snap 捕捉复现探针（非常驻回归）：在 4K@150 主屏上摆两个 EFB 贴合的
 **ctypes 直建 Win32 窗口**（本进程 PMv2，几何 1:1 自洽——Tk 靶是 SystemAware，
-混合 DPI 下自我缩放几何不可控），依次验证 --detect-snap 检测 → 接管 → 双窗吸附 →
+混合 DPI 下自我缩放几何不可控），依次验证 detect 检测 → 接管 → 双窗吸附 →
 释放还原。桌面原有的漂浮大窗（盖住布局）正是回归目标：贪心去重叠会抓不到、
 贴合子集搜索应命中。等待期间持续泵本进程消息——靶窗线程不泵消息时宿主跨进程
 SendMessage/SetWindowPos 会挂死宿主 UI 线程（窗口永不显示）。
@@ -105,7 +105,7 @@ def efb_align(h: int, target: tuple[int, int, int, int]) -> bool:
 
 
 def detect_once() -> dict:
-    p = subprocess.run([wm.exe_path(), "--detect-snap"], capture_output=True,
+    p = subprocess.run([wm.exe_path(), "detect"], capture_output=True,
                        text=True, encoding="utf-8")
     try:
         return json.loads(p.stdout)
@@ -155,7 +155,7 @@ def main() -> int:
         destroy_win(hb, "WM_SnapReproB", hinst)
         return 1
 
-    subprocess.Popen([wm.exe_path(), "--left-hwnd", str(ha), "--right-hwnd", str(hb),
+    subprocess.Popen([wm.exe_path(), "merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                       "--profile", "snap-repro"])
     host = 0
     for _ in range(150):  # 30s：WPF 冷启动在繁忙桌面可能较慢

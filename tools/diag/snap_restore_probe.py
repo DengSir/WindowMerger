@@ -90,7 +90,7 @@ def efb_align(h: int, target: tuple[int, int, int, int]) -> bool:
 
 
 def detect_once() -> dict:
-    p = subprocess.run([wm.exe_path(), "--detect-snap"], capture_output=True,
+    p = subprocess.run([wm.exe_path(), "detect"], capture_output=True,
                        text=True, encoding="utf-8")
     try:
         return json.loads(p.stdout)
@@ -140,7 +140,7 @@ def main() -> int:
         print("FAIL_DETECT")
         return 1
 
-    subprocess.Popen([wm.exe_path(), "--left-hwnd", str(ha), "--right-hwnd", str(hb),
+    subprocess.Popen([wm.exe_path(), "merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                       "--profile", "snap-repro"])
     host = 0
     for _ in range(150):

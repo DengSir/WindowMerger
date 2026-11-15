@@ -53,7 +53,7 @@ def main() -> int:
     if not wm.wait_main_windows("Notepad", "mspaint"):
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
-    subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"], env=wm.host_env())
+    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
@@ -172,7 +172,7 @@ def main() -> int:
     time.sleep(1.5)
     wm.force_kill_by_name("mspaint")
     nh2_pre = wm.get_window_rect(nh)  # host2 吸附前矩形：优雅关闭已把 notepad 还原回原位
-    subprocess.Popen([a.exe, "--left", "notepad"], env=wm.host_env())
+    subprocess.Popen([a.exe, "merge", "--left", "notepad"], env=wm.host_env())
     time.sleep(4)
     hm2 = wm.host_hwnd()
     if not hm2:
@@ -238,10 +238,10 @@ def main() -> int:
         return 1
     tray_pid = wm.pid_of(th)
     tray_pre = wm.get_window_rect(th)
-    # 宿主运行中没有运行时吸附入口，重启带 --left PID 精确吸附（H6 同款模式）
+    # 宿主运行中没有运行时吸附入口，重启带 merge --left PID 精确吸附（H6 同款模式）
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.5)
-    subprocess.Popen([a.exe, "--left", str(tray_pid)], env=wm.host_env())
+    subprocess.Popen([a.exe, "merge", "--left", str(tray_pid)], env=wm.host_env())
     time.sleep(4)
     hm3 = wm.host_hwnd()
     if not hm3:

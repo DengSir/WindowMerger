@@ -185,10 +185,10 @@ def main() -> int:
         close_host(hm)
 
     run_flow("FLOW_B hwnd直连(TkA+TkB)",
-             ["--left-hwnd", str(ha), "--right-hwnd", str(hb), "--profile", "snap-probe"])
+             ["merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb), "--profile", "snap-probe"])
     if hn:
         run_flow("FLOW_C hwnd直连(notepad+TkB)",
-                 ["--left-hwnd", str(hn), "--right-hwnd", str(hb), "--profile", "snap-probe"])
+                 ["merge", "--left-hwnd", str(hn), "--right-hwnd", str(hb), "--profile", "snap-probe"])
 
     # 清理
     for p in procs:

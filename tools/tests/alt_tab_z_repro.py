@@ -78,7 +78,7 @@ def main() -> int:
     mp_h = mps[0][1]
 
     # 3. 宿主 CLI 吸附
-    subprocess.Popen([a.exe, "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
     time.sleep(4)
     probe("STEP0_ATTACHED")
 

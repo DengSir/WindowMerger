@@ -196,7 +196,7 @@ def phase2() -> bool:
     time.sleep(0.8)  # shell 异步建任务栏按钮
     print(f"P2_BASELINE_BUTTON={paint_button_seen()}")
 
-    subprocess.Popen([exe, "--left", "mspaint"], env=wm.host_env())
+    subprocess.Popen([exe, "merge", "--left", "mspaint"], env=wm.host_env())
     if not wm.wait_until(lambda: wm.host_hwnd() != 0, 15000):
         print("NO_HOST")
         return False

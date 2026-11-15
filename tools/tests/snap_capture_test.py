@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""snap 接管回归（--detect-snap 检测 / --left-hwnd 直连 / --profile 配置隔离）：
+"""snap 接管回归（detect 检测 / merge --left-hwnd 直连 / --profile 配置隔离）：
   S1 检测命中：两靶窗 EFB 对半排满测试屏工作区 → ok=true、左右句柄、比例、屏序号正确
   S1b 2:1 变体：左 2/3 右 1/3 → ratio ≈ 0.6667
-  S2 接管 e2e：--left-hwnd/--right-hwnd/--profile → 双窗吸附（corner==1）、宿主矩形=工作区、
+  S2 接管 e2e：merge --left-hwnd/--right-hwnd/--profile → 双窗吸附（corner==1）、宿主矩形=工作区、
      profile 配置落盘孤儿记录；优雅关 → 双窗回吸附前矩形 + 圆角还原 + 记录清空
   S3 配置隔离：默认 config.json 不含接管实例的孤儿记录（多实例互不覆盖）
   S4 报因：三窗三等分 TOO_MANY:3 / 上下排列 STACKED / 两窗留缝 NO_LAYOUT / 单窗半屏 NO_LAYOUT
-  S5 无效句柄：--left-hwnd 99999999 → 状态栏报"句柄无效"
+  S5 无效句柄：merge --left-hwnd 99999999 → 状态栏报"句柄无效"
 用法: uv run tools/tests/snap_capture_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad；结束自己拉起的 snap 靶窗。
 """
@@ -126,7 +126,7 @@ class Rig:
         return 0
 
     def detect(self) -> dict:
-        p = subprocess.run([self.exe, "--detect-snap"], capture_output=True, timeout=30)
+        p = subprocess.run([self.exe, "detect"], capture_output=True, timeout=30)
         out = p.stdout.decode("utf-8", errors="replace")
         lines = [l for l in out.strip().splitlines() if l.strip()]
         if not lines:
@@ -284,7 +284,7 @@ def main() -> int:
               if not skip_detect else True, f"d={d2}")
 
         # ---------- S2 接管 e2e + S3 配置隔离 ----------
-        host = rig.start_host(["--left-hwnd", str(ha), "--right-hwnd", str(hb),
+        host = rig.start_host(["merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
                                "--profile", "snap-test"])
         check("S2_HOST_ALIVE", bool(host))
         if host:
@@ -373,7 +373,7 @@ def main() -> int:
             rig.kill_all()
 
         # ---------- S5 无效句柄 ----------
-        host = rig.start_host(["--left-hwnd", "99999999", "--profile", "snap-test2"])
+        host = rig.start_host(["merge", "--left-hwnd", "99999999", "--profile", "snap-test2"])
         check("S5_HOST_ALIVE", bool(host))
         if host:
             st = None
@@ -386,12 +386,12 @@ def main() -> int:
             wm.post_close(host)
             wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200)
 
-        # ---------- S6 托盘生命周期（--tray：常驻 + 单实例 mutex） ----------
-        # 热键/捕捉路径与 --detect-snap + spawn 共用代码，上面已测；这里只验进程语义
-        tray1 = subprocess.Popen([rig.exe, "--tray"], env=wm.host_env())
+        # ---------- S6 托盘生命周期（tray：常驻 + 单实例 mutex） ----------
+        # 热键/捕捉路径与 detect + spawn 共用代码，上面已测；这里只验进程语义
+        tray1 = subprocess.Popen([rig.exe, "tray"], env=wm.host_env())
         time.sleep(2.5)
         check("S6_TRAY_ALIVE", tray1.poll() is None)  # 零窗口下常驻（ShutdownMode 显式）
-        tray2 = subprocess.Popen([rig.exe, "--tray"], env=wm.host_env())
+        tray2 = subprocess.Popen([rig.exe, "tray"], env=wm.host_env())
         tray2_exited = wm.wait_until(lambda: tray2.poll() is not None, 6000, 100)
         check("S6_TRAY_SINGLE_INSTANCE", tray2_exited and tray2.returncode == 0,
               f"rc={tray2.returncode}")

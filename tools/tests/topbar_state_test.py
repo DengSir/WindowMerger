@@ -99,7 +99,7 @@ def main() -> int:
     if not wm.wait_main_windows("Notepad"):
         print("FAIL_TARGET_NOT_RUNNING")
         return 1
-    subprocess.Popen([a.exe, "--left", "notepad"], env=wm.host_env())
+    subprocess.Popen([a.exe, "merge", "--left", "notepad"], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:

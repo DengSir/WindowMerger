@@ -56,7 +56,7 @@ def main() -> int:
         return 1
     target = wm.main_windows_by_name("mspaint")[0][1]
     # 用户可能正开着自己的宿主（installed 版）——按 PID 跟踪本测试实例，别碰别人的
-    proc = subprocess.Popen([wm.exe_path(), "--left", "mspaint"], env=wm.host_env())
+    proc = subprocess.Popen([wm.exe_path(), "merge", "--left", "mspaint"], env=wm.host_env())
     if not wm.wait_until(lambda: bool(wm.main_windows_of_pid(proc.pid)), 15000) \
             or not wm.wait_until(lambda: wm.is_attached(target), 15000):
         print("NO_ATTACH")

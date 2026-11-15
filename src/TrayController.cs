@@ -104,7 +104,7 @@ internal sealed class TrayController
             Balloon("未捕捉 snap 布局", "无法定位程序路径");
             return;
         }
-        string args = $"--left-hwnd {group.Windows[0].Hwnd.ToInt64()} " +
+        string args = $"merge --left-hwnd {group.Windows[0].Hwnd.ToInt64()} " +
                       $"--right-hwnd {group.Windows[1].Hwnd.ToInt64()} " +
                       $"--profile snap-{group.MonitorIndex}";
         try
