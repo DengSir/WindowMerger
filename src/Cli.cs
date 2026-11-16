@@ -37,6 +37,9 @@ public sealed record StartupOptions
     public string? Profile { get; set; }
     // snap 接管落位（两窗口可见边界并集，物理 px + 左右比例）：由 merge 的句柄参数派生
     public ((double X, double Y, double W, double H) Rect, double Ratio)? Snap { get; set; }
+    // 单实例唤起开新扇的级联偏移（DIP，按存活宿主扇数阶梯）：仅无参唤起路径由 App 填写，
+    // CLI 解析不产生该值——多扇平级宿主同几何会完全重叠，偏移让新扇可见
+    public double CascadeDip { get; set; }
 }
 
 /// <summary>Cli.Parse 结果：Help = 请求了用法（--help，动作未执行）；Errors 非空 = 解析

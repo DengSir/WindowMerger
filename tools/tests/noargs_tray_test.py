@@ -2,13 +2,15 @@
 """无参组合模式回归（托盘常驻 +「启动到托盘」决定主窗；自行剥掉 WM_NO_TRAY 屏蔽变量）：
   N1 无参启动 → 主窗 + 托盘常驻（mutex 佐证：再起 tray 实例秒退 rc=0）
   N2 WM_CLOSE 主窗 → 窗没进程活（关窗常驻，首次关窗有 balloon 提醒——balloon 不做黑盒断言）
-  N3 首实例（托盘）存活时第二无参实例 → 第二扇主窗出现（mutex 占用回退纯窗口模式），首实例无恙
+  N3 单实例：第二无参实例 → 唤起首实例开一扇**新的平级宿主**（首实例进程内 host 数 0→1），
+     第二实例自身秒退 rc=0，首实例无恙（旧"回退纯窗口模式开第二扇"语义已退役）
+  N3b 已有一扇宿主时再启动 → 再开一扇（平级双扇 host 数 1→2），自身秒退 rc=0
   N4 config StartToTray=true → 无参启动零主窗、托盘常驻
   N5-N8 托盘菜单（UIA 定位任务栏托盘按钮 → 右键开菜单 → 按 Name Invoke；托盘图标收进
      溢出 flyout 且未展开时不在 UIA 树上 → N5-N8 标 SKIP_TRAY_ICON_HIDDEN，exit 0）：
     N5 「启动时检查更新」翻转落盘（原主题菜单 ToggleCheckUpdates 用例迁移至此）
     N8 「开机自启」写无参 Run 值（不含 --tray），再点取消还原
-    N6 「打开主窗口」→ 主窗出现（托盘进程内新建宿主）
+    N6 「打开新窗口」→ 托盘进程内新建宿主；再点一次再开一扇（平级双扇）
     N7 「退出」→ 进程优雅退出
 用法: uv run tools\\tests\\noargs_tray_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint；临时改 config/Run 注册表（结束恢复）。
@@ -153,11 +155,21 @@ def main() -> int:
         check("N2_CLOSE_RESIDENT", resident,
               f"alive={p1.poll() is None} host={bool(wm.host_hwnd())}")
 
-        # ---------- N3 第二无参实例回退纯窗口模式 ----------
+        # ---------- N3 单实例唤起开新扇 ----------
         p3 = subprocess.Popen([a.exe], env=combined_env)
-        second_ok = wm.wait_until(lambda: bool(wm.host_hwnd()), 8000, 200)
-        check("N3_SECOND_WINDOW_ONLY", second_ok and p1.poll() is None,
-              f"second_host={second_ok} first_alive={p1.poll() is None}")
+        p3_exited = wm.wait_until(lambda: p3.poll() is not None, 6000, 100)
+        host1 = wm.wait_until(lambda: len(wm.host_hwnds()) == 1, 8000, 200)
+        check("N3_SIGNAL_OPENS_NEW_HOST",
+              p3_exited and host1 and p3.returncode == 0 and p1.poll() is None,
+              f"p3_exited={p3_exited} rc={p3.returncode} host={host1} first_alive={p1.poll() is None}")
+
+        # ---------- N3b 已有宿主再启动 → 平级双扇 ----------
+        p4 = subprocess.Popen([a.exe], env=combined_env)
+        p4_exited = wm.wait_until(lambda: p4.poll() is not None, 6000, 100)
+        hosts2 = wm.wait_until(lambda: len(wm.host_hwnds()) == 2, 8000, 200)
+        check("N3B_SECOND_PEER_HOST",
+              p4_exited and hosts2 and p4.returncode == 0 and p1.poll() is None,
+              f"p4_exited={p4_exited} rc={p4.returncode} hosts2={hosts2} first_alive={p1.poll() is None}")
         kill_all()
 
         # ---------- N4 启动到托盘 ----------
@@ -180,7 +192,8 @@ def main() -> int:
         if btn is None:
             check("N5_TOGGLE_PERSIST", True, "SKIP_TRAY_ICON_HIDDEN")
             check("N8_AUTOSTART_NOARG", True, "SKIP_TRAY_ICON_HIDDEN")
-            check("N6_OPEN_HOST", True, "SKIP_TRAY_ICON_HIDDEN")
+            check("N6_OPEN_NEW_HOST", True, "SKIP_TRAY_ICON_HIDDEN")
+            check("N6B_OPEN_SECOND_HOST", True, "SKIP_TRAY_ICON_HIDDEN")
             check("N7_EXIT_GRACEFUL", True, "SKIP_TRAY_ICON_HIDDEN")
             if p.poll() is None:
                 p.terminate()
@@ -214,11 +227,17 @@ def main() -> int:
                   f"on={v_on!r} off={v_off is None}")
             move_cursor_away()
 
-            # N6 「打开主窗口」→ 托盘进程内新建宿主
+            # N6 「打开新窗口」→ 托盘进程内新建宿主；再点一次再开一扇（平级双扇）
             right_click_tray(btn)
-            opened = invoke_menu_item(p.pid, "打开主窗口")
-            host_ok = opened and wm.wait_until(lambda: bool(wm.host_hwnd()), 6000, 200)
-            check("N6_OPEN_HOST", bool(host_ok), f"opened={opened}")
+            opened = invoke_menu_item(p.pid, "打开新窗口")
+            host_ok = opened and wm.wait_until(lambda: len(wm.host_hwnds()) == 1, 6000, 200)
+            check("N6_OPEN_NEW_HOST", bool(host_ok), f"opened={opened}")
+            move_cursor_away()
+
+            right_click_tray(btn)
+            opened2 = invoke_menu_item(p.pid, "打开新窗口")
+            hosts2_ok = opened2 and wm.wait_until(lambda: len(wm.host_hwnds()) == 2, 6000, 200)
+            check("N6B_OPEN_SECOND_HOST", bool(hosts2_ok), f"opened={opened2}")
             move_cursor_away()
 
             # N7 「退出」→ 进程优雅退出

@@ -12,14 +12,14 @@ public partial class App : Application
     /// </summary>
     private const string AppUserModelId = "DengSir.WindowMerger";
 
-    private TrayController? _tray; // 组合模式（无参启动）持有的托盘；merge/纯 tray/测试屏蔽下为 null
-    private HostWindow? _host;     // 本进程默认宿主（组合模式关窗常驻 + 托盘「打开主窗口」用）
+    private TrayController? _tray;                  // 组合模式（无参启动）持有的托盘；merge/纯 tray/测试屏蔽下为 null
+    private readonly List<HostWindow> _hosts = new(); // 本进程全部存活宿主（平级无主次；关窗常驻/唤起开新扇/换装清理用）
 
     /// <summary>组合模式的托盘（null = 本进程无托盘：merge 模式、纯 tray 模式或测试屏蔽）。</summary>
     internal TrayController? Tray => _tray;
 
-    /// <summary>本进程默认宿主（null = 未开或已关窗；托盘菜单设置同步与「打开主窗口」用）。</summary>
-    internal HostWindow? Host => _host;
+    /// <summary>本进程存活宿主快照（多扇平级；换装清理用）。</summary>
+    internal IReadOnlyList<HostWindow> Hosts => _hosts;
 
     /// <summary>测试屏蔽：WM_NO_TRAY=1 时无参启动退回旧语义（仅主窗、关窗即退出），不起托盘
     /// 不占 mutex 不注册热键。复用 WM_UPDATE_OFF 的三层注入模式（wm.py 导入 / run_all / test.yml），
@@ -87,16 +87,18 @@ public partial class App : Application
         }
 
         // 无参组合模式：托盘常驻（Ctrl+Alt+M 随时可用），按「启动到托盘」勾选决定是否弹主窗；
-        // 关窗不退出（首次 balloon 提醒），托盘菜单「退出」才整进程结束
+        // 关窗不退出（最后一扇宿主关闭时 balloon 提醒），托盘菜单「退出」才整进程结束
         if (!TraySuppressedForTests)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             _tray = new TrayController();
             if (!_tray.Start())
             {
-                // 托盘 mutex 已被其他实例占用（双击 exe 再开一扇的兜底）：本实例退回纯窗口模式
-                _tray = null;
-                ShutdownMode = ShutdownMode.OnMainWindowClose;
+                // 单实例：主实例在运行（mutex 被占）→ 唤起它开一扇新的平级宿主，本进程退出。
+                // 绝不回退纯窗口模式开第二进程（旧"双击 exe 再开一扇"语义已退役）
+                TrayController.SignalOpenHost();
+                Shutdown(); // rc 0，与 tray 子命令第二实例秒退一致
+                return;
             }
             else if (config.StartToTray)
             {
@@ -109,27 +111,54 @@ public partial class App : Application
     private void ShowHost(HostWindow host)
     {
         MainWindow = host;
-        _host = host;
+        _hosts.Add(host);
+        host.Closed += (_, _) => _hosts.Remove(host);
         host.Show();
     }
 
-    /// <summary>托盘「打开主窗口」：默认宿主还活着就激活，否则按默认 config 新建一扇
-    /// （关窗常驻后重开 / 勾选「启动到托盘」后的唯一开窗途径之一）。同进程只保留一扇
-    /// 默认宿主——两个实例/两扇窗会同写 config.json 互相覆盖。</summary>
-    internal void OpenDefaultHost()
+    /// <summary>托盘「打开新窗口」/ 单实例唤起入口：每次开一扇**新的平级宿主**（无宿主时即
+    /// 常规开窗；多扇宿主恢复同一份保存几何会完全重叠，按存活扇数级联偏移让新扇可见）。</summary>
+    internal void OpenNewHost()
     {
-        if (_host is { IsLoaded: true } alive)
-        {
-            if (alive.WindowState == WindowState.Minimized) alive.WindowState = WindowState.Normal;
-            alive.Activate();
-            return;
-        }
         ConfigStore.Configure(null); // null = 默认 config.json（no-op 安全，防残留 profile 切换）
-        ShowHost(new HostWindow(ConfigStore.Load(), new StartupOptions()));
+        var alive = _hosts.Count(h => h.IsLoaded);
+        ShowHost(new HostWindow(ConfigStore.Load(), new StartupOptions
+        {
+            CascadeDip = Math.Min(alive, 8) * 24,
+        }));
+    }
+
+    /// <summary>宿主关闭通知转发：多扇平级宿主下单关一扇不提醒，只有最后一扇真正关闭才
+    /// 触发托盘的关窗常驻一次性 balloon。</summary>
+    internal void NotifyHostClosed(HostWindow closing)
+    {
+        if (_hosts.Any(h => h != closing && h.IsLoaded)) return;
+        Tray?.NotifyHostClosed();
+    }
+
+    /// <summary>主题切换广播：模式是全局静态、刷色是每扇宿主自己的资源——多扇平级宿主
+    /// 一改全改（ApplyTheme 含字形/tooltip 同步）。</summary>
+    internal void BroadcastTheme(HostWindow source)
+    {
+        foreach (var h in _hosts.Where(h => h != source && h.IsLoaded))
+        {
+            h.ApplyTheme();
+        }
+    }
+
+    /// <summary>换装重启前关闭其他存活宿主：逐扇 Close()（各自 OnClosing 还原子窗+落盘）。
+    /// 多扇平级宿主下不能留着它们与换装后的新实例并发收尾。</summary>
+    internal void CloseOtherHosts(HostWindow except)
+    {
+        foreach (var h in _hosts.Where(h => h != except && h.IsLoaded).ToList())
+        {
+            h.Close();
+        }
     }
 
     /// <summary>换装重启前放掉托盘（图标/热键/message 窗/mutex 全量释放）：新实例无参启动
-    /// 要起组合模式托盘，旧进程必须先释放 mutex，否则新实例误回退纯窗口模式丢托盘。</summary>
+    /// 要起组合模式托盘，旧进程必须先释放 mutex——否则新实例会走单实例唤起路径静默退场，
+    /// 托盘就丢了。</summary>
     internal void ShutdownTrayForRestart()
     {
         _tray?.Teardown();

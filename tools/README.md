@@ -67,7 +67,7 @@
 | `snap_capture_test.py` | snap 捕捉接管 e2e：检测命中/比例、接管双吸附、拼图图标、宿主矩形=工作区、释放回捕获矩形、profile 隔离、报因四场景、托盘单实例（SnapCaptureTest） |
 | `update_e2e_test.py` | 自动更新 e2e：假 releases/latest → 自动弹框 → 下载换装重启全链（UpdateE2ETest） |
 | `update_edge_test.py` | 更新边界：版本前缀解析/404/坏 zip 保留/.old 占用自愈（开关翻转持久化迁至 noargs_tray_test）（UpdateEdgeTest） |
-| `noargs_tray_test.py` | 无参组合模式：主窗+托盘（mutex 佐证）/关窗常驻/第二实例回退纯窗口/启动到托盘零主窗/托盘菜单（检查更新翻转落盘、自启写无参 Run 值、打开主窗口、退出；图标被收纳进溢出 flyout 时 SKIP_TRAY_ICON_HIDDEN）（NoArgsTrayTest） |
+| `noargs_tray_test.py` | 无参组合模式：主窗+托盘（mutex 佐证）/关窗常驻/单实例唤起（第二无参实例秒退 rc0 + 首实例开新扇 host 数 0→1 + N3b 平级双扇 1→2）/启动到托盘零主窗/托盘菜单（检查更新翻转落盘、自启写无参 Run 值、打开新窗口两扇、退出；图标被收纳进溢出 flyout 时 SKIP_TRAY_ICON_HIDDEN）（NoArgsTrayTest） |
 
 ## diag/（一次性诊断探针，bug 排查期产物留档）
 

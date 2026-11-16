@@ -58,9 +58,8 @@ public sealed partial class HostWindow : Window
     private Border[] _dividers = Array.Empty<Border>();
 
     // 自动更新（逻辑在 Updater.cs，这里只做状态机与 UI）
-    private bool _checkUpdates;                 // 启动自动检查开关（config.CheckUpdates，托盘菜单可切）
-    private bool _startToTray;                  // 启动到托盘镜像（config.StartToTray，托盘菜单可切，
-                                                // SaveConfig 回写防丢——托盘翻转经 SetStartToTray 同步进来）
+    private bool _checkUpdates;                 // 启动自动检查开关（构造时读 config.CheckUpdates；
+                                                // 该字段归托盘所有、托盘菜单直写 config，宿主不再回写）
     private Updater.UpdateInfo? _update;        // 发现的可用更新（null=无）
     private string? _updateZip;                 // 已下载的更新包路径（null=未下载）
     private UpdatePhase _updatePhase = UpdatePhase.Idle;
@@ -116,6 +115,23 @@ public sealed partial class HostWindow : Window
         return (x, y, w, h, config.WinMaximized);
     }
 
+    /// <summary>新扇级联偏移：按落位屏 DPI 把 DIP 偏移换算成物理像素，位置平移后重新钳制
+    /// 到该屏工作区（尺寸不变）。GetMonitorInfo 失败按原样返回（落位失败比偏移缺失更糟）。</summary>
+    private static (double X, double Y, double W, double H, bool Maximized) CascadePlacement(
+        (double X, double Y, double W, double H, bool Maximized) pl, double dip)
+    {
+        nint hMon = Native.MonitorFromPoint(
+            new Native.POINT { X = (int)(pl.X + pl.W / 2), Y = (int)(pl.Y + pl.H / 2) },
+            Native.MONITOR_DEFAULTTONEAREST);
+        var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
+        if (!Native.GetMonitorInfo(hMon, ref mi)) return pl;
+        double delta = dip * Native.MonitorDpiScale(hMon);
+        var wa = mi.rcWork; // 物理 px
+        double x = Math.Clamp(pl.X + delta, wa.Left, Math.Max(wa.Left, wa.Right - pl.W));
+        double y = Math.Clamp(pl.Y + delta, wa.Top, Math.Max(wa.Top, wa.Bottom - pl.H));
+        return (x, y, pl.W, pl.H, pl.Maximized);
+    }
+
     public HostWindow(AppConfig config, StartupOptions? opts = null)
     {
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
@@ -124,7 +140,6 @@ public sealed partial class HostWindow : Window
         _ratio2 = Math.Clamp(config.Ratio2, MinRatio, MaxRatio);
         _panes = new AttachedChild?[_layout.PaneCount];
         _checkUpdates = config.CheckUpdates;
-        _startToTray = config.StartToTray;
         var orphanPids = config.AttachedPids;
         var orphanHwnds = config.AttachedHwnds;
 
@@ -167,6 +182,10 @@ public sealed partial class HostWindow : Window
             // 可见显示器工作区后暂存，hwnd 建好后 OnSourceInitialized 落位——显示器断开/
             // 分辨率变化/配置损坏都不能产生屏外幽灵窗。无有效几何默认 960×600 主屏居中
             _pendingPlacement = ResolvePlacement(config);
+            // 单实例唤起开新扇：多扇平级宿主恢复同一份保存几何会完全重叠，按 CascadeDip
+            // 阶梯偏移让新扇可见（最大化态/无保存几何不偏移）
+            if (_pendingPlacement is { } pl && !pl.Maximized && opts?.CascadeDip is double dip && dip > 0)
+                _pendingPlacement = CascadePlacement(pl, dip);
         }
         Width = 960;
         Height = 600;
@@ -329,6 +348,8 @@ public sealed partial class HostWindow : Window
         {
             AppTheme.Mode = mode;
             ApplyTheme();
+            // 模式是全局静态、刷色是每扇宿主自己的资源：多扇平级宿主要一改全改
+            (Application.Current as App)?.BroadcastTheme(this);
             SaveConfig();
         });
 
@@ -375,7 +396,9 @@ public sealed partial class HostWindow : Window
         return item;
     }
 
-    private void ApplyTheme()
+    /// <summary>按 AppTheme.Mode 重刷本窗主题资源（含主题按钮字形/tooltip）。多扇平级
+    /// 宿主下由 App.BroadcastTheme 对其余扇广播调用，故为 internal。</summary>
+    internal void ApplyTheme()
     {
         var p = AppTheme.Current();
         // 主题刷色 = 换资源：所有 DynamicResource 引用（顶条/格子/分隔条/文字/边框）自动跟随，
@@ -506,24 +529,17 @@ public sealed partial class HostWindow : Window
     private static void SetComProp(object target, string name, object value)
         => target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value });
 
-    private void SaveConfig()    {
-        var cfg = new AppConfig
-        {
-            Ratio = _ratio,
-            Layout = _layout.ConfigName,
-            Ratio2 = _ratio2,
-            Theme = AppTheme.Mode.ToString(),
-            CheckUpdates = _checkUpdates,
-            StartToTray = _startToTray,
-        };
-        cfg.AttachedPids = _panes
-            .Where(c => c is not null)
-            .Select(c => (long)c!.Pid)
-            .ToList();
-        cfg.AttachedHwnds = _panes
-            .Where(c => c is not null)
-            .Select(c => c!.Hwnd.ToInt64())
-            .ToList();
+    private void SaveConfig()
+    {
+        // 多扇平级宿主共用默认 config：以磁盘为基底合并写，只覆盖本宿主自有字段——
+        // 托盘自有字段（CheckUpdates/StartToTray，托盘菜单直写）与另一扇宿主刚写的内容
+        // 原样保留，整文件回写互踩不再存在
+        var cfg = ConfigStore.Load();
+        cfg.Ratio = _ratio;
+        cfg.Layout = _layout.ConfigName;
+        cfg.Ratio2 = _ratio2;
+        cfg.Theme = AppTheme.Mode.ToString();
+        MergeOrphanRecords(cfg);
         // 几何持久化：正常态矩形（最大化/最小化关闭取 RestoreBounds）× 当前屏 DPI = 物理像素，
         // 加是否最大化——跨 DPI 启动不漂移，位置也一并恢复（恢复端钳到可见屏防幽灵窗）
         double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
@@ -538,22 +554,49 @@ public sealed partial class HostWindow : Window
         ConfigStore.Save(cfg);
     }
 
-    /// <summary>托盘菜单翻转「启动时检查更新」的同步入口：改镜像字段并落盘。宿主活着时
-    /// 托盘不直写 config（SaveConfig 整文件回写会互相覆盖），经此方法走单一写者。</summary>
-    public void SetCheckUpdates(bool value)
+    /// <summary>孤儿救援记录合并（多扇平级宿主共用一份 config）：磁盘记录按条目过滤——
+    /// 窗口存活 + 句柄未复用给其他进程 + corner 仍是吸附流程写入的直角化（DONOTROUND，
+    /// 与 CleanupOrphanedChildren 同口径）——即"仍处吸附外观"的保留（可能是另一扇宿主
+    /// 的子窗口）；已释放（corner 已还原 DEFAULT）与已死亡的条目剔除。再并上本宿主当前
+    /// 子窗口记录（按 hwnd 去重）。</summary>
+    private void MergeOrphanRecords(AppConfig cfg)
     {
-        if (_checkUpdates == value) return;
-        _checkUpdates = value;
-        SaveConfig();
+        var pids = new List<long>();
+        var hwnds = new List<long>();
+        if (cfg.AttachedHwnds is { Count: > 0 } diskHwnds
+            && cfg.AttachedPids is { Count: > 0 } diskPids
+            && diskHwnds.Count == diskPids.Count)
+        {
+            for (int i = 0; i < diskHwnds.Count; i++)
+            {
+                if (!KeepOrphanRecord(new IntPtr(diskHwnds[i]), diskPids[i])) continue;
+                pids.Add(diskPids[i]);
+                hwnds.Add(diskHwnds[i]);
+            }
+        }
+        foreach (var child in _panes)
+        {
+            if (child is null || hwnds.Contains(child.Hwnd.ToInt64())) continue;
+            pids.Add((long)child.Pid);
+            hwnds.Add(child.Hwnd.ToInt64());
+        }
+        cfg.AttachedPids = pids;
+        cfg.AttachedHwnds = hwnds;
     }
 
-    /// <summary>托盘菜单翻转「启动到托盘」的同步入口：只影响下次无参启动，本次窗口不动。</summary>
-    public void SetStartToTray(bool value)
+    /// <summary>孤儿记录单条是否仍值得保留：窗口存活 + PID 匹配（防句柄复用）+ corner 仍是
+    /// 吸附态直角化。读取失败按不保留处理（下次吸附会重新写入记录）。</summary>
+    private static bool KeepOrphanRecord(IntPtr hwnd, long pid)
     {
-        if (_startToTray == value) return;
-        _startToTray = value;
-        SaveConfig();
+        if (!Native.IsWindow(hwnd)) return false;
+        Native.GetWindowThreadProcessId(hwnd, out uint actualPid);
+        if (actualPid != (uint)pid) return false;
+        return Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, out int pref, sizeof(int)) == 0
+            && pref == Native.DWMWCP_DONOTROUND;
     }
+
+    // （SetCheckUpdates/SetStartToTray 已随"单一写者"机制退役：SaveConfig 改合并写后，
+    // 托盘菜单设置开关始终直写默认 config，宿主不再代写这两个托盘自有字段）
 
     private void UpdateMaxGlyph()
     {
@@ -711,22 +754,25 @@ public sealed partial class HostWindow : Window
         SaveConfig();
     }
 
-    /// <summary>关闭收尾 + 重启安装：先还原子窗口/落盘配置（AttachedPids 随之清空，新实例
-    /// 不会误吸附）。非换装关闭：组合模式（托盘常驻）经托盘发一次性 balloon 提醒仍在运行；
-    /// 换装重启：先放掉托盘 mutex（新实例无参启动要起组合模式托盘，旧进程不先释放会误回退
-    /// 纯窗口模式），换 exe 拉起新实例后显式 Shutdown（组合模式 OnExplicitShutdown 下关窗
-    /// 不退出）。换装任何一步失败都取消关闭（窗口留着）并报因，用户可重试或正常继续使用。</summary>
+    /// <summary>关闭收尾 + 重启安装：先还原子窗口/落盘配置（孤儿记录随合并写按吸附外观
+    /// 剔除本宿主条目）。非换装关闭：组合模式（托盘常驻）经托盘在最后一扇宿主关闭时发
+    /// 一次性 balloon 提醒仍在运行；换装重启：先逐扇关闭其他宿主（各自还原子窗+落盘，
+    /// 多扇平级宿主下不能留着它们与新实例并发收尾），再放掉托盘 mutex（新实例无参启动
+    /// 要起组合模式托盘，mutex 被旧进程占着会走单实例唤起路径静默退场），换 exe 拉起
+    /// 新实例后显式 Shutdown（组合模式 OnExplicitShutdown 下关窗不退出）。换装任何一步
+    /// 失败都取消关闭（窗口留着）并报因，用户可重试或正常继续使用。</summary>
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         OnClosingCleanup();
         var app = Application.Current as App;
         if (!_pendingInstall)
         {
-            app?.Tray?.NotifyHostClosed();
+            app?.NotifyHostClosed(this); // 多扇平级宿主：只有最后一扇真正关闭才触发托盘提醒（判断在 App）
             return;
         }
         try
         {
+            app?.CloseOtherHosts(this);
             app?.ShutdownTrayForRestart();
             Updater.InstallAndRestart(_updateZip!);
             Application.Current.Shutdown();

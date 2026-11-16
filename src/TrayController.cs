@@ -11,17 +11,20 @@ namespace WindowMerger;
 /// <summary>
 /// 托盘控制器（tray 子命令 / 无参组合模式共用）：常驻、全局热键 Ctrl+Alt+M 捕捉"前台屏"的
 /// snap 布局（检测在 SnapLayoutDetector），命中恰好 2 窗即 spawn 一个带 merge 子命令句柄
-/// 参数的宿主实例接管。tray 子命令 = 零窗口纯托盘；组合模式（无参）= 托盘 + 默认宿主并存，
-/// 宿主关窗后托盘继续常驻（首次关窗 balloon 提醒）。托盘菜单 = 设置枢纽：立即捕捉 / 打开
-/// 主窗口 / 启动到托盘 / 开机自启（Run 表写无参命令，开机形态由「启动到托盘」勾选决定）/
-/// 启动时检查更新 / 退出。设置开关经 App.Host 单一写者同步（宿主活着走宿主落盘，防整文件
-/// 回写互相覆盖），宿主不在则直写默认 config.json。单实例（命名 mutex）；热键被占用时
-/// 降级为菜单手动捕捉并 balloon 报因。
+/// 参数的宿主实例接管。tray 子命令 = 零窗口纯托盘；组合模式（无参）= 托盘 + 宿主并存，
+/// 宿主关窗后托盘继续常驻（最后一扇宿主关闭时 balloon 提醒一次）。托盘菜单 = 设置枢纽：
+/// 立即捕捉 / 打开新窗口（每次开一扇新的平级宿主）/ 启动到托盘 / 开机自启（Run 表写无参
+/// 命令，开机形态由「启动到托盘」勾选决定）/ 启动时检查更新 / 退出。设置开关直写默认
+/// config.json（这两个字段是托盘自有；宿主 SaveConfig 合并写不会覆盖它们）。
+/// 单实例（命名 mutex = 全系统唯一常驻进程的闸门）：第二无参实例经 SignalOpenHost 唤起
+/// 主实例开一扇新的平级宿主后自身退出；热键被占用时降级为菜单手动捕捉并 balloon 报因。
 /// </summary>
 internal sealed class TrayController
 {
     private const int HotkeyId = 1;
     private const int WM_HOTKEY = 0x0312;
+    private const int WM_OPEN_HOST = 0x0401; // WM_APP+1：单实例唤起请求（第二实例 PostMessage 过来）
+    private const string MessageWindowTitle = "WindowMergerTray"; // message 窗标题，SignalOpenHost 按它定位
     private const int WsPopup = unchecked((int)0x80000000);
     private const int WsExToolwindow = 0x80;
     private static readonly IntPtr HwndMessage = new(-3); // message-only 父窗口：不进 z 序、不显示
@@ -41,7 +44,7 @@ internal sealed class TrayController
     private bool _residentHintShown; // 组合模式关窗常驻提醒只发一次
     private readonly Dictionary<int, Process> _captures = new(); // 显示器序号 → 已 spawn 的接管实例
 
-    /// <summary>启动托盘。返回 false = 已有托盘实例在运行（调用方直接退出本进程）。</summary>
+    /// <summary>启动托盘。返回 false = 已有主实例在运行（调用方唤起它开新扇后退出本进程）。</summary>
     public bool Start()
     {
         _singleInstance = new Mutex(true, SingleInstanceMutexName, out bool createdNew);
@@ -52,8 +55,8 @@ internal sealed class TrayController
             return false;
         }
 
-        // message-only 窗口承接 WM_HOTKEY
-        var pars = new HwndSourceParameters("WindowMergerTray")
+        // message-only 窗口承接 WM_HOTKEY 与单实例唤起 WM_OPEN_HOST
+        var pars = new HwndSourceParameters(MessageWindowTitle)
         {
             PositionX = 0,
             PositionY = 0,
@@ -82,6 +85,27 @@ internal sealed class TrayController
                 : "热键注册失败（Ctrl+Alt+M 可能被其他程序占用），可右键托盘图标手动捕捉");
 
         return true;
+    }
+
+    /// <summary>单实例唤起（第二实例侧）：定位主实例托盘 message 窗（HWND_MESSAGE 下按标题
+    /// 找——全系统只有持 mutex 的进程建过它）→ 转交前台权（刚启动的本进程持前台权，主实例
+    /// 收到消息后开的新窗才能可靠置前，否则只闪任务栏）→ 投递 WM_OPEN_HOST 请求主实例开一
+    /// 扇新的平级宿主。找不到限时重试（主实例可能刚拿锁尚未建窗）；超时放弃返回 false——
+    /// 调用方照样退出本进程，绝不回退开窗（回退会复活多实例）。</summary>
+    public static bool SignalOpenHost()
+    {
+        for (int i = 0; i < 15; i++)
+        {
+            var hwnd = Native.FindWindowEx(HwndMessage, IntPtr.Zero, null, MessageWindowTitle);
+            if (hwnd != IntPtr.Zero)
+            {
+                Native.GetWindowThreadProcessId(hwnd, out uint pid);
+                Native.AllowSetForegroundWindow(pid);
+                return Native.PostMessage(hwnd, WM_OPEN_HOST, IntPtr.Zero, IntPtr.Zero);
+            }
+            Thread.Sleep(100);
+        }
+        return false;
     }
 
     /// <summary>检测 → spawn 接管实例；未命中按原因 balloon（检测细节见 SnapLayoutDetector）。</summary>
@@ -153,8 +177,9 @@ internal sealed class TrayController
         System.Windows.Application.Current.Shutdown();
     }
 
-    /// <summary>组合模式下宿主关窗后的一次性提醒（关窗常驻语义，merge 模式/测试屏蔽下
-    /// 本进程无托盘，不进这里）。</summary>
+    /// <summary>组合模式下关窗常驻的一次性提醒（只提醒"最后一扇宿主也关了"——多扇平级
+    /// 宿主时单关一扇不算，判断在 App.NotifyHostClosed 转发处）。merge 模式/测试屏蔽下
+    /// 本进程无托盘，不进这里。</summary>
     public void NotifyHostClosed()
     {
         if (_residentHintShown || _icon is null) return;
@@ -177,8 +202,8 @@ internal sealed class TrayController
         capture.Click += (_, _) => Capture();
         menu.Items.Add(capture);
 
-        var openHost = new WF.ToolStripMenuItem("打开主窗口");
-        openHost.Click += (_, _) => (System.Windows.Application.Current as App)?.OpenDefaultHost();
+        var openHost = new WF.ToolStripMenuItem("打开新窗口");
+        openHost.Click += (_, _) => (System.Windows.Application.Current as App)?.OpenNewHost();
         menu.Items.Add(openHost);
 
         menu.Items.Add(new WF.ToolStripSeparator());
@@ -188,8 +213,7 @@ internal sealed class TrayController
             CheckOnClick = true,
             Checked = config.StartToTray, // 勾选 = 下次无参启动不弹主窗，仅托盘常驻
         };
-        startToTray.Click += (_, _) => ApplySetting(
-            c => c.StartToTray = startToTray.Checked, h => h.SetStartToTray(startToTray.Checked));
+        startToTray.Click += (_, _) => ApplySetting(c => c.StartToTray = startToTray.Checked);
         menu.Items.Add(startToTray);
 
         var autostart = new WF.ToolStripMenuItem("开机自启")
@@ -205,8 +229,7 @@ internal sealed class TrayController
             CheckOnClick = true,
             Checked = config.CheckUpdates, // 原主题菜单项迁移至此
         };
-        checkUpdates.Click += (_, _) => ApplySetting(
-            c => c.CheckUpdates = checkUpdates.Checked, h => h.SetCheckUpdates(checkUpdates.Checked));
+        checkUpdates.Click += (_, _) => ApplySetting(c => c.CheckUpdates = checkUpdates.Checked);
         menu.Items.Add(checkUpdates);
 
         menu.Items.Add(new WF.ToolStripSeparator());
@@ -216,16 +239,11 @@ internal sealed class TrayController
         return menu;
     }
 
-    /// <summary>托盘菜单设置开关落盘：宿主活着时经宿主同步（单一写者——宿主 SaveConfig 整
-    /// 文件回写会覆盖托盘直写的字段），否则直接 Load→改→Save 默认 config。</summary>
-    private static void ApplySetting(Action<AppConfig> configSet, Action<HostWindow> hostSync)
+    /// <summary>托盘菜单设置开关落盘：这两个字段是托盘自有（宿主 SaveConfig 合并写不覆盖
+    /// 它们），始终直写默认 config——宿主多扇共存/不在都走同一路径，无单一写者问题。</summary>
+    private static void ApplySetting(Action<AppConfig> configSet)
     {
         ConfigStore.Configure(null);
-        if (System.Windows.Application.Current is App { Host: { IsLoaded: true } host })
-        {
-            hostSync(host);
-            return;
-        }
         var cfg = ConfigStore.Load();
         configSet(cfg);
         ConfigStore.Save(cfg);
@@ -258,6 +276,12 @@ internal sealed class TrayController
         {
             handled = true;
             Capture();
+        }
+        else if (msg == WM_OPEN_HOST)
+        {
+            // 单实例唤起：第二无参实例请求开一扇新的平级宿主（前台权已由对方 AllowSetForegroundWindow 转交）
+            handled = true;
+            (System.Windows.Application.Current as App)?.OpenNewHost();
         }
         return IntPtr.Zero;
     }

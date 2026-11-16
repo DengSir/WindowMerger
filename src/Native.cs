@@ -158,6 +158,18 @@ internal static partial class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetForegroundWindow(IntPtr hWnd);
 
+    /// <summary>把自己持有的前台权转交给另一进程（单实例唤起：第二实例刚被用户启动、
+    /// 持前台权，转交给主实例后它开的新窗才能可靠置前，否则只闪任务栏）。无 A/W 变体。</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AllowSetForegroundWindow(uint dwProcessId);
+
+    /// <summary>异步投递窗口消息（单实例唤起 WM_OPEN_HOST）。真实导出有 W 后缀，必须显式
+    /// EntryPoint——源生成器不会自动补（GetMonitorInfoW 等三崩之坑）。</summary>
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
     public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data);
 
     [LibraryImport("user32.dll")]
