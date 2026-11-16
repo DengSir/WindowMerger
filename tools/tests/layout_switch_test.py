@@ -2,7 +2,7 @@
 """多布局回归（PaneLayout 引擎 / 布局切换迁移 / 空格点击选窗 / 持久化）：
   L1 config 驱动四布局逐格命中探针（LR/LCR/LTR/Quad）：每格中心 WindowFromPoint = 宿主
      （空格提示填充，几何公式与 src/PaneLayout.cs 同式复算）
-  L2 菜单切换布局（UIA Invoke _layoutButton → 菜单项）：LR→LTR 迁移——左窗留左格、
+  L2 布局按钮直切（UIA Invoke _layoutLtrButton，原下拉菜单退役）：LR→LTR 迁移——左窗留左格、
      右窗按重叠进右上格；config.Layout 即时落盘跟随；状态栏按格名更新
   L3 LTR 下 Invoke _paneHint2（右下格空格提示）→ 选择器标题带格名【右下】（每格独立入口）
   L4 切回 LR：右上格窗口按重叠迁移回右格（左窗不动），落盘 Layout==LR
@@ -72,18 +72,14 @@ def main() -> int:
         if not ok:
             failures.append(name)
 
-    def open_layout_menu_and_pick(hm: int, index: int) -> bool:
-        """Invoke 布局按钮 → 按索引选中菜单项。菜单构建顺序固定 [LR, LCR, LTR, Quad]；
-        自定义 Header 的 MenuItem UIA Name 为空（AGENTS 已知坑，主题菜单同款只能按索引）。"""
-        pid = wm.pid_of(hm)
-        wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm),
-                                                   "_layoutButton"))
-        time.sleep(0.8)
-        items = wm_uia.menu_items_of_pid_windows(pid)[:4]  # 菜单弹层在 z 序顶，取前 4 项
-        if len(items) < 4:
-            print(f"MENU_ITEMS_NOT_FOUND got={len(items)}")
+    def switch_layout_by_button(hm: int, automation_id: str) -> bool:
+        """Invoke 直排布局按钮，点按即切（2026-11-16 下拉菜单退役，换四按钮
+        _layoutLr/Lcr/Ltr/QuadButton：字形 EE4D / EA4B+EA4C 叠加 / EE4E / EE4F）。"""
+        btn = wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm), automation_id)
+        if btn is None:
+            print(f"LAYOUT_BUTTON_NOT_FOUND id={automation_id}")
             return False
-        wm_uia.invoke(items[index])
+        wm_uia.invoke(btn)
         time.sleep(1.2)
         return True
 
@@ -139,10 +135,10 @@ def main() -> int:
     hr = wm.get_window_rect(hm)
     scale = wm.get_dpi_for_window(hm) / 96.0
 
-    if not open_layout_menu_and_pick(hm, 2):  # LTR = 菜单第 3 项
-        check("L2_MENU_SWITCH_LTR", False)
+    if not switch_layout_by_button(hm, "_layoutLtrButton"):
+        check("L2_BUTTON_SWITCH_LTR", False)
     else:
-        check("L2_MENU_SWITCH_LTR", True)
+        check("L2_BUTTON_SWITCH_LTR", True)
         cfg = wm.load_config()
         check("L2_CONFIG_LTR", cfg.get("Layout") == "LTR", f"cfg={cfg.get('Layout')}")
         probes = pane_probes("LTR", wm.get_window_rect(hm), scale)
@@ -179,7 +175,7 @@ def main() -> int:
             time.sleep(1.0)
 
     # ---------- L4 切回 LR：右上格窗口按重叠迁回右格 ----------
-    if open_layout_menu_and_pick(hm, 0):  # LR = 菜单第 1 项
+    if switch_layout_by_button(hm, "_layoutLrButton"):
         cfg = wm.load_config()
         check("L4_CONFIG_LR", cfg.get("Layout") == "LR", f"cfg={cfg.get('Layout')}")
         probes = pane_probes("LR", wm.get_window_rect(hm), scale)
@@ -188,7 +184,7 @@ def main() -> int:
         check("L4_MIGRATE_BACK", wm.is_attached(nps) and wm.is_attached(mph)
               and l == "notepad" and r == "mspaint", f"LEFT_HIT={l} RIGHT_HIT={r}")
     else:
-        check("L4_MENU_SWITCH_LR", False)
+        check("L4_BUTTON_SWITCH_LR", False)
 
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.5)

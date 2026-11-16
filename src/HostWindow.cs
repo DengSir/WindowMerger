@@ -241,10 +241,14 @@ public sealed partial class HostWindow : Window
         // 顶条左端应用图标
         _appIcon.Source = LoadAppIconFrame();
 
-        // 顶条功能组：[布局][释放][快捷方式][主题] | [─][□][✕]
-        // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题月亮/太阳、最大化/还原）。
-        // 选窗 = 点空格提示区（拖入或点击开选择器），布局切换 = 布局按钮下拉
-        _layoutButton.Click += (_, _) => OpenLayoutMenu();
+        // 顶条功能组：[更新组][布局×4][释放][快捷方式][主题] | [─][□][✕]
+        // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题、最大化/还原）。
+        // 选窗 = 点空格提示区（拖入或点击开选择器）；布局 = 四个直排按钮点按即切
+        // （原下拉菜单退役，2026-11-16），重复点当前布局按钮 = SwitchLayout 早退无害
+        _layoutLrButton.Click += (_, _) => SwitchLayout(PaneLayoutDef.LeftRight);
+        _layoutLcrButton.Click += (_, _) => SwitchLayout(PaneLayoutDef.LeftCenterRight);
+        _layoutLtrButton.Click += (_, _) => SwitchLayout(PaneLayoutDef.LeftTopRightBottom);
+        _layoutQuadButton.Click += (_, _) => SwitchLayout(PaneLayoutDef.Quad);
         // 顶条「全部释放」：用户主动释放 → 全部子窗置顶回原位并激活最高序占用格的窗口
         // （两格布局即旧"右窗"语义）。前台只能转交一次（首次 SetForegroundWindow 已交出
         // 宿主的前台，第二次被前台锁拒绝），所以置顶走无激活 z 序、激活只做一次；
@@ -257,7 +261,7 @@ public sealed partial class HostWindow : Window
             if (hwnds.Count > 0) Native.SetForegroundWindow(hwnds[^1]);
         };
         _shortcutButton.Click += (_, _) => CreateShortcutForCurrent();
-        _themeButton.Content = ThemeGlyph();
+        SetThemeGlyph();
         _themeButton.Click += (_, _) => OpenThemeMenu();
         _minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
         _maxButton.Click += (_, _) => ToggleMaximize();
@@ -275,12 +279,18 @@ public sealed partial class HostWindow : Window
 
     // ---------- 主题 ----------
 
-    private string ThemeGlyph() => AppTheme.Mode switch
+    /// <summary>主题按钮三态字形（Resources 集中定义的 IconThemeAuto/Dark/Light）：
+    /// 按 AppTheme.Mode 换按钮 Content——同一 Grid 实例重复挂载幂等（单按钮独占引用）。</summary>
+    private void SetThemeGlyph()
     {
-        AppThemeMode.Dark => "\uF186",   // moon
-        AppThemeMode.Light => "\uF185",  // sun
-        _ => "\uF042",                   // circle-half-stroke（跟随系统）
-    };
+        string key = AppTheme.Mode switch
+        {
+            AppThemeMode.Dark => "IconThemeDark",
+            AppThemeMode.Light => "IconThemeLight",
+            _ => "IconThemeAuto",
+        };
+        _themeButton.Content = Resources[key];
+    }
 
     private string ThemeTooltip()
     {
@@ -336,14 +346,14 @@ public sealed partial class HostWindow : Window
         border.AppendChild(presenter);
         template.VisualTree = border;
 
-        // 选中标志 = Font Awesome 对勾（固定宽度占位，未选中留空但保持文字对齐），
-        // 与顶条按钮同一内嵌字体族；pack 字体必须经 XAML 声明，这里只取资源引用
+        // 选中标志 = Fluent 对勾 E73E（固定宽度占位，未选中留空但保持文字对齐）；
+        // FA 内嵌字体已整体退役，字形统一走 CaptionIcons（XAML 资源）
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         header.Children.Add(new TextBlock
         {
-            Text = checkmark ? "\uF00C" : "",
-            FontFamily = (FontFamily)FindResource("FaSolid"),
-            FontSize = 10,
+            Text = checkmark ? "\uE73E" : "",
+            FontFamily = (FontFamily)FindResource("CaptionIcons"),
+            FontSize = 12,
             Width = 20,
             VerticalAlignment = VerticalAlignment.Center,
         });
@@ -377,7 +387,7 @@ public sealed partial class HostWindow : Window
         Resources["ThemeTextBrush"] = AppTheme.Brush(p.Text);
         Resources["ThemeButtonHoverBrush"] = AppTheme.Brush(p.ButtonHover);
         Resources["ThemeDangerHoverBrush"] = AppTheme.Brush(p.DangerHover);
-        _themeButton.Content = ThemeGlyph();
+        SetThemeGlyph();
         _themeButton.ToolTip = ThemeTooltip();
     }
 
@@ -883,17 +893,19 @@ public sealed partial class HostWindow : Window
             System.Windows.Automation.AutomationProperties.SetAutomationId(divider, $"_divider{i}");
             bool horizontal = Layout.DividerRects(1, 1, _ratio, _ratio2, _dividerW)[i].Axis == DividerAxis.Horizontal;
             divider.Cursor = horizontal ? Cursors.SizeNS : Cursors.SizeWE;
+            // grip = Fluent More（横向三点）：点点**沿分隔条走向排列**（2026-11-16 用户确认，
+            // 非"指示拖动方向"）——横条原样（…），竖条转 90° 成纵向三点（⋮）
             var grip = new TextBlock
             {
-                Text = "\uF338",
-                FontFamily = (FontFamily)FindResource("FaSolid"),
-                FontSize = 9,
+                Text = "\uE712",
+                FontFamily = (FontFamily)FindResource("CaptionIcons"),
+                FontSize = 10,
                 Foreground = new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
             };
-            if (horizontal) grip.LayoutTransform = new RotateTransform(90); // 横条 = 同字形旋转
+            if (!horizontal) grip.LayoutTransform = new RotateTransform(90); // 竖条 = 同字形转 90°
             divider.Child = grip;
             divider.MouseLeftButtonDown += DividerOnMouseDown;
             divider.MouseMove += DividerOnMouseMove;
@@ -946,30 +958,6 @@ public sealed partial class HostWindow : Window
         UpdateHostIcon();
         SaveConfig();
     }
-
-    /// <summary>布局按钮下拉菜单：四种布局（主题化菜单 + mini 布局预览 + 当前项对勾）。</summary>
-    private void OpenLayoutMenu()
-    {
-        var p = AppTheme.Current();
-        var menu = new ContextMenu
-        {
-            Template = MenuShellTemplate(),
-            Background = AppTheme.Brush(p.Bar),
-            BorderBrush = AppTheme.Brush(p.Border),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(4),
-            PlacementTarget = _layoutButton,
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
-        };
-        foreach (var def in new[] { PaneLayoutDef.LeftRight, PaneLayoutDef.LeftCenterRight, PaneLayoutDef.LeftTopRightBottom, PaneLayoutDef.Quad })
-        {
-            menu.Items.Add(LayoutMenuItem(def, p));
-        }
-        menu.IsOpen = true;
-    }
-
-    private MenuItem LayoutMenuItem(PaneLayoutDef def, AppTheme.Palette p)
-        => MenuItemWithCheck($"{string.Join("｜", def.PaneNames)}（{def.PaneCount} 格）", def == _layout, p, () => SwitchLayout(def));
 
     /// <summary>ContextMenu 极简外壳模板：默认模板有一层不随主题的白色圆角内边框，
     /// 整体替换为 Border+ItemsPresenter（主题菜单同款）。</summary>
@@ -1380,7 +1368,7 @@ public sealed partial class HostWindow : Window
 
     private enum UpdatePhase { Idle, Checking, Available, Downloading }
 
-    /// <summary>更新组状态：无更新/检查失败（Idle/Checking）时按钮+文案整体隐藏不占顶条，
+    /// <summary>更新组状态：无更新/检查失败（Idle/Checking）时按钮+文案+左分隔线整体隐藏不占顶条，
     /// 启动自动检查发现新版本才现身「发现新版本 ⬇」（功能区最左）→ 自动弹确认框
     /// （UpdateDialog）→ 下载（状态栏进度）→ 自动重启安装；点 ⬇ 直接下载不再询问。
     /// 只动 Visibility/Content/ToolTip/IsEnabled——不碰 DynamicResource 引用（悬停刷色由
@@ -1396,24 +1384,27 @@ public sealed partial class HostWindow : Window
         switch (phase)
         {
             case UpdatePhase.Checking:
-                enabled = false; visible = false; glyph = "\uF021"; label = "正在检查更新…";
+                // Checking/Idle 恒隐藏，字形不显示——仍换 Fluent Sync（按钮字体是 CaptionIcons，
+                // 留 FA 码点会在万一现身时渲染成豆腐块）
+                enabled = false; visible = false; glyph = "\uE72C"; label = "正在检查更新…";
                 break;
             case UpdatePhase.Available:
-                enabled = true; visible = true; glyph = "\uF019"; // 下载
+                enabled = true; visible = true; glyph = "\uE896"; // Fluent Download
                 label = _updateZip is not null
                     ? $"已下载 {version}，点击安装"
                     : $"发现新版本 {version}，点击下载安装";
                 break;
             case UpdatePhase.Downloading:
-                enabled = false; visible = true; glyph = "\uF019"; label = "下载更新中…";
+                enabled = false; visible = true; glyph = "\uE896"; label = "下载更新中…";
                 break;
             default: // Idle：无更新不显示图标
-                enabled = true; visible = false; glyph = "\uF021";
+                enabled = true; visible = false; glyph = "\uE72C";
                 label = $"检查更新（当前 {Updater.CurrentDisplayVersion()}）";
                 break;
         }
         _updateButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         _updateLabel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _updateSeparator.Visibility = visible ? Visibility.Visible : Visibility.Collapsed; // 左分隔线与组一体显隐
         _updateButton.IsEnabled = enabled;
         _updateButton.Content = glyph;
         _updateButton.ToolTip = label;

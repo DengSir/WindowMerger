@@ -9,8 +9,6 @@
   <ItemGroup>
     <ApplicationDefinition Include="src\App.xaml" />
     <Page Remove="src\App.xaml" />
-    <None Remove="assets\fa-*.ttf" />
-    <Resource Include="assets\fa-solid-900.ttf" />
     <Resource Include="assets\WindowMerger.ico" />
     <!-- 托盘监听模式用 WinForms 的 NotifyIcon/ContextMenuStrip/SystemIcons：只加程序集引用，
          不用 UseWindowsForms 开关——后者会全局注入 System.Windows.Forms/System.Drawing

@@ -3,7 +3,7 @@
   S1 损坏 JSON → 不崩、回退默认值，优雅关后被重写为合法默认配置（Config.cs 回退分支）
   S2 空对象 / null / 含旧版未知字段（Width/Height）→ 同样按字段默认值工作
   S3 Ratio 超界（0.05 / 0.95）→ 钳制到 [0.2, 0.8]，优雅关后落盘值即钳后值
-  S4 保存几何过小（< MinWidth 400 × MinHeight 300 DIP）→ 恢复时钳到最小尺寸且完整在屏内
+  S4 保存几何过小（< MinWidth 520 × MinHeight 300 DIP，顶条加宽后最小宽 400→520）→ 恢复时钳到最小尺寸且完整在屏内
   S5 非法 Theme 字符串 → 回退 Auto（跟随系统深浅色），优雅关后重写为 "Auto"
   S6 非法 Layout 字符串 → 回退 LR（左右两格），优雅关后重写为 "LR"（PaneLayoutDef.FromConfig）
 每场景独立启动一次宿主（配置在启动时读取），优雅关即写回 config——断言以此为准。
@@ -120,11 +120,11 @@ def main() -> int:
         r = wm.get_window_rect(hm)
         scale = wm.get_dpi_for_window(hm) / 96.0
         wa = wm.pick_test_monitor().rcWork
-        size_ok = (r.width >= 400 * scale - 2 and r.height >= 300 * scale - 2)
+        size_ok = (r.width >= 520 * scale - 2 and r.height >= 300 * scale - 2)
         inside = (r.Left >= wa.Left and r.Top >= wa.Top
                   and r.Right <= wa.Right and r.Bottom <= wa.Bottom)
         check("S4_MIN_SIZE", size_ok, f"rect=({r.Left},{r.Top})-({r.Right},{r.Bottom}) "
-              f"scale={scale} expect ≥{round(400 * scale)}x{round(300 * scale)}")
+              f"scale={scale} expect ≥{round(520 * scale)}x{round(300 * scale)}")
         check("S4_ON_SCREEN", inside)
         close_and_read_config(hm)
 

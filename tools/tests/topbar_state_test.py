@@ -109,8 +109,8 @@ def main() -> int:
     wm.set_topmost(hm, True)
     time.sleep(0.4)
     el = wm_uia.element_from_handle(hm)
-    lb = wm_uia.find_by_automation_id(el, "_layoutButton")
-    check("T4_LAYOUT_BUTTON_PRESENT", lb is not None and wm_uia.name_of(lb) == "\uF0DB",
+    lb = wm_uia.find_by_automation_id(el, "_layoutLrButton")
+    check("T4_LAYOUT_BUTTON_PRESENT", lb is not None and wm_uia.name_of(lb) == "\uEE4D",
           f"name={wm_uia.name_of(lb)!r}")
     hint0 = wm_uia.find_by_automation_id(el, "_paneHint0")
     hint1 = wm_uia.find_by_automation_id(el, "_paneHint1")

@@ -8,7 +8,7 @@
         Background="Transparent"
         ResizeMode="CanResize"
         UseLayoutRounding="True"
-        MinWidth="400"
+        MinWidth="520"
         MinHeight="300">
     <!-- UseLayoutRounding：所有元素边缘吸附到整数设备像素。分隔条 x = 2+avail*ratio 是
          分数 DIP（缩放宿主后 ActualWidth 非整数），150% 屏上 ×1.5 落在分数物理像素 →
@@ -20,10 +20,9 @@
 
 
     <Window.Resources>
-        <!-- 内嵌字体（pack URI 必须经 XAML 声明，代码 new FontFamily 渲染不解析） -->
-        <FontFamily x:Key="FaSolid">pack://application:,,,/assets/fa-solid-900.ttf#Font Awesome 6 Free Solid</FontFamily>
-        <!-- 系统标题栏图标（ChromeMinimize/Maximize/Restore/Close）：按名引用 Windows 自带
-             字体——微软系统字体不可内嵌再分发；Win10 无 Fluent 时回退 MDL2 同码位 -->
+        <!-- 系统图标字体（按名引用 Windows 自带——微软系统字体不可内嵌再分发；
+             Win10 无 Fluent 时回退 MDL2 同码位）。全部顶条/分隔条/菜单对勾字形走它：
+             fa-solid-900.ttf 已随"功能组 Fluent 化"整体退役（2026-11-16，DLL -423KB） -->
         <FontFamily x:Key="CaptionIcons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
         <!-- 主题刷色：ApplyTheme 在启动/切主题时替换这些资源值，DynamicResource 自动传播 -->
@@ -44,7 +43,7 @@
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Margin" Value="2,0,0,0" />
             <Setter Property="Width" Value="36" />
-            <Setter Property="FontFamily" Value="{StaticResource FaSolid}" />
+            <Setter Property="FontFamily" Value="{StaticResource CaptionIcons}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -105,6 +104,98 @@
         <!-- 分隔条宽度：布局尺寸单一来源仍是 XAML（窗格/分隔条元素由 code-behind 按
              PaneLayoutDef 生成，WireUi 读入此常量） -->
         <sys:Double x:Key="DividerW">6</sys:Double>
+
+        <!-- ===== 顶条图标集中定义（2026-11-17）=====
+             统一配方：Grid 30x28（压住模板 ContentPresenter 居中）+ Path Margin="8,7,0,0"
+             整数落位 + LayoutTransform 半倍（26 域整数网格 → 13px 显示端全整数，抗分数缩放
+             AA 重影）。fill 图标边界走偶数、1px stroke 中心线走奇数（stroke 4 走偶数）、
+             大域 SVG 原样直嵌配专用 LayoutTransform。Fill/Stroke 都走 ThemeTextBrush
+             DynamicResource 随主题；期望码点断言在 tools/visual/pick_btn_dump.py。
+             主题三态由 SetThemeGlyph 按 AppTheme.Mode 换按钮 Content（IconThemeAuto/Dark/Light）。 -->
+        <Style x:Key="GlyphFill" TargetType="Path">
+            <Setter Property="Stretch" Value="None" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Margin" Value="8,7,0,0" />
+            <Setter Property="Fill" Value="{DynamicResource ThemeTextBrush}" />
+            <Setter Property="LayoutTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="0.5" ScaleY="0.5" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="GlyphStroke" TargetType="Path" BasedOn="{StaticResource GlyphFill}">
+            <Setter Property="Fill" Value="{x:Null}" />
+            <Setter Property="Stroke" Value="{DynamicResource ThemeTextBrush}" />
+            <Setter Property="StrokeThickness" Value="2" />
+        </Style>
+        <Style x:Key="GlyphDownload" TargetType="Path" BasedOn="{StaticResource GlyphStroke}">
+            <!-- stroke 4 = 显示 2px：中心线走偶数坐标（±2 覆盖整数区间） -->
+            <Setter Property="StrokeThickness" Value="4" />
+        </Style>
+        <Style x:Key="GlyphMoon" TargetType="Path" BasedOn="{StaticResource GlyphStroke}">
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+        </Style>
+        <Style x:Key="GlyphRelease" TargetType="Path" BasedOn="{StaticResource GlyphFill}">
+            <!-- disconnect = 1024 域 fill 图标原样直嵌，缩放 13/842 占满 -->
+            <Setter Property="LayoutTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="0.0154" ScaleY="0.0154" />
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <!-- 位置微调走渲染期：LayoutTransform 组内 Translate 被 bounds 规范化
+                         吃掉（实测无效）；-0.5 补 margin 半像素偏移，bbox 探针实测 dx/dy=0 -->
+                    <TranslateTransform X="-0.5" Y="-0.5" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Grid x:Key="IconLayoutLr" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphFill}"
+                  Data="M26,0H2C0.8955078,0,0,0.8955078,0,2v22c0,1.1044922,0.8955078,2,2,2h22c1.1044922,0,2-0.8955078,2-2V2 C26,0.8955078,25.1044922,0,26,0z M2,2h10v22H2V2z M14,2h10v22H14V2z" />
+        </Grid>
+        <Grid x:Key="IconLayoutLcr" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphFill}"
+                  Data="M26,0H2C0.8955078,0,0,0.8955078,0,2v22c0,1.1044922,0.8955078,2,2,2h22c1.1044922,0,2-0.8955078,2-2V2 C26,0.8955078,25.1044922,0,26,0z M2,2h6v22H2V2z M10,2h6v22H10V2z M18,2h6v22H18V2z" />
+        </Grid>
+        <Grid x:Key="IconLayoutLtr" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphFill}"
+                  Data="M26,0H2C0.8955078,0,0,0.8955078,0,2v22c0,1.1044922,0.8955078,2,2,2h22c1.1044922,0,2-0.8955078,2-2V2 C26,0.8955078,25.1044922,0,26,0z M2,2h10v22H2V2z M14,2h10v10H14V2z M14,14h10v10H14V14z" />
+        </Grid>
+        <Grid x:Key="IconLayoutQuad" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphFill}"
+                  Data="M26,0H2C0.8955078,0,0,0.8955078,0,2v22c0,1.1044922,0.8955078,2,2,2h22c1.1044922,0,2-0.8955078,2-2V2 C26,0.8955078,25.1044922,0,26,0z M2,2h10v10H2V2z M14,2h10v10H14V2z M2,14h10v10H2V14z M14,14h10v10H14V14z" />
+        </Grid>
+        <Grid x:Key="IconRelease" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphRelease}"
+                  Data="M832.6 191.4c-84.6-84.6-221.5-84.6-306 0l-96.9 96.9 51 51 96.9-96.9c53.8-53.8 144.6-59.5 204 0 59.5 59.5 53.8 150.2 0 204l-96.9 96.9 51.1 51.1 96.9-96.9c84.4-84.6 84.4-221.5-.1-306.1zM446.5 781.6c-53.8 53.8-144.6 59.5-204 0-59.5-59.5-53.8-150.2 0-204l96.9-96.9-51.1-51.1-96.9 96.9c-84.6 84.6-84.6 221.5 0 306s221.5 84.6 306 0l96.9-96.9-51-51-96.8 97zM260.3 209.4a8.03 8.03 0 0 0-11.3 0L209.4 249a8.03 8.03 0 0 0 0 11.3l554.4 554.4c3.1 3.1 8.2 3.1 11.3 0l39.6-39.6c3.1-3.1 3.1-8.2 0-11.3L260.3 209.4z" />
+        </Grid>
+        <Grid x:Key="IconShortcut" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphStroke}"
+                  Data="M13,7H3C1.9,7,1,7.9,1,9V23C1,24.1,1.9,25,3,25H21C22.1,25,23,24.1,23,23V15 M11,17L25,1 M17,1H25V9" />
+        </Grid>
+        <Grid x:Key="IconDownload" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphDownload}"
+                  Data="M12,0V18 M2,8L12,18L22,8 M2,22H22" />
+        </Grid>
+        <Grid x:Key="IconThemeAuto" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphStroke}"
+                  Data="M25,13A12,12,0,1,1,1,13A12,12,0,1,1,25,13z" />
+            <Path Style="{StaticResource GlyphFill}"
+                  Data="M14,1A12,12,0,0,1,14,25z" />
+        </Grid>
+        <Grid x:Key="IconThemeDark" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphMoon}"
+                  Data="M24.99,16.65 C23.75,17.07 22.42,17.31 21.03,17.31 C14.22,17.31 8.7,11.78 8.7,4.97 C8.7,3.59 8.93,2.25 9.36,1.01 C4.5,2.66 1,7.26 1,12.68 C1,19.49 6.52,25 13.32,25 C18.75,25 23.31,21.51 24.99,16.65 Z" />
+        </Grid>
+        <Grid x:Key="IconThemeLight" Width="30" Height="28">
+            <Path Style="{StaticResource GlyphStroke}"
+                  Data="M22,13A9,9,0,1,1,4,13A9,9,0,1,1,22,13z M13,0V3 M13,23V26 M0,13H3 M23,13H26 M3.9,3.9L6.3,6.3 M22.1,3.9L19.7,6.3 M3.9,22.1L6.3,19.7 M22.1,22.1L19.7,19.7" />
+        </Grid>
     </Window.Resources>
 
     <!-- CaptionHeight=0：顶条走 DragMove，右键才能弹自定义菜单；缩放交给 WindowChrome 的 resize 边 -->
@@ -156,24 +247,65 @@
                     <TextBlock x:Name="_status" Grid.Column="2" FontSize="12" Margin="0,0,10,0"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource ThemeTextBrush}" />
-                    <!-- 顶条功能组：[发现新版本][⬇（更新）][布局][释放][快捷方式][主题] | [─][□][✕]
-                         更新组只在发现新版本时现身（SetUpdatePhase 控制显隐）；其余字形内容/点击/悬停刷色由 code-behind 补齐。
-                         选窗交互 = 点空格提示区（拖入或点击打开选择器），布局切换 = 布局按钮下拉菜单 -->
+                    <!-- 顶条功能组：[发现新版本][⬇（更新）][│] | [布局×4] | [释放][快捷方式][主题] | [─][□][✕]
+                         更新组只在发现新版本时现身（SetUpdatePhase 控制显隐，右分隔线随组一体）；其余悬停刷色由
+                         code-behind 补齐。字形（2026-11-16 用户指定）：更新 E896/释放 EA14/快捷方式 E72D/
+                         主题（动态，E7A1·E708·E706）/布局 EE4D·EE4E·EE4F+LCR=EA4B&EA4C 叠加，全走
+                         CaptionIcons（FontSize 12）；系统钮 CaptionIcons FontSize 10。
+                         选窗交互 = 点空格提示区（拖入或点击打开选择器），布局切换 = 布局按钮点按即切 -->
                     <StackPanel x:Name="_captionButtons" Grid.Column="3"
                                 Orientation="Horizontal" HorizontalAlignment="Right"
                                 VerticalAlignment="Stretch" Background="{x:Null}">
-                        <!-- 更新组：文案 + 下载按钮。发现新版本自动弹确认框（一次性宣告），
-                             点 ⬇ 直接下载安装不再询问。AutomationId 供 e2e 测试 UIA 定位 -->
+                        <!-- 更新组：文案 + 下载按钮 + 右分隔线（三者一体随更新组显隐，无更新不留孤立线；
+                             线在组右侧 = 与常驻功能区隔开，2026-11-16 用户确认）。
+                             发现新版本自动弹确认框（一次性宣告），点 ⬇ 直接下载安装不再询问。
+                             AutomationId 供 e2e 测试 UIA 定位 -->
                         <TextBlock x:Name="_updateLabel" Text="发现新版本" FontSize="12"
                                    VerticalAlignment="Center" Margin="0,0,2,0"
                                    Foreground="{DynamicResource ThemeTextBrush}"
                                    Visibility="Collapsed" />
-                        <Button x:Name="_updateButton" Width="30" Margin="0,0,6,0" Visibility="Collapsed"
-                                ToolTip="发现新版本" AutomationProperties.AutomationId="UpdateButton">&#xF019;</Button>
-                        <Button x:Name="_layoutButton" Width="30" ToolTip="选择布局">&#xF0DB;</Button>
-                        <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）">&#xF127;</Button>
-                        <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式">&#xF360;</Button>
-                        <Button x:Name="_themeButton" Width="30" />
+                        <Button x:Name="_updateButton" Width="30" Margin="0,0,4,0" Visibility="Collapsed"
+                                ToolTip="发现新版本" AutomationProperties.AutomationId="UpdateButton"
+                                AutomationProperties.Name="&#xE896;"
+                                Content="{StaticResource IconDownload}" />
+                        <Border x:Name="_updateSeparator" Width="1" Margin="4,6,4,6" Background="#4A4A4A"
+                                VerticalAlignment="Stretch" Visibility="Collapsed" />
+                        <!-- 布局组：四布局直排按钮，点按即切（原下拉菜单退役）；字形 = icons8
+                             column 系列风格自绘（Resources 集中定义），点当前布局按钮早退无害，
+                             当前布局不做按钮态标记（格子本身即状态） -->
+                        <Button x:Name="_layoutLrButton" Width="30" ToolTip="布局：左｜右（2 格）"
+                                AutomationProperties.AutomationId="_layoutLrButton"
+                                AutomationProperties.Name="&#xEE4D;"
+                                Content="{StaticResource IconLayoutLr}" />
+                        <Button x:Name="_layoutLcrButton" Width="30" ToolTip="布局：左｜中｜右（3 格）"
+                                AutomationProperties.AutomationId="_layoutLcrButton"
+                                AutomationProperties.Name="&#xEA4B;&#xEA4C;"
+                                Content="{StaticResource IconLayoutLcr}" />
+                        <Button x:Name="_layoutLtrButton" Width="30" ToolTip="布局：左｜右上｜右下（3 格）"
+                                AutomationProperties.AutomationId="_layoutLtrButton"
+                                AutomationProperties.Name="&#xEE4E;"
+                                Content="{StaticResource IconLayoutLtr}" />
+                        <Button x:Name="_layoutQuadButton" Width="30" ToolTip="布局：左上｜右上｜左下｜右下（4 格）"
+                                AutomationProperties.AutomationId="_layoutQuadButton"
+                                AutomationProperties.Name="&#xEE4F;"
+                                Content="{StaticResource IconLayoutQuad}" />
+                        <!-- 布局组 | 功能组 分隔线 -->
+                        <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
+                                VerticalAlignment="Stretch" />
+                        <!-- 功能组：字形同走 Resources 集中定义（断链/开口框/主题三态），1px 线
+                             stroke 中心线走奇数坐标；斜线/圆弧 AA 是自然曲线边缘，干净 -->
+                        <Button x:Name="_releaseButton" Width="30" ToolTip="全部释放（窗口回到原位）"
+                                AutomationProperties.AutomationId="_releaseButton"
+                                AutomationProperties.Name="&#xEA14;"
+                                Content="{StaticResource IconRelease}" />
+                        <Button x:Name="_shortcutButton" Width="30" ToolTip="为当前吸附组合创建桌面快捷方式"
+                                AutomationProperties.AutomationId="_shortcutButton"
+                                AutomationProperties.Name="&#xE72D;"
+                                Content="{StaticResource IconShortcut}" />
+                        <!-- 主题三态 = SetThemeGlyph 按 AppTheme.Mode 换 Content（IconThemeAuto/Dark/Light） -->
+                        <Button x:Name="_themeButton" Width="30"
+                                AutomationProperties.AutomationId="_themeButton"
+                                AutomationProperties.Name="&#xE7A1;" />
                         <Border Width="1" Margin="4,6,4,6" Background="#4A4A4A"
                                 VerticalAlignment="Stretch" />
                         <!-- 系统钮三件套用 CaptionIcons 原版字形（E921/E922/E923/E8BB = Windows
