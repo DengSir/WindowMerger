@@ -4,11 +4,11 @@
 
 ## 功能
 
-- **四种布局**：左右两格 / 左中右三格 / 左格+右列上下两格 / 四宫格（十字分隔），顶条「布局」按钮下拉切换；切换时已吸附窗口按新旧格子重叠位置自动迁移到对应格（放不下的回原位），比例按布局记忆，选择持久化到配置
+- **四种布局**：左右两格 / 左中右三格 / 左格+右列上下两格 / 四宫格（十字分隔），顶条四个布局按钮点按即切；切换时已吸附窗口按新旧格子重叠位置自动迁移到对应格（放不下的回原位），比例按布局记忆，选择持久化到配置
 - **透明格子 + 可见边框**：宿主窗口由 2px 边框、28px 顶条（拖动/双击最大化）、布局窗格、格间 6px 分隔条组成；空格显示填充与提示文案，吸附后恢复透明透出子窗口（点击穿透到子窗口交互）
 - **拖入吸附**：把任意窗口拖到宿主格子上，目标格高亮，松手吸附；已吸附的窗口拖到其他格即换格；按住 Ctrl 拖入可替换，原窗口自动回到吸附前位置
 - **点击空格选窗**：点击空格提示区打开该格的候选窗口选择器（列表 + 过滤），吸附进对应格——与拖入吸附并行的手动入口
-- **顶条功能按钮**：更新组（无更新时隐藏，发现新版本现身「发现新版本 ⬇」）、▦ 布局（下拉选择四种布局）、全部释放（所有子窗回原位并拉到前台）、快捷方式（按当前吸附生成桌面 .lnk，记录进程名 + exe 完整路径，双击复现组合——目标应用没开也会自动拉起）、◐ 主题（下拉直接选择）一字排开；系统钮 ─ □ ✕ 用 Windows 自带 Segoe Fluent Icons 原版字形。悬停显示 tooltip；全部功能一个顶条搞定，无右键菜单
+- **顶条功能按钮**：更新组（无更新时隐藏，发现新版本现身「发现新版本 ⬇」）、布局四钮（四种布局直排点按即切）、全部释放（所有子窗回原位并拉到前台）、快捷方式（按当前吸附生成桌面 .lnk，记录进程名 + exe 完整路径，双击复现组合——目标应用没开也会自动拉起）、◐ 主题（下拉直接选择）一字排开；系统钮 ─ □ ✕ 用 Windows 自带 Segoe Fluent Icons 原版字形。悬停显示 tooltip；全部功能一个顶条搞定，无右键菜单
 - **分隔条**：拖动实时调整比例（20%~80%，拖动钳制保证每格不低于最小宽度），双击该比例复位 50/50；布局切换后分隔条数量/方向随布局重建
 - **窗口控制**：最大化只放大格子布局，不连坐子窗口的系统最大化，最大化状态下拖动顶条可还原并跟手移动；最大化时顶条自动隐藏——光标贴住屏幕最上沿唤出、移出顶条即收起（同 Windows 自动隐藏任务栏）；最小化/还原/切走切回全程联动，子窗口不会丢失
 - **任务栏合成**：吸附的子窗口隐藏任务栏按钮与 Alt+Tab 项，宿主图标为子窗口图标按布局象限槽位的合成（两格 = 旧版对角叠放：右=右上、左=左下；三/四格按各自象限）；空格叠本程序图标占位
@@ -23,7 +23,7 @@
 dotnet build -c Release
 ```
 
-产物：`bin\Release\net10.0-windows\WindowMerger.exe`（字体/图标已内嵌进程序集，输出目录无散落资源文件；标题栏系统图标按名引用 Windows 自带 Segoe Fluent Icons，Win10 自动回退 Segoe MDL2 Assets）。
+产物：`bin\Release\net10.0-windows\WindowMerger.exe`（应用图标已内嵌进程序集，输出目录无散落资源文件；字形一律按名引用 Windows 自带 Segoe Fluent/MDL2 Icons，功能图标为自绘线框 Path 不依赖字体——FA 内嵌字体已退役）。
 
 ## 发布
 
@@ -97,12 +97,8 @@ WindowMerger merge --left-hwnd 123 --right-hwnd 456 --profile snap-0   :: snap �
 
 - **外扩补偿**：Win11/DWM 给带框窗口留了约 7px 的隐形边，`GetWindowRect` 比可见窗口大。吸附时按 `DWMWA_EXTENDED_FRAME_BOUNDS` 实测外扩目标矩形，可见内容才能与格子齐平
 - **z 序（关键）**：`SetWindowPos` 的 `hWndInsertAfter` 语义是"放到目标**下方**"。子窗口永远插在宿主**正下方**（不能用 `HWND_TOP`——Alt+Tab 切回宿主后是静默无效调用）：宿主的不透明部分（边框/分隔条/顶条）盖住子窗口的隐形边，分隔条才可点击，透明格子则透出子窗口。宿主激活后立即+低优先级重拉子窗口，250ms 维护定时器按"宿主正下方连续子窗口块"精确遍历自愈 z 序、修布局与样式补挂
-- **字体**：FA Solid（fa-solid-900.ttf）以 `Resource` 内嵌进程序集（pack 字体经 XAML 声明，家族名 `Font Awesome 6 Free Solid`）；fa-regular 已随系统钮迁移删除。顶条系统钮（─ □ ✕ 还原）用 Windows 自带 Segoe Fluent Icons 按名引用（不可内嵌再分发，Win10 回退 Segoe MDL2 Assets 同码位）
+- **字形**：FA 内嵌字体已整体退役（fa-solid-900.ttf 已删，csproj/XAML/文件三处同清）；功能图标 = 26 域整数网格自绘线框 Path（fill 走偶数边界、stroke 走奇数中心线，统一 `Stretch=None + LayoutTransform 0.5`——`Stretch=Uniform` 按几何 bbox 适配，非满域图标缩放 ≠0.5 会糊）。顶条系统钮（─ □ ✕ 还原）用 Windows 自带 Segoe Fluent Icons 按名引用（不可内嵌再分发，Win10 回退 Segoe MDL2 Assets 同码位）
 - **P/Invoke**：`LibraryImport` 源生成器不会自动补 W 后缀，**自定义方法名也必须显式 `EntryPoint` 指向真实导出名**（`GetMonitorInfoW`/`GetWindowTextLengthW`/`DwmSetWindowAttributePointer` 均为此踩坑），且不支持 `StringBuilder` 参数（走经典 `DllImport`）；.NET Core 的 `GlyphTypeface` 不支持 pack:// URI
-
-## 字体许可
-
- `assets\fa-solid-900.ttf` 来自 [Font Awesome Free](https://fontawesome.com/)（SIL OFL 1.1）。可随应用自由分发；发布版请在 Release 说明中注明字体许可。（fa-regular-400.ttf 已移除，见架构注记）
 
 ## 目录
 
