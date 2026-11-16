@@ -95,7 +95,7 @@
 ## 发布链路
 
 - 本地：`tools\publish\` 打包脚本（WM_CLOSE 优雅关运行实例 → 复用 `Properties\PublishProfiles\FolderProfile.pubxml`（打包设置唯一来源）→ `publish\WindowMerger-<版本>-win-x64.exe`，框架依赖单文件，目标机器需 .NET 10 Desktop Runtime x64）
-- GitHub Actions 两条路：推 `v*` tag 发 Release / dispatch 手动触发（可自动建 tag、可勾 prerelease）；main push 只跑 `test.yml` 全量回归，不发版
+- GitHub Actions 两条路：推 `v*` tag 发 Release / dispatch 手动触发（可自动建 tag、可勾 prerelease）；任意分支 push 都跑 `test.yml` 全量回归（不发版，功能分支不开 PR 也有 CI）
 
 ## 已知边界（设计取舍，不是 bug）
 

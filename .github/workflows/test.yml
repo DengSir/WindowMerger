@@ -10,7 +10,10 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    # 任意分支的 push 都跑全量回归（功能分支不开 PR 也有 CI）。branches 过滤天然排除
+    # tag——tag 由 release.yml 触发（其 test job 经 workflow_call 跑同款），不重复；
+    # '**' 必须加引号（防 YAML alias 解析），且能跨过斜杠分支名（feature/x）
+    branches: ['**']
   pull_request:
   workflow_dispatch:
   workflow_call:  # release.yml 复用本工作流当发版门禁：同一套构建 + 全量回归，不过不发版
