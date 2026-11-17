@@ -14,6 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
 
 HOST_RECT = wm.test_layout()["host"]
+TARGET_TITLE = "WM_DRAG_TARGET"
+
+
+def kill_title_owners(title: str) -> None:
+    """按标题杀全部属主进程树（taskkill /T /F）：残留靶窗的属主可能是 Popen 直接子进程
+    的后代（uv venv python trampoline），target.kill() 够不着——按窗口标题反查 PID 才是
+    完整口径（AGENTS：测试启动/收尾必须 kill_title_owners）。"""
+    import ctypes, subprocess
+    for h in wm.z_walk():
+        if wm.get_text(h).strip() == title and wm.is_window_visible(h):
+            pid = wm.pid_of(h)
+            if pid:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                               capture_output=True, check=False)
 
 
 def drag(from_x, from_y, to_x, to_y, steps=20):
@@ -36,6 +50,8 @@ def main() -> int:
     a = ap.parse_args()
 
     wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
+    kill_title_owners("WM_DRAG_TARGET")  # 按标题杀残留靶窗属主（uv venv python 可能是
+    # trampoline：target.kill() 只杀 stub，持窗真实解释器残留 → 同名旧窗污染本测）
     time.sleep(0.8)
     wm.remove_config()
     # 自写靶窗（tkinter，标题 WM_DRAG_TARGET）：零 Ribbon/零 PMv2，标题几何已知
@@ -124,10 +140,25 @@ def main() -> int:
             below_proc = f"<z err {e}>"
         try:
             tr = wm.get_window_rect(th)
+            tr = tr.as_tuple() if tr else None
         except Exception as e:
             tr = f"<rect err {e}>"
+        # 同名靶窗清单（残留假说）：多窗 = th 不是宿主吸的那个
+        peers = []
+        try:
+            for h in wm.z_walk():
+                if wm.get_text(h).strip() == TARGET_TITLE and wm.is_window_visible(h):
+                    r = wm.get_window_rect(h)
+                    peers.append((h, r.as_tuple() if r else None, wm.corner_pref(h)))
+        except Exception as e:
+            peers = [f"<enum err {e}>"]
+        try:
+            cfg_hwds = wm.load_config().get("AttachedHwnds")  # 宿主记录的吸附句柄（对照 th）
+        except Exception as e:
+            cfg_hwds = f"<cfg err {e}>"
         print(f"DIAG status='{status}' rect={tr} cursor=({cx},{cy}) "
-              f"host_below={below_proc} corner={wm.corner_pref(th)} "
+              f"host_below={below_proc} corner={wm.corner_pref(th)} th={th} "
+              f"cfg_hwnds={cfg_hwds} peers={peers} "
               f"panes L=({hx},{hy},{hx + pane_w},{hy + hh}) "
               f"R=({hx + pane_w},{hy},{hx + hw},{hy + hh})")
     wm.set_topmost(hm, False)
