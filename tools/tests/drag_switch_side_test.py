@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 HOST_RECT = wm.test_layout()["host"]
 TARGET_TITLE = "WM_DRAG_TARGET"
@@ -73,7 +74,8 @@ def main() -> int:
         target.kill()
         return 1
     host_env = dict(os.environ, WM_TRACE="1")
-    subprocess.Popen([a.exe, "merge", "--left", str(target.pid)], env=host_env)
+    host_env.setdefault("WM_NO_TRAY", "1")
+    subprocess.Popen([a.exe], env=host_env)
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
@@ -81,6 +83,12 @@ def main() -> int:
         return 1
     hx, hy, hw, hh = HOST_RECT
     wm.set_window_pos(hm, None, hx, hy, hw, hh, wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    # 经选择器吸附拖靶到左格（merge 名字吸附退役）
+    if not wm_uia.attach_via_panes(hm, [(0, "WM_DRAG_TARGET")]):
+        print("FAIL_PICKER_ATTACH")
+        target.kill()
+        return 1
     time.sleep(1.5)
     wm.set_topmost(hm, True)
     time.sleep(0.4)
@@ -131,7 +139,6 @@ def main() -> int:
         # 全块容错——取证代码绝不能自己炸掉测试
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-            import wm_uia
             status = wm_uia.status_text(hm)
         except Exception as e:
             status = f"<status err {e}>"

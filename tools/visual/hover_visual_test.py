@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 
 def main() -> int:
@@ -24,7 +25,7 @@ def main() -> int:
 
     wm.force_kill_by_name("WindowMerger")
     time.sleep(0.8)
-    subprocess.Popen([wm.exe_path(), "merge", "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([wm.exe_path()], env=wm.host_env())
     time.sleep(4)
 
     hm = wm.host_hwnd()

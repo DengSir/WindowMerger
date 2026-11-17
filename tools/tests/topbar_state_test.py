@@ -75,36 +75,30 @@ def main() -> int:
     wm.show_window(hm, wm.SW_RESTORE)
     time.sleep(1.0)
 
-    # T3 空吸附创建快捷方式 → 通知 + 无 .lnk
-    desktop = Path(wm.desktop_dir())
-    before = sorted(p.name for p in desktop.glob("*.lnk"))
-    wm_uia.invoke(wm_uia.find_by_automation_id(wm_uia.element_from_handle(hm),
-                                               "_shortcutButton"))
-    time.sleep(0.8)
-    st = wm_uia.status_text(hm) or ""
-    after = sorted(p.name for p in desktop.glob("*.lnk"))
-    check("T3_EMPTY_SHORTCUT_NOTICE", "未吸附窗口：先吸附再创建快捷方式" in st,
-          f"status={st!r}")
-    check("T3_NO_LNK_CREATED", before == after, f"before={len(before)} after={len(after)}")
+    # T3 已随快捷方式按钮退役（merge 子命令一并退役，无 .lnk 生成面）
 
     wm.set_topmost(hm, False)
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.5)
 
-    # ---------- 阶段 2：CLI 吸附 notepad → 侧按钮字形翻转 ----------
+    # ---------- 阶段 2：选择器吸附 notepad → 侧按钮字形翻转 ----------
     t1f = Path(tempfile.gettempdir(), "wmts1.txt")
     t1f.write_text("topbar-state", encoding="ascii")
     subprocess.Popen(["notepad", str(t1f)])
     if not wm.wait_main_windows("Notepad"):
         print("FAIL_TARGET_NOT_RUNNING")
         return 1
-    subprocess.Popen([a.exe, "merge", "--left", "notepad"], env=wm.host_env())
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
-        print("NO_HOST_2")
+        print("NO_HOST")
         return 1
-    wm.set_window_pos(hm, None, *pin, wm.SWP_NOZORDER)
+    wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    if not wm_uia.attach_via_panes(hm, [(0, "notepad")]):
+        print("FAIL_PICKER_ATTACH")
+        return 1
     time.sleep(1.5)
     wm.set_topmost(hm, True)
     time.sleep(0.4)

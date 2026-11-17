@@ -8,9 +8,13 @@
 """
 from __future__ import annotations
 
+import time
+
 import comtypes.client
 
 import uiautomation as auto
+
+import wm  # attach_via_panes 需要 Win32 枚举（wm 不反向依赖本模块，无环）
 
 _SEARCH_DEPTH = 8  # WPF 视觉树不深；限制深度防大树遍历过慢
 
@@ -49,6 +53,74 @@ def find_by_name(el, needle: str):
 
 def invoke(el) -> None:
     el.GetInvokePattern().Invoke()
+
+
+def attach_via_panes(host_hwnd: int, targets: list[tuple[int, str]]) -> list[int]:
+    """逐格经选择器吸附（Invoke 空格提示 _paneHint<N> → picker 过滤/选行 → 吸附按钮）。
+    targets = [(pane, 过滤词), ...]（过滤词匹配窗口标题或进程名，大小写不敏感；
+    merge 名字吸附退役后 = 测试搭吸附环境的统一入口，UIA 路径锁屏可用）。
+    返回机械步骤全成功的 pane 清单；中途失败即止（已完成的格保留），吸附断言由调用方做。"""
+    done: list[int] = []
+    for pane, needle in targets:
+        el = element_from_handle(host_hwnd)
+        hint = find_by_automation_id(el, f"_paneHint{pane}")
+        if hint is None:
+            break
+        try:
+            invoke(hint)
+        except Exception:
+            break
+        picker = _wait_picker(host_hwnd)
+        if picker is None:
+            break
+        try:
+            edit = _first_of_type(picker, "EditControl")
+            if edit is not None:
+                set_value(edit, needle)
+                time.sleep(0.4)
+            row = _first_of_type(picker, "ListItemControl") \
+                or _first_of_type(picker, "DataItemControl")
+            if row is None:
+                _invoke_named(picker, "取消")
+                break
+            row.GetSelectionItemPattern().Select()
+            time.sleep(0.3)
+            ok_btn = find_by_name(picker, "吸附")
+            if ok_btn is None:
+                _invoke_named(picker, "取消")
+                break
+            invoke(ok_btn)
+            time.sleep(1.2)  # 吸附 + 布局收敛
+            done.append(pane)
+        except Exception:
+            _invoke_named(picker, "取消")
+            break
+    return done
+
+
+def _wait_picker(host_hwnd: int, timeout_ms: int = 4000):
+    """找选择器对话框 = 同 PID 可见顶层窗标题含「选择吸附到」（UIA root children 会漏
+    ShowDialog owned 窗，走 Win32 枚举——picker_attach 实测）。"""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        for h in wm.all_windows_of_pid(wm.pid_of(host_hwnd)):
+            if h != host_hwnd and "选择吸附到" in wm.get_text(h, 48):
+                return element_from_handle(h)
+        time.sleep(0.15)
+    return None
+
+
+def _first_of_type(el, type_name: str):
+    for c, _ in auto.WalkControl(el, includeTop=False, maxDepth=_SEARCH_DEPTH + 2):
+        if c.ControlTypeName == type_name:
+            return c
+    return None
+
+
+def _invoke_named(el, name: str) -> None:
+    btn = find_by_name(el, name)
+    if btn is not None:
+        invoke(btn)
 
 
 def status_text(hwnd: int) -> str | None:

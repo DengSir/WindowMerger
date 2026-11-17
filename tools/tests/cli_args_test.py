@@ -1,21 +1,12 @@
 # -*- coding: utf-8 -*-
-"""CLI 参数解析边界回归（System.CommandLine 命令式 CLI：src/Cli.cs + HostWindow.Attach.cs 报因路径）：
-  C1 merge 位置参数 `exe merge notepad mspaint` 命中双侧吸附
-  C2 旗标缺参 `exe merge --left` → MessageBox 报因 + 退出码 1，无主窗
-  C3 未知旗标 `exe merge --unknown xxx` → MessageBox + 退出码 1；
-     根命令旧旗标 `exe --tray` 同样报因（完全命令式，无兼容别名）
-  C4 进程名大小写不敏感 + .exe 后缀剥离（NOTEPAD.EXE ≡ notepad）
-  C5 名字匹配不到 → "未找到 X 的窗口，已跳过"；双目标后条覆盖前条（ShowNotice 单槽）
-  C6 --left-exe 路径不存在 → "路径不存在：X，已跳过"
-  C7 tray 冒烟：常驻无主窗（单实例 mutex/生命周期细节见 snap_capture_test S6）
-  C8 detect 冒烟：stdout 一行 JSON、退出码 0（检测细节见 snap_capture_test S1/S4）
-  C9 --help → 用法 MessageBox + 退出码 0（GUI 无控制台，lib 帮助输出不可见，改弹框）
-  C10 多余位置参数 `exe merge a b c d e`（>4 个）→ MessageBox + 退出码 1
-  C11 4 位置参数合法 `exe merge a b c d`（格序填入，多格布局支持）→ 宿主正常出现
-  C12 --pane-hwnds 句柄数越界（1 个 / 5 个）→ MessageBox + 退出码 1
-  C13 --pane-hwnds 无效 token（非数字）→ MessageBox + 退出码 1
-  C14 --pane-hwnds 与 --left-hwnd 混用 → MessageBox + 退出码 1
-通知 3 秒 TTL：宿主窗口出现后 ~1.5s 内读状态栏（attach/notice 在 Loaded 即发生）。
+"""CLI 边界回归（merge/tray 子命令已退役：CLI = 无参组合模式 + detect 两入口）：
+  C1 未知旗标 → MessageBox 报因 + 退出码 1
+  C2 根命令旧旗标 `exe --tray` 同样报因（完全命令式，无兼容别名）
+  C3 未知位置参数 `exe a1 b2` → 报因（根命令无位置参数）
+  C4 --help → 用法 MessageBox + 退出码 0
+  C5 detect 冒烟：stdout 一行 JSON、退出码 0
+  C6 无参组合模式冒烟：宿主出现（WM_NO_TRAY=1 → 无托盘、关窗即退出）
+吸附环境搭法见 wm_uia.attach_via_panes（选择器路径）；单实例唤起/托盘菜单见 noargs_tray_test。
 用法: uv run tools\\tests\\cli_args_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint。
 """
@@ -23,7 +14,6 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -55,28 +45,12 @@ def start_dialog_case(exe: str, *args: str) -> tuple[subprocess.Popen, bool]:
 
 
 def ensure_closed(p: subprocess.Popen) -> None:
-    """回归保护：弹框用例若意外常驻（解析语义回归成"静默落位置参数"），清理掉再继续，
-    防止残留宿主污染后续用例的 host_hwnd 探测。"""
+    """回归保护：弹框用例若意外常驻（解析语义回归），清理掉再继续，防残留宿主污染后续用例。"""
     if p.poll() is None:
         wm.graceful_close_by_name("WindowMerger")
         time.sleep(1.0)
         wm.force_kill_by_name("WindowMerger")
         time.sleep(0.5)
-
-
-def start_and_status(exe: str, *args: str, pin: tuple | None = None,
-                     wait: float = 3.0) -> tuple[int, str | None]:
-    """启动宿主（带任意参数）→ 读状态栏。注意通知 3s 过期，读晚了只能拿到常态文案。"""
-    subprocess.Popen([exe, *args], env=wm.host_env())
-    time.sleep(wait)
-    hm = wm.host_hwnd()
-    if not hm:
-        return 0, None
-    if pin:
-        wm.set_window_pos(hm, None, *pin, wm.SWP_NOZORDER)
-        time.sleep(1.5)
-    st = wm_uia.status_text(hm)
-    return hm, st
 
 
 def kill_all() -> None:
@@ -91,7 +65,6 @@ def main() -> int:
     ap.add_argument("--exe", default=wm.exe_path())
     a = ap.parse_args()
     failures: list[str] = []
-    pin = wm.test_layout()["host"]
 
     def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"{name} {'OK' if ok else 'MISMATCH'} {detail}")
@@ -99,159 +72,50 @@ def main() -> int:
             failures.append(name)
 
     kill_all()
-    t1 = Path(tempfile.gettempdir(), "wmcli1.txt")
-    t1.write_text("cli-args", encoding="ascii")
-    subprocess.Popen(["notepad", str(t1)])
-    subprocess.Popen(["mspaint"])
-    if not wm.wait_main_windows("Notepad", "mspaint"):
-        print("FAIL_TARGETS_NOT_RUNNING")
-        return 1
 
-    # ---------- C1 merge 位置参数 ----------
-    hm, _ = start_and_status(a.exe, "merge", "notepad", "mspaint", pin=pin)
-    if not hm:
-        check("C1_HOST", False)
-    else:
-        wm.set_topmost(hm, True)
-        time.sleep(0.4)
-        hr = wm.get_window_rect(hm)
-        avail = hr.Right - hr.Left - 12
-        mid_y = (hr.Top + hr.Bottom) // 2
-        l = wm.proc_name_of(wm.window_from_point(hr.Left + 2 + int(avail * 0.25), mid_y)).lower()
-        r = wm.proc_name_of(wm.window_from_point(hr.Left + 2 + int(avail * 0.75), mid_y)).lower()
-        check("C1_POSITIONAL_ATTACH", l == "notepad" and r == "mspaint", f"L={l} R={r}")
-        wm.graceful_close_by_name("WindowMerger")
-        time.sleep(1.5)
-    wm.force_kill_by_name("Notepad", "mspaint")
-    time.sleep(0.8)
-
-    # ---------- C2 旗标缺参 ----------
-    p, shown = start_dialog_case(a.exe, "merge", "--left")
-    check("C2_MISSING_VALUE_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
+    # ---------- C1 未知旗标 ----------
+    p, shown = start_dialog_case(a.exe, "--unknown", "xxx")
+    check("C1_UNKNOWN_FLAG_RC1", shown and p.returncode == 1,
           f"rc={p.returncode} dialog={shown}")
     ensure_closed(p)
 
-    # ---------- C3 未知旗标 + 根命令旧旗标（无兼容别名） ----------
-    p, shown = start_dialog_case(a.exe, "merge", "--unknown", "xxx")
-    check("C3_UNKNOWN_FLAG_RC1", shown and p.returncode == 1,
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
+    # ---------- C2 根命令旧旗标（无兼容别名） ----------
     p, shown = start_dialog_case(a.exe, "--tray")
-    check("C3B_LEGACY_FLAG_RC1", shown and p.returncode == 1,
+    check("C2_LEGACY_FLAG_RC1", shown and p.returncode == 1,
           f"rc={p.returncode} dialog={shown}")
     ensure_closed(p)
 
-    # ---------- C4 大小写 + .exe 后缀（命名形式） ----------
-    subprocess.Popen(["notepad", str(t1)])
-    time.sleep(1.2)
-    hm, _ = start_and_status(a.exe, "merge", "--left", "NOTEPAD.EXE", pin=pin)
-    if not hm:
-        check("C4_HOST", False)
-    else:
-        wm.set_topmost(hm, True)
-        time.sleep(0.4)
-        hr = wm.get_window_rect(hm)
-        probe_y = (hr.Top + hr.Bottom) // 2
-        h1 = wm.window_from_point(hr.Left + 2 + int((hr.Right - hr.Left - 12) * 0.25), probe_y)
-        check("C4_CASE_EXE_ATTACH", wm.proc_name_of(h1).lower() == "notepad",
-              f"LEFT_HIT={wm.proc_name_of(h1)}")
-        wm.graceful_close_by_name("WindowMerger")
-        time.sleep(1.5)
-    wm.force_kill_by_name("Notepad")
-    time.sleep(0.8)
+    # ---------- C3 未知位置参数（根命令无位置参数） ----------
+    p, shown = start_dialog_case(a.exe, "a1", "b2")
+    check("C3_STRAY_POSITIONAL_RC1", shown and p.returncode == 1,
+          f"rc={p.returncode} dialog={shown}")
+    ensure_closed(p)
 
-    # ---------- C5 名字匹配不到（无 notepad/mspaint 环境）----------
-    hm, st = start_and_status(a.exe, "merge", "--left", "zznope12345")
-    check("C5_ALIVE", bool(hm))
-    check("C5_NOT_FOUND_NOTICE", bool(st and "未找到 zznope12345 的窗口" in st), f"status={st!r}")
-    if hm:
-        wm.post_close(hm)
-        time.sleep(1.5)
+    # ---------- C4 --help 用法弹框，退出码 0 ----------
+    p, shown = start_dialog_case(a.exe, "--help")
+    check("C4_HELP_RC0", shown and p.returncode == 0 and not wm.host_hwnd(),
+          f"rc={p.returncode} dialog={shown}")
+    ensure_closed(p)
 
-    # ---------- C5b 双目标报因后条覆盖前条（ShowNotice 单槽语义仍成立） ----------
-    hm, st = start_and_status(a.exe, "merge", "zznope12345", "zznope98765")
-    check("C5B_ALIVE", bool(hm))
-    check("C5B_LAST_NOTICE_WINS",
-          bool(st and "未找到 zznope98765 的窗口" in st and "zznope12345" not in st),
-          f"status={st!r}")
-    if hm:
-        wm.post_close(hm)
-        time.sleep(1.5)
-
-    # ---------- C6 --left-exe 路径不存在 ----------
-    hm, st = start_and_status(a.exe, "merge", "--left", "zznope12345",
-                              "--left-exe", "D:\\no\\such\\dir\\zznope.exe")
-    check("C6_ALIVE", bool(hm))
-    check("C6_PATH_MISSING_NOTICE", bool(st and "路径不存在" in st and "已跳过" in st),
-          f"status={st!r}")
-    if hm:
-        wm.post_close(hm)
-        time.sleep(1.5)
-
-    # ---------- C7 tray 冒烟 ----------
-    p = subprocess.Popen([a.exe, "tray"], env=wm.host_env())
-    time.sleep(2.5)
-    check("C7_TRAY_RESIDENT", p.poll() is None and not wm.host_hwnd(),
-          f"poll={p.poll()}")
-    if p.poll() is None:
-        p.terminate()
-        time.sleep(1.0)
-
-    # ---------- C8 detect 冒烟 ----------
+    # ---------- C5 detect 冒烟 ----------
     p = subprocess.run([a.exe, "detect"], capture_output=True, timeout=30)
     try:
         d = json.loads(p.stdout.decode("utf-8", errors="replace"))
     except Exception:
         d = {}
-    check("C8_DETECT_JSON", p.returncode == 0 and "ok" in d,
+    check("C5_DETECT_JSON", p.returncode == 0 and "ok" in d,
           f"rc={p.returncode} out={p.stdout[:80]!r}")
 
-    # ---------- C9 --help 用法弹框，退出码 0 ----------
-    p, shown = start_dialog_case(a.exe, "--help")
-    check("C9_HELP_RC0", shown and p.returncode == 0 and not wm.host_hwnd(),
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
+    # ---------- C6 无参组合模式冒烟（WM_NO_TRAY=1 → 无托盘、关窗即退出） ----------
+    subprocess.Popen([a.exe], env=wm.host_env())
+    host_ok = wm.wait_until(lambda: bool(wm.host_hwnd()), 8000, 200)
+    check("C6_COMBINED_HOST", bool(host_ok), f"host={bool(wm.host_hwnd())}")
+    if host_ok:
+        wm.post_close(wm.host_hwnd())
+        exited = wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200)
+        check("C6_CLOSE_EXITS", bool(exited), f"exited={bool(exited)}")
+    kill_all()
 
-    # ---------- C10 多余位置参数（位置参数上限 = 4，第 5 个报错） ----------
-    p, shown = start_dialog_case(a.exe, "merge", "a1", "b2", "c3", "d4", "zzextra5")
-    check("C10_EXTRA_ARG_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
-
-    # ---------- C11 4 位置参数合法（格序填入，宿主正常出现不弹框） ----------
-    hm, st = start_and_status(a.exe, "merge", "zznopeA", "zznopeB", "zznopeC", "zznopeD")
-    check("C11_FOUR_POSITIONAL_OK", bool(hm), f"hm={bool(hm)} status={st!r}")
-    if hm:
-        wm.post_close(hm)
-        time.sleep(1.5)
-
-    # ---------- C12 --pane-hwnds 句柄数越界（snap 多布局接管：2~4 个） ----------
-    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds", "123456",
-                                 "--profile", "snap-test")
-    check("C12_ONE_PANE_HWND_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
-    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds",
-                                 "1,2,3,4,5", "--profile", "snap-test")
-    check("C12B_FIVE_PANE_HWND_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
-
-    # ---------- C13 --pane-hwnds 无效 token（自定义解析器报错，lib 错误路径） ----------
-    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds", "abc,def",
-                                 "--profile", "snap-test")
-    check("C13_BAD_TOKEN_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
-
-    # ---------- C14 --pane-hwnds 与 --left-hwnd 混用（两套句柄通路互斥） ----------
-    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds", "111,222",
-                                 "--left-hwnd", "333", "--profile", "snap-test")
-    check("C14_MIXED_HWND_PATHS_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
-          f"rc={p.returncode} dialog={shown}")
-    ensure_closed(p)
-
-    wm.remove_config()
     print(f"FAILURES {'; '.join(failures) if failures else 'NONE'}")
     print(f"RESULT {'FAIL' if failures else 'PASS'}")
     return 1 if failures else 0

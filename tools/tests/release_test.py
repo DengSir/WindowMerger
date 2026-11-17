@@ -21,7 +21,8 @@ def main() -> int:
     ap.add_argument("--exe", default=wm.exe_path())
     a = ap.parse_args()
 
-    # 自备环境：清理 → 测试窗 → CLI 吸附（不依赖 run_test_flow 留下的现场）
+    # 自备环境：清理 → 测试窗 → 起宿主 → 选择器吸附（不依赖 run_test_flow 留下的现场；
+    # merge 名字吸附退役，走 wm_uia.attach_via_panes）
     wm.force_kill_by_name("WindowMerger", "Notepad", "mspaint")
     time.sleep(0.8)
     t1 = Path(tempfile.gettempdir(), "wmt1.txt")
@@ -31,13 +32,17 @@ def main() -> int:
     if not wm.wait_main_windows("Notepad", "mspaint"):
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
-    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
 
     hm = wm.host_hwnd()
     if not hm:
         print("NO_HOST")
         return 1
+    if not wm_uia.attach_via_panes(hm, [(0, "notepad"), (1, "mspaint")]):
+        print("FAIL picker-attach")
+        return 1
+    time.sleep(1.0)
 
     main_el = wm_uia.element_from_handle(hm)
     # 按 AutomationId 定位释放按钮（不能用位置索引：顶条按钮序随多布局重构/图标重排

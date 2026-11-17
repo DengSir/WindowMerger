@@ -28,7 +28,6 @@ EXPECTED = {
     "_layoutLtrButton": "\uEE4E",        # EE4E 布局：左+右列上下
     "_layoutQuadButton": "\uEE4F",       # EE4F 布局：四宫格
     "_releaseButton": "\uEA14",    # EA14 解散（Fluent）
-    "_shortcutButton": "\uE72D",   # E72D 创建快捷方式（Fluent）
     "_themeButton": "\uE7A1",      # E7A1 跟随系统（Fluent；深色 E708/浅色 E706）
     "_minimizeButton": "\uE921",   # E921 最小化（Fluent/MDL2 原版字形）
     "_maxButton": "\uE922",        # E922 最大化（最大化态 UpdateMaxGlyph 切 E923）
@@ -70,7 +69,7 @@ def main() -> int:
     if extra:
         print(f"EXTRA_BUTTONS: {extra}")
 
-    # 功能组按钮区（布局×4 | 释放/快捷方式/主题 | 系统钮）3x 放大（人工复核渲染效果）
+    # 功能组按钮区（布局×4 | 释放/主题 | 系统钮）3x 放大（人工复核渲染效果）
     img = wm.capture_window(hm)
     w = img.width
     crop = img.crop((w - 360, 0, w - 2, 30))

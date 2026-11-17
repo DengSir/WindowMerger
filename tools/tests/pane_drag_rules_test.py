@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 VK_CONTROL = 0x11
 KEYEVENTF_KEYUP = 0x2
@@ -78,13 +79,18 @@ def main() -> int:
         return 1
     mh = wm.main_windows_by_name("mspaint")[0][1]
     npre = wm.get_window_rect(wm.main_windows_by_name("Notepad")[0][1])  # 吸附前矩形（D2 替换还原断言的基准）
-    subprocess.Popen([a.exe, "merge", "--left", "notepad"], env=wm.host_env())
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
         print("NO_HOST")
         return 1
     wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    # 经选择器吸附 notepad 到左格（merge 名字吸附退役；mspaint 留作拖入/替换靶窗）
+    if not wm_uia.attach_via_panes(hm, [(0, "notepad")]):
+        print("FAIL_PICKER_ATTACH")
+        return 1
     time.sleep(1.5)
     wm.set_topmost(hm, True)
     time.sleep(0.4)

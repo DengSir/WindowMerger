@@ -63,45 +63,12 @@ public partial class App : Application
             Shutdown();
             return;
         }
-        if (opts.Mode == LaunchMode.Tray)
-        {
-            // 托盘监听：无宿主窗口。ShutdownMode 必须显式——默认 OnLastWindowClose
-            // 在零窗口下永不触发，应用会照常常驻；退出走 TrayController.Exit()
-            ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            if (!new TrayController().Start()) Shutdown(); // 已有托盘实例 → 秒退
-            return;
-        }
 
-        // 实例隔离：--profile 实例用独立 config，互不覆盖孤儿救援记录与几何
-        ConfigStore.Configure(opts.Profile);
         var config = ConfigStore.Load();
 
-        // snap 接管：直连句柄有效 → 宿主落位 = 并集矩形、布局/双比例现场实测（不读 config
-        // 几何——那是常规实例的持久化值，接管几何由当前布局决定）。--pane-hwnds =
-        // pane 序句柄走严格形状匹配（四种布局）；--left-hwnd/--right-hwnd = 旧两窗 LR 语义
-        if (opts.PaneHwnds is { Count: >= 2 } paneHwnds
-            && paneHwnds.All(h => Native.IsWindow(new IntPtr(h))))
-        {
-            opts.Snap = SnapLayoutDetector.SnapPlanFor(paneHwnds);
-        }
-        else if (opts.LeftHwnd is long lh && opts.RightHwnd is long rh
-            && Native.IsWindow(new IntPtr(lh)) && Native.IsWindow(new IntPtr(rh)))
-        {
-            opts.Snap = SnapLayoutDetector.SnapRectFor(new IntPtr(lh), new IntPtr(rh));
-        }
-        // 接管实例不检查更新：多实例并发换装会互抢 .old，更新走用户手动启动的主实例
-        if (opts.PaneHwnds is not null || opts.LeftHwnd is not null || opts.RightHwnd is not null)
-            config.CheckUpdates = false;
-
-        // merge 显式吸附：窗口模式（OnMainWindowClose，关窗即退出——旧默认宿主语义）
-        if (opts.Mode == LaunchMode.Merge)
-        {
-            ShowHost(new HostWindow(config, opts));
-            return;
-        }
-
-        // 无参组合模式：托盘常驻（Ctrl+Alt+M 随时可用），按「启动到托盘」勾选决定是否弹主窗；
-        // 关窗不退出（最后一扇宿主关闭时 balloon 提醒），托盘菜单「退出」才整进程结束
+        // 无参组合模式：托盘常驻（Ctrl+Alt+M 随时可用；snap 捕捉进程内直开接管宿主），
+        // 按「启动到托盘」勾选决定是否弹主窗；关窗不退出（最后一扇宿主关闭时 balloon
+        // 提醒），托盘菜单「退出」才整进程结束
         if (!TraySuppressedForTests)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -134,12 +101,34 @@ public partial class App : Application
     /// 常规开窗；多扇宿主恢复同一份保存几何会完全重叠，按存活扇数级联偏移让新扇可见）。</summary>
     internal void OpenNewHost()
     {
-        ConfigStore.Configure(null); // null = 默认 config.json（no-op 安全，防残留 profile 切换）
         var alive = _hosts.Count(h => h.IsLoaded);
         ShowHost(new HostWindow(ConfigStore.Load(), new StartupOptions
         {
             CascadeDip = Math.Min(alive, 8) * 24,
         }));
+    }
+
+    /// <summary>托盘捕捉 snap 布局：进程内直开一扇接管宿主（单进程多宿主，与普通新扇平级；
+    /// 旧"spawn merge 子进程 + profile 配置隔离"已退役——接管宿主共用默认 config，
+    /// 孤儿救援记录也进默认表，救援口径更全）。宿主 ctor 按种子跳过 config 几何恢复、
+    /// 布局/双比例覆盖、直接最大化在布局所在屏。返回 null = 宿主构造失败（屏信息获取失败）。</summary>
+    internal HostWindow? OpenSnapHost(SnapLayoutDetector.SnapGroup group)
+    {
+        var seed = new StartupOptions
+        {
+            Snap = SnapLayoutDetector.PlanFromGroup(group),
+            PaneHwnds = group.Windows.Select(w => w.Hwnd.ToInt64()).ToList(),
+        };
+        try
+        {
+            var host = new HostWindow(ConfigStore.Load(), seed);
+            ShowHost(host);
+            return host;
+        }
+        catch (InvalidOperationException)
+        {
+            return null; // 布局所在屏工作区获取失败（ctor 明确抛出）
+        }
     }
 
     /// <summary>宿主关闭通知转发：多扇平级宿主下单关一扇不提醒，只有最后一扇真正关闭才

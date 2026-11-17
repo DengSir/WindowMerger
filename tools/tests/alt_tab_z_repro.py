@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 VK_MENU, VK_TAB = 0x12, 0x09
 SW_MAXIMIZE = 3
@@ -77,9 +78,14 @@ def main() -> int:
     mps = wm.main_windows_by_name("mspaint")
     mp_h = mps[0][1]
 
-    # 3. 宿主 CLI 吸附
-    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
+    # 3. 起宿主 + 选择器吸附两窗（merge 名字吸附退役）
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
+    hm = wm.host_hwnd()
+    if not hm or not wm_uia.attach_via_panes(hm, [(0, "notepad"), (1, "mspaint")]):
+        print("FAIL_PICKER_ATTACH")
+        return 1
+    time.sleep(1.5)
     probe("STEP0_ATTACHED")
 
     # 最大化 mspaint 全遮宿主，ALT 技巧保前台

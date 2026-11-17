@@ -41,11 +41,11 @@
 | `layout_switch_test.py` | 多布局回归：四布局逐格中心探针（与 PaneLayout 同式复算）→ 直排布局按钮点按即切（`_layoutLtrButton`，原菜单已退役）→ 重叠迁移断言（左窗留格/右窗进右上）→ 每格选择器标题带格名 → 切回迁回 + config.Layout 落盘（新增 2026-11） |
 | `geometry_persistence_test.py` | 几何持久化四场景：保存/恢复、最大化保存/恢复、屏外钳制、垃圾回退（新增 2026-11，首次脚本化 ef15752 的手工验证） |
 | `cross_dpi_seam_test.py` | 跨 DPI 缝隙：96DPI mspaint 吸进 150% 宿主，子窗口可见缘与格子四边 ≤1px；左屏不在/非 100% 自动 SKIP（CrossDpiSeamTest） |
-| `shortcut_create_test.py` | 快捷方式生成：mspaint 单侧 + UIA 点按钮，校验 .lnk 参数含 `merge --left/--left-exe` 完整路径；mspaint 被占 SKIP 不强杀（ShortcutCreateTest） |
-| `launch_attach_test.py` | 拉起吸附：目标未运行，宿主带 `merge --left 名字 --left-exe 完整路径` 启动，断言宿主自己拉起并吸附成功（LaunchAttachTest） |
+| ~~`shortcut_create_test.py`~~ | 已随快捷方式按钮退役删除（2026-11-18，merge 子命令一并退役） |
+| ~~`launch_attach_test.py`~~ | 已随 merge 名字吸附退役删除（2026-11-18） |
 | `orphan_e2e_test.py` | 孤儿清理端到端：强杀宿主留孤儿 → 重启宿主启动清理摘除 TOOLWINDOW（OrphanE2ETest） |
-| `pid_mode_test.py` | CLI PID 模式：PID/名字混合吸附 + 无窗口 PID 的报因路径（PidModeTest） |
-| `exclude_self_test.py` | 排除自身：另一个 WindowMerger 实例的宿主不可被 CLI 吸附（ExcludeSelfTest） |
+| ~~`pid_mode_test.py`~~ | 已随 merge 名字/PID 吸附退役删除（2026-11-18） |
+| `exclude_self_test.py` | 排除自身：另一 WindowMerger 实例（WM_NO_TRAY 并存）的宿主不进选择器候选（IsOtherSelf；原"CLI 抓取"路径随 merge 退役改为候选断言） |
 | `cursor_drop_test.py` | 光标落点判定（注入拖动，固定布局）：光标在格外/窗口中心在格内 → 不吸附；拖到左格中心 → 吸附（CursorDropTest） |
 | `covered_drag_test.py` | 遮挡格拒收（自动化）：置顶遮罩盖右格，注入拖到遮罩内 → 拒吸；拖到左格 → 吸附（原 manual/CoveredDragTest 自动化，2026-11） |
 | `maximize_drag_test.py` | 最大化拖顶条还原（自动化）：最大化 → 注入拖顶条 → 还原落位=占比锚点公式期望值（原 manual/ManualDragTest 自动化，2026-11） |
@@ -55,16 +55,16 @@
 | `drag_switch_side_test.py` | 拖到另一侧换侧（新增 2026-11；**挖出并修复 src 换侧分支引用反向 + TryAttach 拒收 toolwindow 两个真 bug**；2026-11-17 多布局泛化取错变量再挖出换格丢引用真 bug——`_panes[pane]=ChildAt(pane)` 挂 null 丢被拖窗对象，DIAG/WM_TRACE 取证定位后修复） |
 | `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
-| `topbar_state_test.py` | 顶条状态回归：最大化矩形=工作区（WM_GETMINMAXINFO）、最大化顶条原地单击不还原、空吸附快捷方式通知、吸附后布局按钮存在+左格提示折叠（IsOffscreen）+逐格状态栏（TopbarStateTest） |
+| `topbar_state_test.py` | 顶条状态回归：最大化矩形=工作区（WM_GETMINMAXINFO）、最大化顶条原地单击不还原、吸附后布局按钮存在+左格提示折叠（IsOffscreen）+逐格状态栏（TopbarStateTest） |
 | `max_top_drag_test.py` | 最大化顶边死区拖还原：WM_NCHITTEST 最大化整窗 HTCLIENT 逐行探针 + 顶边注入拖还原（MaxTopDragTest） |
 | `child_fg_raise_test.py` | 子窗口激活联动升顶：EVENT_SYSTEM_FOREGROUND → 宿主升顶 + 子窗口粘回，净空校验 GA_ROOT（ChildFgRaiseTest） |
 | `attach_heal_test.py` | 自愈与释放全量语义：外部最大化拉回、子窗死亡格子清空、释放矩形逐像素回位+摘置顶、单侧交换、H7 外部隐藏自动释放、H8 真托盘链路、H5E 释放拉回前台（AttachHealTest） |
 | `pane_drag_rules_test.py` | 格子拖入规则：占用格拒绝/Ctrl 替换/拖出自愈/宿主拖动子窗跟随（PaneDragRulesTest） |
 | `picker_filter_test.py` | 选窗候选过滤：负向过滤（toolwindow/owned/排除类名）、大小写不敏感、未选中点吸附无操作（PickerFilterTest） |
 | `config_edge_test.py` | 配置边界：损坏 JSON 回退默认、Ratio 钳制、几何过小钳 MinWidth/MinHeight、非法 Theme 回退（ConfigEdgeTest） |
-| `cli_args_test.py` | CLI 参数边界（命令式 CLI）：merge 位置参数≡命名参数、缺参/未知旗标/旧旗标/多余参数 → MessageBox 报因+退出码 1、`--help` 用法框 rc=0、大小写/.exe 后缀、找不到的报因文案（CliArgsTest） |
-| `pid_fallback_test.py` | PID 三级回退后两级：后代进程树 + 同名兜底 + 面积最大（PidFallbackTest） |
-| `snap_capture_test.py` | snap 捕捉接管 e2e：检测命中/比例、接管双吸附、拼图图标、宿主矩形=工作区、释放回捕获矩形、profile 隔离、报因四场景、托盘单实例（SnapCaptureTest） |
+| `cli_args_test.py` | CLI 边界（两入口）：无参组合模式冒烟（WM_NO_TRAY=1 关窗即退出）、未知旗标/旧旗标/未知位置参数 → MessageBox 报因+退出码 1、`--help` 用法框 rc=0、detect 冒烟（merge/tray 子命令已退役）（CliArgsTest） |
+| ~~`pid_fallback_test.py`~~ | 已随 merge 名字/PID 吸附退役删除（2026-11-18） |
+| `snap_capture_test.py` | snap 捕捉接管 e2e：检测命中/比例（四种布局）、WM_CAPTURE_SNAP 进程内直开接管宿主、拼图图标、宿主矩形=工作区、释放回捕获矩形、LCR 持久化、报因场景（T 形 UNSUPPORTED/五列 TOO_MANY）、单实例（SnapCaptureTest） |
 | `update_e2e_test.py` | 自动更新 e2e：假 releases/latest → 自动弹框 → 下载换装重启全链（UpdateE2ETest） |
 | `update_edge_test.py` | 更新边界：版本前缀解析/404/坏 zip 保留/.old 占用自愈（开关翻转持久化迁至 noargs_tray_test）（UpdateEdgeTest） |
 | `noargs_tray_test.py` | 无参组合模式：主窗+托盘（mutex 佐证）/关窗常驻/单实例唤起（第二无参实例秒退 rc0 + 首实例开新扇 host 数 0→1 + N3b 平级双扇 1→2）/启动到托盘零主窗/托盘菜单（检查更新翻转落盘、自启写无参 Run 值、打开新窗口两扇、退出；图标被收纳进溢出 flyout 时 SKIP_TRAY_ICON_HIDDEN）（NoArgsTrayTest） |

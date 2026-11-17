@@ -1,7 +1,5 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -207,7 +205,7 @@ public sealed partial class HostWindow : Window
         {
             Interval = TimeSpan.FromMilliseconds(100),
         };
-        _revealTimer.Tick += (_, _) => PollTopBarReveal();
+        _revealTimer.Tick += (_, _) => { if (IsLoaded) PollTopBarReveal(); };
 
         LocationChanged += (_, _) => OnHostMoved();
         SizeChanged += (_, _) => { UpdatePaneVisuals(); ApplyLayout(); };
@@ -227,7 +225,18 @@ public sealed partial class HostWindow : Window
         {
             Interval = TimeSpan.FromMilliseconds(250),
         };
-        _timer.Tick += (_, _) => Maintain();
+        _timer.Tick += (_, _) => { if (IsLoaded) Maintain(); };
+
+        // 关窗即停表：tick 排队期间宿主关闭 → 下一拍打在已断开的 Visual 上
+        // （PointFromScreen 抛"未连接到 PresentationSource"→ 无全局处理器进程崩，
+        // 2026-11-17/18 事件日志三次实锤；旧 merge 模式关窗即退出掩盖了它，
+        // 组合模式关窗不退出 + 单进程多宿主频繁开关扇后暴露）。
+        // IsLoaded tick 守卫是防排队竞态的第三层。
+        Closed += (_, _) =>
+        {
+            _revealTimer.Stop();
+            _timer.Stop();
+        };
 
         // 上次更新的残留（.old/.update/临时 zip）：新实例启动即清；.old 可能仍被退出中的
         // 旧进程占用，删不掉定时重试自愈
@@ -268,7 +277,7 @@ public sealed partial class HostWindow : Window
         // 顶条左端应用图标
         _appIcon.Source = LoadAppIconFrame();
 
-        // 顶条功能组：[更新组][布局×4][释放][快捷方式][主题] | [─][□][✕]
+        // 顶条功能组：[更新组][布局×4][释放][主题] | [─][□][✕]
         // 静态字形直接写在 XAML；这里只挂接点击与动态字形（主题、最大化/还原）。
         // 选窗 = 点空格提示区（拖入或点击开选择器）；布局 = 四个直排按钮点按即切
         // （原下拉菜单退役，2026-11-16），重复点当前布局按钮 = SwitchLayout 早退无害
@@ -287,7 +296,6 @@ public sealed partial class HostWindow : Window
             foreach (var h in hwnds) RaiseReleasedWindow(h);
             if (hwnds.Count > 0) Native.SetForegroundWindow(hwnds[^1]);
         };
-        _shortcutButton.Click += (_, _) => CreateShortcutForCurrent();
         SetThemeGlyph();
         _themeButton.Click += (_, _) => OpenThemeMenu();
         _minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
@@ -421,121 +429,6 @@ public sealed partial class HostWindow : Window
         SetThemeGlyph();
         _themeButton.ToolTip = ThemeTooltip();
     }
-
-    // ---------- 快捷方式 ----------
-
-    /// <summary>按当前吸附生成桌面快捷方式：参数用进程名（重启后仍能复现组合），PID 易失不入参；
-    /// 另记录 exe 完整路径（--left-exe/--right-exe，仅前两格支持），双击时目标未运行可自动拉起
-    /// 再吸附。多格布局取格序前两个占用格；提权/受保护进程取不到路径，降级为仅名字。</summary>
-    private void CreateShortcutForCurrent()
-    {
-        // 占用格按格序取前两个（两格布局即旧左右语义）
-        var used = Enumerable.Range(0, _panes.Length).Where(i => _panes[i] is not null).Take(2).ToArray();
-        if (used.Length == 0)
-        {
-            ShowNotice("未吸附窗口：先吸附再创建快捷方式");
-            return;
-        }
-
-        string? first = ProcessNameOfChild(_panes[used[0]]);
-        string? second = used.Length > 1 ? ProcessNameOfChild(_panes[used[1]]) : null;
-        string? firstExe = ImagePathOfChild(_panes[used[0]]);
-        string? secondExe = used.Length > 1 ? ImagePathOfChild(_panes[used[1]]) : null;
-
-        var argv = new List<string> { "merge" }; // 命令式 CLI：快捷方式走 merge 子命令
-        if (first is not null)
-        {
-            argv.Add($"--left \"{first}\"");
-            if (firstExe is not null) argv.Add($"--left-exe \"{firstExe}\"");
-        }
-        if (second is not null)
-        {
-            argv.Add($"--right \"{second}\"");
-            if (secondExe is not null) argv.Add($"--right-exe \"{secondExe}\"");
-        }
-        string display = string.Join(" + ", new[] { first, second }.Where(n => n is not null));
-
-        // 文件名剔除非法字符（进程名源自 exe 文件名，防御性处理）
-        string safe = string.Concat(display.Split(Path.GetInvalidFileNameChars()));
-        string path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-            $"窗口合并 - {safe}.lnk");
-        try
-        {
-            CreateShortcut(path, string.Join(" ", argv), $"窗口合并：{display}");
-            ShowNotice($"已创建桌面快捷方式：{display}");
-        }
-        catch (Exception ex)
-        {
-            // 用户触发的动作失败不上抛崩宿主，状态栏报因；WScript.Shell 经反射调用，
-            // 真实原因包在 TargetInvocationException.InnerException 里（CI 实测只见外层）
-            var reason = ex is System.Reflection.TargetInvocationException tie
-                && tie.InnerException is not null
-                ? tie.InnerException.Message : ex.Message;
-            ShowNotice($"创建快捷方式失败：{reason}");
-        }
-    }
-
-    private static string? ProcessNameOfChild(AttachedChild? child)
-    {
-        if (child is null || !child.IsAlive) return null;
-        try
-        {
-            return Process.GetProcessById((int)child.Pid).ProcessName;
-        }
-        catch (ArgumentException)
-        {
-            return null; // 进程已退出
-        }
-    }
-
-    /// <summary>子窗口进程的 exe 完整路径；进程打不开（提权/受保护）、查询失败或已退出返回 null。
-    /// 用户触发的快捷方式生成走这里，任何异常都不上抛（降级为仅进程名，不崩宿主）。</summary>
-    private static string? ImagePathOfChild(AttachedChild? child)
-    {
-        if (child is null || !child.IsAlive) return null;
-        try
-        {
-            return Native.GetProcessImagePath(child.Pid);
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>经 WScript.Shell COM 写 .lnk（反射调用，不走 dynamic，免去 Microsoft.CSharp 依赖）。</summary>
-    private static void CreateShortcut(string path, string arguments, string description)
-    {
-        var shellType = Type.GetTypeFromProgID("WScript.Shell")
-            ?? throw new InvalidOperationException("WScript.Shell COM 不可用");
-        object shell = Activator.CreateInstance(shellType)!;
-        try
-        {
-            object link = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path })!;
-            try
-            {
-                string exe = Environment.ProcessPath ?? throw new InvalidOperationException("取 exe 路径失败");
-                SetComProp(link, "TargetPath", exe);
-                SetComProp(link, "Arguments", arguments);
-                SetComProp(link, "WorkingDirectory", Path.GetDirectoryName(exe)!);
-                SetComProp(link, "Description", description);
-                SetComProp(link, "IconLocation", exe + ",0");
-                link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
-            }
-            finally
-            {
-                Marshal.FinalReleaseComObject(link);
-            }
-        }
-        finally
-        {
-            Marshal.FinalReleaseComObject(shell);
-        }
-    }
-
-    private static void SetComProp(object target, string name, object value)
-        => target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value });
 
     private void SaveConfig()
     {

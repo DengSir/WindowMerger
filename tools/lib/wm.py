@@ -380,6 +380,29 @@ def find_window_by_title(title: str) -> int:
     return _user32.FindWindowW(None, title) or 0
 
 
+# ---------- 托盘 message 窗（snap 捕捉测试入口） ----------
+
+WM_CAPTURE_SNAP = 0x0402  # WM_APP+2：托盘捕捉 snap 布局请求（语义同热键/托盘菜单，测试确定性入口）
+
+def find_tray_message_window() -> int:
+    """托盘 message-only 窗：HWND_MESSAGE 下按标题 WindowMergerTray 定位（与 C#
+    SignalOpenHost 同口径）。message-only 窗不进常规 EnumWindows 结果，必须
+    FindWindowEx(HWND_MESSAGE) 找。无常驻实例返回 0。"""
+    HWND_MESSAGE = -3
+    return _user32.FindWindowExW(wintypes.HWND(HWND_MESSAGE), None, None, "WindowMergerTray") or 0
+
+
+def post_capture_snap() -> bool:
+    """PostMessage WM_CAPTURE_SNAP → 常驻实例进程内直开接管宿主（merge 子命令退役后
+    的测试入口；热键注入不可靠、托盘图标 UIA 有溢出收纳风险，见 AGENTS）。
+    返回 False = 没有常驻实例（先起无参组合模式）。"""
+    h = find_tray_message_window()
+    if not h:
+        return False
+    _user32.PostMessageW(wintypes.HWND(h), WM_CAPTURE_SNAP, c_void_p(0), c_void_p(0))
+    return True
+
+
 def find_window_by_class(class_name: str) -> int:
     return _user32.FindWindowW(class_name, None) or 0
 
@@ -514,11 +537,35 @@ def graceful_close_by_name(name: str) -> None:
 
 
 def force_kill_by_name(*names: str) -> None:
-    """Stop-Process -Force 等价（taskkill /F）。"""
+    """Stop-Process -Force 等价（taskkill /F）。杀 Notepad 时顺带清商店版记事本的
+    TabState 会话：强杀会留下已开 tab 的会话记录，下次启动把恢复内容开成**第二个
+    顶层窗**（同进程双窗，2026-11-18 实测"无标题 - Notepad"混进 main_windows_by_name
+    断言 + picker 候选），测试环境必须保证 notepad 单窗确定性。"""
     for n in names:
         for pid in pids_by_name(n):
             subprocess.run(["taskkill", "/F", "/PID", str(pid)],
                            capture_output=True, check=False)
+        if n.lower().rstrip(".exe") == "notepad":
+            clear_notepad_session()
+
+
+def clear_notepad_session() -> None:
+    """清商店版记事本的 tab 会话（%LOCALAPPDATA%\\Packages\\Microsoft.WindowsNotepad_*
+    \\LocalState\\TabState）。目录不存在（经典记话本/未开过 tab）= no-op。"""
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        return
+    pkg = Path(local, "Packages")
+    if not pkg.is_dir():
+        return
+    for d in pkg.glob("Microsoft.WindowsNotepad_*"):
+        tab = d / "LocalState" / "TabState"
+        if tab.is_dir():
+            for f in tab.iterdir():
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
 
 
 def force_kill_pid(pid: int) -> None:

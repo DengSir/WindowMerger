@@ -16,6 +16,7 @@
 警告: 会强杀所有 WindowMerger/Notepad/mspaint；临时改 config/Run 注册表（结束恢复）。
 """
 import argparse
+import ctypes
 import os
 import subprocess
 import sys
@@ -140,8 +141,13 @@ def main() -> int:
         host_ok = wm.wait_until(lambda: bool(wm.host_hwnd()), 8000, 200)
         mutex_busy = False
         if host_ok:
-            p2 = subprocess.Popen([a.exe, "tray"], env=wm.host_env())
-            mutex_busy = wm.wait_until(lambda: p2.poll() is not None, 6000, 100)
+            # mutex 佐证：探测命名 mutex（无副作用——旧"再起 tray 子命令"已退役，
+            # 无参第二实例会唤起主实例开新扇，污染 N2/N3 的宿主计数起点）
+            ERROR_ALREADY_EXISTS = 183
+            k32 = ctypes.windll.kernel32
+            hmtx = k32.CreateMutexW(None, False, "Local\\WindowMerger.Tray.Instance")
+            mutex_busy = k32.GetLastError() == ERROR_ALREADY_EXISTS
+            k32.CloseHandle(hmtx)
         check("N1_COMBINED_HOST_AND_TRAY", host_ok and mutex_busy,
               f"host={host_ok} mutex_busy={mutex_busy}")
 
@@ -180,8 +186,11 @@ def main() -> int:
               f"alive={p4.poll() is None} host={bool(wm.host_hwnd())}")
         kill_all()
 
-        # ---------- N5-N8 托盘菜单 ----------
-        p = subprocess.Popen([a.exe, "tray"], env=wm.host_env())
+        # ---------- N5-N8 托盘菜单（tray 子命令已退役：无参 + StartToTray=true = 纯托盘） ----------
+        cfg = wm.load_config()
+        cfg["StartToTray"] = True
+        wm.save_config(cfg)
+        p = subprocess.Popen([a.exe], env=combined_env)
         btn = None
         deadline = time.monotonic() + 20  # 每轮 tray_button() 自带 ~6s 有界搜索，给冷启动留余量
         while time.monotonic() < deadline and p.poll() is None:

@@ -65,12 +65,17 @@ def main() -> int:
         if not wm.wait_main_windows("Notepad", "mspaint"):
             print("FAIL_TARGETS_NOT_RUNNING")
             return 1
-        subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
+        subprocess.Popen([a.exe], env=wm.host_env())
         time.sleep(4)
         hm = wm.host_hwnd()
         if not hm:
             print("NO_HOST")
             continue
+        # 经选择器吸附两窗（merge 名字吸附退役）
+        if not wm_uia.attach_via_panes(hm, [(0, "notepad"), (1, "mspaint")]):
+            print("FAIL_PICKER_ATTACH")
+            continue
+        time.sleep(1.0)
         main_el = wm_uia.element_from_handle(hm)
         # 按 AutomationId 定位释放按钮（位置索引 btns[3] 在顶条按钮序重排后点错过）
         btn = wm_uia.find_by_automation_id(main_el, "_releaseButton")

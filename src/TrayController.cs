@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -24,6 +23,8 @@ internal sealed class TrayController
     private const int HotkeyId = 1;
     private const int WM_HOTKEY = 0x0312;
     private const int WM_OPEN_HOST = 0x0401; // WM_APP+1：单实例唤起请求（第二实例 PostMessage 过来）
+    private const int WM_CAPTURE_SNAP = 0x0402; // WM_APP+2：捕捉 snap 布局请求（测试确定性入口，
+                                                // 热键注入不可靠、托盘图标 UIA 有溢出收纳风险）
     private const string MessageWindowTitle = "WindowMergerTray"; // message 窗标题，SignalOpenHost 按它定位
     private const int WsPopup = unchecked((int)0x80000000);
     private const int WsExToolwindow = 0x80;
@@ -42,7 +43,7 @@ internal sealed class TrayController
     private HwndSource? _messageWindow;
     private WF.NotifyIcon? _icon;
     private bool _residentHintShown; // 组合模式关窗常驻提醒只发一次
-    private readonly Dictionary<int, Process> _captures = new(); // 显示器序号 → 已 spawn 的接管实例
+    private readonly Dictionary<int, HostWindow> _captures = new(); // 显示器序号 → 进程内接管宿主
 
     /// <summary>启动托盘。返回 false = 已有主实例在运行（调用方唤起它开新扇后退出本进程）。</summary>
     public bool Start()
@@ -108,7 +109,8 @@ internal sealed class TrayController
         return false;
     }
 
-    /// <summary>检测 → spawn 接管实例；未命中按原因 balloon（检测细节见 SnapLayoutDetector）。</summary>
+    /// <summary>检测 → 进程内直开接管宿主（单进程多宿主，旧 spawn merge 子命令已退役）；
+    /// 未命中按原因 balloon（检测细节见 SnapLayoutDetector）。</summary>
     private void Capture()
     {
         var result = SnapLayoutDetector.DetectAndPick();
@@ -118,35 +120,24 @@ internal sealed class TrayController
             return;
         }
 
-        // 同屏已有接管实例且还活着 → 不重复抓（两个实例抢同一批窗口会互相拆吸附态）
-        if (_captures.TryGetValue(group.MonitorIndex, out var prev) && !prev.HasExited)
+        // 同屏已有存活接管宿主 → 不重复抓（两个宿主抢同一批窗口会互相拆吸附态）
+        if (_captures.TryGetValue(group.MonitorIndex, out var prev) && prev.IsLoaded)
         {
             Balloon("未捕捉 snap 布局",
-                $"屏 {group.MonitorIndex + 1} 已有接管实例（PID {prev.Id}）在运行，先关闭它再重捕");
+                $"屏 {group.MonitorIndex + 1} 已有接管宿主在运行，先关闭它再重捕");
             return;
         }
 
-        string? exe = Environment.ProcessPath;
-        if (string.IsNullOrEmpty(exe))
+        var host = (System.Windows.Application.Current as App)?.OpenSnapHost(group);
+        if (host is null)
         {
-            Balloon("未捕捉 snap 布局", "无法定位程序路径");
+            Balloon("接管失败", "接管宿主创建失败（布局所在屏信息获取失败）");
             return;
         }
-        string args = "merge --pane-hwnds " +
-                      string.Join(",", group.Windows.Select(w => w.Hwnd.ToInt64())) +
-                      $" --profile snap-{group.MonitorIndex}";
-        try
-        {
-            var proc = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false })
-                ?? throw new InvalidOperationException("Process.Start 返回 null");
-            _captures[group.MonitorIndex] = proc;
-            Balloon("已接管 snap 布局",
-                $"屏 {group.MonitorIndex + 1}：{group.Windows.Count} 个窗口已合并（关闭合并窗口即释放回原位）");
-        }
-        catch (Exception ex)
-        {
-            Balloon("接管失败", ex.Message);
-        }
+        _captures[group.MonitorIndex] = host;
+        host.Closed += (_, _) => _captures.Remove(group.MonitorIndex);
+        Balloon("已接管 snap 布局",
+            $"屏 {group.MonitorIndex + 1}：{group.Windows.Count} 个窗口已合并（关闭合并窗口即释放回原位）");
     }
 
     /// <summary>释放托盘全部资源（图标/热键/message 窗/单实例 mutex），不结束应用。
@@ -192,9 +183,7 @@ internal sealed class TrayController
 
     private WF.ContextMenuStrip BuildMenu()
     {
-        // 托盘从此读写默认 config.json（组合模式与 tray 子命令都不带 --profile，路径必然是
-        // 默认值；Configure(null) 为 no-op，防御性调用保证顺序约定）
-        ConfigStore.Configure(null);
+        // 托盘始终读写默认 config.json（单进程多宿主，无 profile 概念）
         var config = ConfigStore.Load();
         var menu = new WF.ContextMenuStrip();
 
@@ -243,7 +232,6 @@ internal sealed class TrayController
     /// 它们），始终直写默认 config——宿主多扇共存/不在都走同一路径，无单一写者问题。</summary>
     private static void ApplySetting(Action<AppConfig> configSet)
     {
-        ConfigStore.Configure(null);
         var cfg = ConfigStore.Load();
         configSet(cfg);
         ConfigStore.Save(cfg);
@@ -282,6 +270,12 @@ internal sealed class TrayController
             // 单实例唤起：第二无参实例请求开一扇新的平级宿主（前台权已由对方 AllowSetForegroundWindow 转交）
             handled = true;
             (System.Windows.Application.Current as App)?.OpenNewHost();
+        }
+        else if (msg == WM_CAPTURE_SNAP)
+        {
+            // 捕捉请求（测试确定性入口，语义同热键/托盘菜单「立即捕捉」）
+            handled = true;
+            Capture();
         }
         return IntPtr.Zero;
     }

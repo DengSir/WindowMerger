@@ -30,11 +30,12 @@ internal static class SnapLayoutDetector
     public sealed record SnapWindow(IntPtr Hwnd, Native.RECT Bounds);
 
     /// <summary>一块屏上贴合排布的窗口组：Windows 按<b>布局格序</b>排列（2~4 窗）。
-    /// MonitorIndex = EnumDisplayMonitors 顺序。</summary>
+    /// MonitorIndex = EnumDisplayMonitors 顺序。嵌套 internal 类内——public 签名暴露
+    /// internal 的 Native.RECT 会 CS0051，跨类型引用须限定 SnapLayoutDetector. 前缀。</summary>
     public sealed record SnapGroup(int MonitorIndex, IntPtr HMonitor, Native.RECT WorkArea,
         List<SnapWindow> Windows, PaneLayoutDef Layout, double Ratio, double Ratio2);
 
-    /// <summary>形状匹配产物（Classify 与 SnapPlanFor 共用）：布局定义 + pane 序窗口 + 派生比例。</summary>
+    /// <summary>形状匹配产物（Classify 共用）：布局定义 + pane 序窗口 + 派生比例。</summary>
     private sealed record LayoutMatch(PaneLayoutDef Layout, List<SnapWindow> Ordered,
         double Ratio, double Ratio2);
 
@@ -77,47 +78,13 @@ internal static class SnapLayoutDetector
     }
 
     /// <summary>
-    /// 接管落位推导（legacy 双句柄路径，宿主实例自己用）：两窗口 EFB 并集（物理 px）+
-    /// 左窗宽占比，布局固定 LR、ratio2 沿用 0.5。<b>不校验两窗贴合形状</b>（历史语义，
-    /// snap_capture S2 依赖）；任一句柄拿不到 EFB 返回 null（宿主走默认居中落位，
-    /// 吸附报因走状态栏）。
+    /// 接管落位计划（托盘进程内直开宿主用）：检测结果组 → SnapPlan（矩形取组工作区，
+    /// 布局/双比例 = 形状匹配产物）。宿主 ctor 据此跳过 config 几何、覆写 _layout/_ratio/_ratio2。
     /// </summary>
-    public static SnapPlan? SnapRectFor(IntPtr a, IntPtr b)
-    {
-        var ra = EfbOf(a);
-        var rb = EfbOf(b);
-        if (ra is not { } r1 || rb is not { } r2) return null;
-        if (r1.Left > r2.Left) (r1, r2) = (r2, r1); // 左窗在前（仅决定 ratio 语义，句柄不参与落位）
-        int l = Math.Min(r1.Left, r2.Left);
-        int t = Math.Min(r1.Top, r2.Top);
-        int r = Math.Max(r1.Right, r2.Right);
-        int bt = Math.Max(r1.Bottom, r2.Bottom);
-        if (r <= l || bt <= t) return null;
-        double ratio = r - l > 0 ? (double)r1.Width / (r - l) : 0.5;
-        return new SnapPlan((l, t, (double)r - l, (double)bt - t), PaneLayoutDef.LeftRight, ratio, 0.5);
-    }
-
-    /// <summary>
-    /// 接管落位推导（--pane-hwnds 路径）：按传入句柄的 EFB 严格匹配四种布局形状
-    /// （句柄顺序无关，匹配器自行归位 pane 序），命中 → 并集矩形 + 布局 + 双比例；
-    /// 不成形状/句柄数越界/EFB 失败 → null（宿主走默认居中落位）。
-    /// </summary>
-    public static SnapPlan? SnapPlanFor(IReadOnlyList<long> paneHwnds)
-    {
-        if (paneHwnds.Count < 2 || paneHwnds.Count > 4) return null;
-        var wins = new List<SnapWindow>(paneHwnds.Count);
-        foreach (long h in paneHwnds)
-        {
-            if (EfbOf(new IntPtr(h)) is not { } efb) return null;
-            wins.Add(new SnapWindow(new IntPtr(h), efb));
-        }
-        var union = UnionOf(wins);
-        if (union.Right <= union.Left || union.Bottom <= union.Top) return null;
-        return MatchLayout(wins, union) is { } m
-            ? new SnapPlan((union.Left, union.Top, (double)union.Width, (double)union.Height),
-                m.Layout, m.Ratio, m.Ratio2)
-            : null;
-    }
+    public static SnapPlan PlanFromGroup(SnapGroup g)
+        => new((g.WorkArea.Left, g.WorkArea.Top,
+            (double)g.WorkArea.Width, (double)g.WorkArea.Height),
+            g.Layout, g.Ratio, g.Ratio2);
 
     // ---------- 挑组 ----------
 

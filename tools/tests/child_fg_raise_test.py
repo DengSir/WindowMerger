@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 VK_MENU = 0x12
 TARGET_TITLE = "WM_DRAG_TARGET"
@@ -148,12 +149,19 @@ def main() -> int:
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
 
-    # 3. 宿主 CLI 吸附（左=notepad 右=mspaint），等吸附落盘
-    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
+    # 3. 起宿主（WM_NO_TRAY=1）+ 选择器吸附（左=notepad 右=mspaint），等吸附落盘
+    subprocess.Popen([a.exe], env=wm.host_env())
     host = 0
     for _ in range(40):
         time.sleep(0.25)
         host = wm.host_hwnd()
+        if host:
+            break
+    if not host or not wm_uia.attach_via_panes(host, [(0, "notepad"), (1, "mspaint")]):
+        print("FAIL picker-attach")
+        return 1
+    for _ in range(40):
+        time.sleep(0.25)
         cfg = wm.load_config()
         if host and len(cfg.get("AttachedHwnds", [])) == 2:
             break

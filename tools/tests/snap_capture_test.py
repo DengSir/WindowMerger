@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""snap 接管回归（detect 检测 / merge --left-hwnd 直连 / --profile 配置隔离）：
-  S1 检测命中：两靶窗 EFB 对半排满测试屏工作区 → ok=true、左右句柄、比例、屏序号正确
+"""snap 接管回归（detect 检测 / WM_CAPTURE_SNAP 进程内直开接管宿主）：
+  S1 检测命中：两靶窗 EFB 对半排满测试屏工作区 → ok=true、layout=LR、panes 句柄、比例、屏序号
   S1b 2:1 变体：左 2/3 右 1/3 → ratio ≈ 0.6667
-  S2 接管 e2e：merge --left-hwnd/--right-hwnd/--profile → 双窗吸附（corner==1）、宿主矩形=工作区、
-     profile 配置落盘孤儿记录；优雅关 → 双窗回吸附前矩形 + 圆角还原 + 记录清空
-  S3 配置隔离：默认 config.json 不含接管实例的孤儿记录（多实例互不覆盖）
-  S4 报因：三窗三等分 TOO_MANY:3 / 上下排列 STACKED / 两窗留缝 NO_LAYOUT / 单窗半屏 NO_LAYOUT
-  S5 无效句柄：merge --left-hwnd 99999999 → 状态栏报"句柄无效"
+  S2 接管 e2e：托盘常驻进程 post WM_CAPTURE_SNAP → 进程内直开接管宿主 → 双窗吸附（corner==1）、
+     宿主矩形=工作区、默认 config 落盘孤儿记录；关宿主 → 双窗回吸附前矩形 + 圆角还原 + 记录清空
+     （托盘进程存活——关宿主不退进程，单进程多宿主语义）
+  S2m 多布局接管 e2e：LCR 三窗同入口吸附 + 拼图图标 + 默认 config Layout=LCR 持久化
+  S1c/d/e 多布局检测：LCR 三等分 / LTR 左全高+右列上下 / Quad 四象限
+  S4 报因：T 形 UNSUPPORTED / 五列 TOO_MANY:5 / 上下排列 STACKED / 两窗留缝 NO_LAYOUT / 单窗半屏
+  S6 单实例语义：第二无参实例（真托盘环境）秒退 rc0
+（旧 S5 无效句柄随 merge 子命令退役——CLI 句柄注入通道已不存在）
 用法: uv run tools/tests/snap_capture_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad；结束自己拉起的 snap 靶窗。
 """
@@ -74,10 +77,6 @@ def kill_title_owners() -> None:
         h = wm.find_window_by_title(t)
         if h:
             wm.force_kill_pid(wm.pid_of(h))
-
-
-def profile_config_path(name: str) -> str:
-    return os.path.join(os.environ["APPDATA"], "WindowMerger", f"config-{name}.json")
 
 
 def read_json_file(path: str) -> dict | None:
@@ -203,7 +202,7 @@ def foreign_big_windows(wa) -> list[str]:
 
 def pick_clean_monitor() -> tuple[object, bool]:
     """选测试屏：优先无大外来窗的 96DPI 屏；全都有外来窗时回退 pick_test_monitor 并
-    返回 skip_detect=True——S1/S4 检测场景标 SKIP（S2/S3/S5/S6 不依赖检测照常跑）。"""
+    返回 skip_detect=True——S1/S4 检测场景标 SKIP（S2/S2m/S6 不依赖检测照常跑）。"""
     cands = ([m for m in wm.monitors() if wm.monitor_dpi(m) == 96]
              or [m for m in wm.monitors() if m.dwFlags & 1]
              or list(wm.monitors()))
@@ -231,8 +230,6 @@ def main() -> int:
     wm.force_kill_by_name("WindowMerger", "Notepad")
     time.sleep(0.5)
     kill_title_owners()
-    for name in ("snap-test", "snap-test2"):
-        Path(profile_config_path(name)).unlink(missing_ok=True)
     wm.remove_config()
 
     mi, skip_detect = pick_clean_monitor()
@@ -254,6 +251,23 @@ def main() -> int:
         wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200)
     time.sleep(0.5)
     check("S0_BASELINE_CONFIG", bool(read_json_file(wm.config_path())))
+
+    # 捕捉托盘进程（StartToTray=true → 零窗口纯托盘；WM_CAPTURE_SNAP = 捕捉入口）。
+    # 接管宿主与托盘同进程（单进程多宿主），旧 spawn merge 子命令已退役
+    cfg0 = wm.load_config_safe()
+    cfg0["StartToTray"] = True
+    wm.save_config(cfg0)
+    capture_env = wm.host_env()
+    capture_env.pop("WM_NO_TRAY", None)  # 托盘必须起来（message 窗 = 捕捉入口）
+    tray_proc = subprocess.Popen([rig.exe], env=capture_env)
+    check("S_TRAY_MESSAGE_WINDOW",
+          bool(wm.wait_until(lambda: wm.find_tray_message_window() != 0, 10000, 200)),
+          "message 窗 = 捕捉入口")
+
+    def cap_host() -> int:
+        """捕捉托盘进程内的宿主（StartToTray=true → 平时零宿主，捕捉后恰一扇）。"""
+        hs = wm.main_windows_of_pid(tray_proc.pid)
+        return hs[0] if hs else 0
 
     try:
         # ---------- S1 检测命中（50/50） ----------
@@ -286,10 +300,11 @@ def main() -> int:
               bool(d2.get("ok")) and abs(float(d2.get("ratio", 0)) - 2 / 3) < 0.02
               if not skip_detect else True, f"d={d2}")
 
-        # ---------- S2 接管 e2e + S3 配置隔离 ----------
-        host = rig.start_host(["merge", "--left-hwnd", str(ha), "--right-hwnd", str(hb),
-                               "--profile", "snap-test"])
-        check("S2_HOST_ALIVE", bool(host))
+        # ---------- S2 接管 e2e（WM_CAPTURE_SNAP 进程内直开） ----------
+        check("S2_CAPTURE_POSTED", wm.post_capture_snap(), "WM_CAPTURE_SNAP → 托盘进程")
+        wm.wait_until(lambda: bool(cap_host()), 12000, 200)
+        host = cap_host()
+        check("S2_HOST_ALIVE", bool(host), f"host={host}")
         if host:
             attached = wm.wait_until(lambda: wm.is_attached(ha) and wm.is_attached(hb), 10000, 200)
             check("S2_ATTACHED", attached, f"corner_a={wm.corner_pref(ha)} corner_b={wm.corner_pref(hb)}")
@@ -304,16 +319,13 @@ def main() -> int:
                                             zip((r.Left, r.Top, r.Right, r.Bottom), union))
             check("S2_HOST_RECT", host_union_ok,
                   f"host=({r.Left},{r.Top},{r.Right},{r.Bottom}) union={union}")
-            pcfg = read_json_file(profile_config_path("snap-test"))
-            hwnds = set(pcfg.get("AttachedHwnds") or []) if pcfg else set()
-            check("S2_PROFILE_ORPHAN_RECORD", {ha, hb} <= hwnds, f"pcfg={pcfg}")
             dcfg = read_json_file(wm.config_path())
-            dhwnds = set(dcfg.get("AttachedHwnds") or []) if dcfg else set()
-            check("S3_DEFAULT_CONFIG_UNTOUCHED", not (dhwnds & {ha, hb}), f"dcfg_hwnds={dhwnds}")
+            hwnds = set(dcfg.get("AttachedHwnds") or []) if dcfg else set()
+            check("S2_RECORD_ORPHANS", {ha, hb} <= hwnds, f"cfg_hwnds={sorted(hwnds)}")
 
             wm.post_close(host)
-            released = wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200)
-            check("S2_HOST_CLOSED", released)
+            closed = wm.wait_until(lambda: not wm.main_windows_of_pid(tray_proc.pid), 8000, 200)
+            check("S2_HOST_CLOSED", closed, "托盘进程存活（关宿主不退进程）")
             time.sleep(0.5)
             ra, rb = wm.get_window_rect(ha), wm.get_window_rect(hb)
             back_a = bool(ra) and all(abs(x - y) <= 2 for x, y in
@@ -327,13 +339,13 @@ def main() -> int:
             check("S2_RESTORE_B", back_b, f"now=({rb.Left},{rb.Top},{rb.Right},{rb.Bottom})")
             check("S2_CORNERS_BACK", wm.corner_pref(ha) == 0 and wm.corner_pref(hb) == 0,
                   f"corner_a={wm.corner_pref(ha)} corner_b={wm.corner_pref(hb)}")
-            pcfg2 = read_json_file(profile_config_path("snap-test"))
-            check("S2_PROFILE_RECORD_CLEARED",
-                  bool(pcfg2) and not (pcfg2.get("AttachedHwnds") or []), f"pcfg2={pcfg2}")
+            dcfg2 = read_json_file(wm.config_path())
+            check("S2_RECORD_CLEARED",
+                  bool(dcfg2) and not (dcfg2.get("AttachedHwnds") or []), f"dcfg2={dcfg2}")
 
         rig.kill_all()
 
-        # ---------- S2m 多布局接管 e2e（--pane-hwnds，LCR 三窗） ----------
+        # ---------- S2m 多布局接管 e2e（WM_CAPTURE_SNAP，LCR 三窗） ----------
         w13 = (wa.Right - wa.Left) // 3
         h1 = rig.spawn_target("WM_SNAP_C")
         h2 = rig.spawn_target("WM_SNAP_D")
@@ -343,9 +355,10 @@ def main() -> int:
         check("S2M_ALIGN_R", efb_align(h3, (wa.Left + w13 * 2, wa.Top, wa.Right, wa.Bottom)))
         # 吸附前矩形基线在最后一次对齐之后记录（释放应回这里，与 S1b 同款约定）
         pres = [wm.get_window_rect(h) for h in (h1, h2, h3)]
-        mhost = rig.start_host(["merge", "--pane-hwnds", f"{h1},{h2},{h3}",
-                                "--profile", "snap-test"])
-        check("S2M_HOST_ALIVE", bool(mhost))
+        check("S2M_CAPTURE_POSTED", wm.post_capture_snap(), "WM_CAPTURE_SNAP → 托盘进程")
+        wm.wait_until(lambda: bool(cap_host()), 12000, 200)
+        mhost = cap_host()
+        check("S2M_HOST_ALIVE", bool(mhost), f"host={mhost}")
         if mhost:
             matt = wm.wait_until(lambda: wm.is_attached(h1) and wm.is_attached(h2)
                                  and wm.is_attached(h3), 10000, 200)
@@ -360,17 +373,15 @@ def main() -> int:
                                             (wa.Left, wa.Top, wa.Right, wa.Bottom)))
             check("S2M_HOST_RECT", mrect_ok,
                   f"host=({mr.Left},{mr.Top},{mr.Right},{mr.Bottom})")
-            mpcfg = read_json_file(profile_config_path("snap-test"))
+            mpcfg = read_json_file(wm.config_path())
             mhwnds = set(mpcfg.get("AttachedHwnds") or []) if mpcfg else set()
-            check("S2M_PROFILE_ORPHAN_RECORD", {h1, h2, h3} <= mhwnds, f"pcfg={mpcfg}")
-            mdcfg = read_json_file(wm.config_path())
-            mdhwnds = set(mdcfg.get("AttachedHwnds") or []) if mdcfg else set()
-            check("S2M_DEFAULT_CONFIG_UNTOUCHED", not (mdhwnds & {h1, h2, h3}),
-                  f"dcfg_hwnds={mdhwnds}")
+            check("S2M_RECORD_ORPHANS", {h1, h2, h3} <= mhwnds, f"cfg_hwnds={sorted(mhwnds)}")
+            check("S2M_LAYOUT_PERSISTED", (mpcfg or {}).get("Layout") == "LCR",
+                  f"Layout={(mpcfg or {}).get('Layout')}")
 
             wm.post_close(mhost)
-            check("S2M_HOST_CLOSED",
-                  wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200))
+            mclosed = wm.wait_until(lambda: not wm.main_windows_of_pid(tray_proc.pid), 8000, 200)
+            check("S2M_HOST_CLOSED", mclosed, "托盘进程存活（关宿主不退进程）")
             time.sleep(0.5)
             for tag, h, pre in (("C", h1, pres[0]), ("D", h2, pres[1]), ("E", h3, pres[2])):
                 now = wm.get_window_rect(h)
@@ -382,9 +393,9 @@ def main() -> int:
                       f"pre=({pre.Left},{pre.Top},{pre.Right},{pre.Bottom})")
             check("S2M_CORNERS_BACK", all(wm.corner_pref(h) == 0 for h in (h1, h2, h3)),
                   f"corners={[wm.corner_pref(h) for h in (h1, h2, h3)]}")
-            mpcfg2 = read_json_file(profile_config_path("snap-test"))
-            check("S2M_PROFILE_RECORD_CLEARED",
-                  bool(mpcfg2) and not (mpcfg2.get("AttachedHwnds") or []), f"pcfg2={mpcfg2}")
+            mpcfg2 = read_json_file(wm.config_path())
+            check("S2M_RECORD_CLEARED",
+                  bool(mpcfg2) and not (mpcfg2.get("AttachedHwnds") or []), f"dcfg2={mpcfg2}")
 
         rig.kill_all()
 
@@ -497,41 +508,30 @@ def main() -> int:
                   not d.get("ok") and d.get("reason") == "TOO_MANY:5", f"d={d}")
             rig.kill_all()
 
-        # ---------- S5 无效句柄 ----------
-        host = rig.start_host(["merge", "--left-hwnd", "99999999", "--profile", "snap-test2"])
-        check("S5_HOST_ALIVE", bool(host))
-        if host:
-            st = None
-            got = wm.wait_until(lambda: (s := wm_uia.status_text(host)) and "句柄无效" in s, 6000, 200)
-            try:
-                st = wm_uia.status_text(host)
-            except Exception:
-                pass
-            check("S5_INVALID_HWND_NOTICE", got, f"status={st!r}")
-            wm.post_close(host)
-            wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200)
-
-        # ---------- S6 托盘生命周期（tray：常驻 + 单实例 mutex） ----------
-        # 热键/捕捉路径与 detect + spawn 共用代码，上面已测；这里只验进程语义
-        tray1 = subprocess.Popen([rig.exe, "tray"], env=wm.host_env())
-        time.sleep(2.5)
-        check("S6_TRAY_ALIVE", tray1.poll() is None)  # 零窗口下常驻（ShutdownMode 显式）
-        tray2 = subprocess.Popen([rig.exe, "tray"], env=wm.host_env())
-        tray2_exited = wm.wait_until(lambda: tray2.poll() is not None, 6000, 100)
-        check("S6_TRAY_SINGLE_INSTANCE", tray2_exited and tray2.returncode == 0,
-              f"rc={tray2.returncode}")
-        tray1.terminate()  # 测试清理用强杀；正式退出走托盘菜单（Exit→Shutdown）
+        # ---------- S6 单实例语义（捕捉托盘进程已在运行，mutex 被其持有） ----------
+        # 热键/捕捉路径与 detect 共用代码，上面 S2/S2m 已测；这里只验进程语义
+        check("S6_TRAY_ALIVE", tray_proc.poll() is None, f"poll={tray_proc.poll()}")
+        second = subprocess.Popen([rig.exe], env=capture_env)
+        second_exited = wm.wait_until(lambda: second.poll() is not None, 8000, 100)
+        check("S6_SECOND_INSTANCE_RC0", second_exited and second.returncode == 0,
+              f"rc={second.returncode if second_exited else 'running'}")
+        # 单实例唤起会开一扇新扇：关掉再收尾
+        wm.wait_until(lambda: bool(cap_host()), 8000, 200)
+        for h in wm.main_windows_of_pid(tray_proc.pid):
+            wm.post_close(h)
+        time.sleep(1.0)
+        tray_proc.terminate()  # 测试清理用强杀；正式退出走托盘菜单（退出→Shutdown）
         try:
-            tray1.wait(timeout=5)
+            tray_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            tray1.kill()
-        check("S6_TRAY_STOPPED", tray1.poll() is not None)
+            tray_proc.kill()
+        check("S6_TRAY_STOPPED", tray_proc.poll() is not None)
     finally:
         rig.kill_all()
         kill_title_owners()
         wm.graceful_close_by_name("WindowMerger")
-        for name in ("snap-test", "snap-test2"):
-            Path(profile_config_path(name)).unlink(missing_ok=True)
+        if tray_proc.poll() is None:
+            tray_proc.terminate()
         wm.remove_config()  # 还原干净状态（后续测试约定 config 从零开始自管）
 
     print(f"FAILURES {'; '.join(failures) if failures else 'NONE'}")

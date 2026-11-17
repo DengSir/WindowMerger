@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 
 def main() -> int:
@@ -30,13 +31,18 @@ def main() -> int:
     if not wm.wait_main_windows("Notepad", "mspaint"):
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
-    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
         print("NO_HOST")
         return 1
     wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    # 经选择器吸附两窗（merge 名字吸附退役）
+    if not wm_uia.attach_via_panes(hm, [(0, "notepad"), (1, "mspaint")]):
+        print("FAIL_PICKER_ATTACH")
+        return 1
     time.sleep(1.5)
 
     np_h = wm.main_windows_by_name("Notepad")[0][1]

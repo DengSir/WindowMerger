@@ -58,8 +58,8 @@ def main() -> int:
         print(f"SKIP_LEFT_MONITOR_NOT_100PCT dpi={mp_dpi}")
         return 0
 
-    # 4. 宿主 CLI 吸附（纯数字 = PID）；宿主开在高 DPI 屏
-    host = subprocess.Popen([a.exe, "merge", "--left", str(mp.pid)])
+    # 4. 起宿主（WM_NO_TRAY=1 → 关窗即退出），经选择器吸附 mspaint 到左格；宿主开在高 DPI 屏
+    host = subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(3.5)
     hws = wm.top_windows_of_pids([host.pid])
     if not hws:
@@ -67,6 +67,11 @@ def main() -> int:
         print("FAIL_NO_HOST")
         return 1
     hw = hws[0]
+    if not wm_uia.attach_via_panes(hw, [(0, "mspaint")]):
+        wm.force_kill_pid(mp.pid)
+        wm.post_close(hw)
+        print("FAIL_PICKER_ATTACH")
+        return 1
 
     # 5. 宿主固定大小停到高 DPI 屏（config 尺寸可能巨大），等维护定时器收敛。
     #    宽度保证 ratio 0.5 时左格物理宽 ≥ mspaint 最小宽——704DIP×(dpi/96)（AGENTS

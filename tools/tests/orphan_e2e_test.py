@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 
 def scan_notepad_orphans() -> list[str]:
@@ -50,12 +51,14 @@ def main() -> int:
         print("FAIL_TARGET_NOT_RUNNING")
         return 1
 
-    # 2. CLI 吸附后强杀宿主 → 孤儿
-    host = subprocess.Popen([a.exe, "merge", "--left", "notepad"])
+    # 2. 选择器吸附后强杀宿主 → 孤儿（merge 名字吸附退役，走 attach_via_panes）
+    host = subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
-    if not wm.pids_by_name("WindowMerger"):
+    hm = wm.host_hwnd()
+    if not hm or not wm_uia.attach_via_panes(hm, [(0, "notepad")]):
         print("NO_HOST")
         return 1
+    time.sleep(1.0)
     print("CONFIG_PIDS_SAVED:")
     cfg = Path(wm.config_path())
     if cfg.exists():

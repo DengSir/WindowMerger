@@ -53,13 +53,18 @@ def main() -> int:
     if not wm.wait_main_windows("Notepad", "mspaint"):
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
-    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"], env=wm.host_env())
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
         print("NO_HOST")
         return 1
     wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    # 经选择器吸附两窗（merge 名字吸附退役）
+    if not wm_uia.attach_via_panes(hm, [(0, "notepad"), (1, "mspaint")]):
+        print("FAIL_PICKER_ATTACH")
+        return 1
     time.sleep(1.5)
     wm.set_topmost(hm, True)
     time.sleep(0.4)
@@ -172,13 +177,18 @@ def main() -> int:
     time.sleep(1.5)
     wm.force_kill_by_name("mspaint")
     nh2_pre = wm.get_window_rect(nh)  # host2 吸附前矩形：优雅关闭已把 notepad 还原回原位
-    subprocess.Popen([a.exe, "merge", "--left", "notepad"], env=wm.host_env())
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
     hm2 = wm.host_hwnd()
     if not hm2:
         print("NO_HOST2")
         return 1
     wm.set_window_pos(hm2, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    # 经选择器吸附 notepad 到左格（merge 名字吸附退役）
+    if not wm_uia.attach_via_panes(hm2, [(0, "notepad")]):
+        print("FAIL_PICKER_ATTACH")
+        return 1
     time.sleep(1.5)
     wm.set_topmost(hm2, True)
     time.sleep(0.4)
@@ -237,10 +247,10 @@ def main() -> int:
         return 1
     tray_pid = wm.pid_of(th)
     tray_pre = wm.get_window_rect(th)
-    # 宿主运行中没有运行时吸附入口，重启带 merge --left PID 精确吸附（H6 同款模式）
+    # 宿主运行中没有运行时吸附入口，重启宿主后经选择器吸附（托盘靶窗以标题过滤）
     wm.graceful_close_by_name("WindowMerger")
     time.sleep(1.5)
-    subprocess.Popen([a.exe, "merge", "--left", str(tray_pid)], env=wm.host_env())
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
     hm3 = wm.host_hwnd()
     if not hm3:
@@ -248,6 +258,11 @@ def main() -> int:
         tray.kill()
         return 1
     wm.set_window_pos(hm3, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
+    time.sleep(1.0)
+    if not wm_uia.attach_via_panes(hm3, [(0, "WM_TRAY_TARGET")]):
+        print("FAIL_PICKER_ATTACH")
+        tray.kill()
+        return 1
     time.sleep(1.5)
     wm.set_topmost(hm3, True)
     time.sleep(0.4)

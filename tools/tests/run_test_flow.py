@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""全流程回归：清理 → 开测试窗 → CLI 吸附 → 命中/矩形断言 → 还原置顶。原 RunTestFlow.ps1。
+"""全流程回归：清理 → 开测试窗 → 起宿主 → 选择器吸附 → 命中/矩形断言 → 还原置顶。原 RunTestFlow.ps1。
+（merge 名字吸附已退役：吸附走 wm_uia.attach_via_panes——Invoke 空格提示 → picker 选行。）
 用法: uv run tools/\tests\\run_test_flow.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint（含用户自己开着的实例）。
 """
@@ -12,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 
 def main() -> int:
@@ -45,9 +47,9 @@ def main() -> int:
         print("FAIL_TARGETS_NOT_RUNNING")
         return 1
 
-    # 3. 带命名参数启动宿主 + 固定布局钉位（主屏，命中/矩形断言坐标静态可推）
-    # CI 偶发 4s 起不来（run 6 首见）→ 失败再等 4s 重查一次
-    subprocess.Popen([a.exe, "merge", "--left", "notepad", "--right", "mspaint"])
+    # 3. 启动宿主（WM_NO_TRAY=1 → 无托盘、关窗即退出）+ 固定布局钉位（主屏，命中/矩形
+    # 断言坐标静态可推）。CI 偶发 4s 起不来（run 6 首见）→ 失败再等 4s 重查一次
+    subprocess.Popen([a.exe], env=wm.host_env())
     time.sleep(4)
 
     hm = wm.host_hwnd()
@@ -58,7 +60,13 @@ def main() -> int:
         print("FAIL host-not-running")
         return 1
     wm.set_window_pos(hm, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
-    time.sleep(1.5)  # 维护定时器把子窗口搬进新格子
+    time.sleep(1.0)
+
+    # 3b. 经选择器吸附两窗（merge 名字吸附退役；吸附即落位，留收敛余量）
+    if not wm_uia.attach_via_panes(hm, [(0, "notepad"), (1, "mspaint")]):
+        print("FAIL picker-attach")
+        return 1
+    time.sleep(1.0)  # 维护定时器收敛余量
     hr = wm.get_window_rect(hm)
     print(f"HOST ({hr.Left},{hr.Top})-({hr.Right},{hr.Bottom})")
 
@@ -85,12 +93,16 @@ def main() -> int:
     exp_l = (hr.Left + bw - mg, hr.Top + bw + tb, hr.Left + bw + pane_w + mg, hr.Bottom - bw + mg)
     dev_l = None
     for _, h in wm.main_windows_by_name("Notepad"):
+        if not wm.is_attached(h):
+            continue  # 本机商店记事本可能多开"无标题"第二窗（2026-11-18 实测），只断言吸附进格子的那扇
         r = wm.get_window_rect(h)
         dev_l = sum(abs(v - e) for v, e in zip(r.as_tuple(), exp_l))
         print(f"LEFT_CHILD rect=({r.Left},{r.Top})-({r.Right},{r.Bottom}) paneDeviation={dev_l}")
     exp_r0 = hr.Left + bw + pane_w + dv - mg
     dev_r = None
     for _, h in wm.main_windows_by_name("mspaint"):
+        if not wm.is_attached(h):
+            continue
         r = wm.get_window_rect(h)
         dev_r = (abs(r.Left - exp_r0) + abs(r.Top - (hr.Top + bw + tb))
                  + abs(r.Right - (hr.Right - bw + mg)) + abs(r.Bottom - (hr.Bottom - bw + mg)))

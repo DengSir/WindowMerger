@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import wm
+import wm_uia
 
 
 def shot_host(h: int, tag: str) -> object:
@@ -71,14 +72,19 @@ def main() -> int:
     hint.write_text("hint-test", encoding="ascii")
     subprocess.Popen(["notepad", str(hint)])
     time.sleep(1.5)
-    subprocess.Popen([wm.exe_path(), "merge", "--left", "notepad"])
-    time.sleep(4)
+    # 起宿主 + 选择器吸附 notepad 到左格（merge 名字吸附退役，走 attach_via_panes）
+    subprocess.Popen([wm.exe_path()], env=wm.host_env())
+    time.sleep(3)
     hm2 = wm.host_hwnd()
     if not hm2:
         print("NO_HOST_2")
         return 1
     wm.set_window_pos(hm2, None, *wm.test_layout()["host"], wm.SWP_NOZORDER)
-    time.sleep(1.5)
+    time.sleep(1.0)
+    if not wm_uia.attach_via_panes(hm2, [(0, "notepad")]):
+        print("PICKER_ATTACH_FAIL")
+        return 1
+    time.sleep(2)
     img2 = shot_host(hm2, "leftoccupied")
     # 左格判定 = 吸附本身成立（提示消失是其后果；notepad 深色编辑器底色 ≈ ThemeBar，
     # 像素比对不可靠——实测撞色）；右格仍是填充
