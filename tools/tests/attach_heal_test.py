@@ -94,8 +94,9 @@ def main() -> int:
         return any("记事本" in n or "notepad" in n.lower() for n in wm_uia.dump_taskbar_buttons())
 
     wm.taskbar_tab(nh, True)  # 模拟 shell 重新收录（explorer 重启重建 task list 同款）
-    time.sleep(0.6)
-    btn_back = notepad_button()
+    # shell 建按钮是异步的：run_all 30+ 项重载后固定睡 0.6s 观测不到（2026-11-18 实锤
+    # btn_back=False 假失败）——改轮询等按钮现身（宿主重断言节奏 ~2s，见后再等隐藏）
+    btn_back = wm.wait_until(notepad_button, 4000, 200)
     rehidden = wm.wait_until(lambda: not notepad_button(), 5000, 300) if btn_back else False
     check("H2_TAB_REASSERT_REHIDE", btn_back and rehidden, f"btn_back={btn_back}")
 
