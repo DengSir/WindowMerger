@@ -15,6 +15,12 @@ public partial class App : Application
     private TrayController? _tray;                  // 组合模式（无参启动）持有的托盘；merge/纯 tray/测试屏蔽下为 null
     private readonly List<HostWindow> _hosts = new(); // 本进程全部存活宿主（平级无主次；关窗常驻/唤起开新扇/换装清理用）
     private bool _updateCheckStarted;               // 进程级一次性哨兵：更新检查只由第一扇宿主发起
+    private int _hostAumidSeq;                      // 进程内宿主窗口级 AUMID 序号（多扇独立任务栏按钮）
+
+    /// <summary>新宿主的窗口级 AUMID：pid + 进程内序号保全系统唯一——shell 任务栏按钮按
+    /// AUMID 分组，多扇平级宿主（含跨进程的 snap 接管实例）各得独立按钮，不受用户任务栏
+    /// "合并按钮"设置影响。</summary>
+    internal string NextHostAumid() => $"{AppUserModelId}.host-{Environment.ProcessId}-{++_hostAumidSeq}";
 
     /// <summary>组合模式的托盘（null = 本进程无托盘：merge 模式、纯 tray 模式或测试屏蔽）。</summary>
     internal TrayController? Tray => _tray;

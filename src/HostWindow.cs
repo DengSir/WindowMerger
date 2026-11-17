@@ -56,6 +56,8 @@ public sealed partial class HostWindow : Window
     private Button[] _paneHints = Array.Empty<Button>(); // 空格提示（可点击选窗）
     private Border[] _paneGlows = Array.Empty<Border>();
     private Border[] _dividers = Array.Empty<Border>();
+    private readonly string? _windowAumid;      // 窗口级 AUMID（OnSourceInitialized 窗口可见前设置，
+                                                // shell 按它分组任务栏按钮——多扇平级宿主各自独立按钮）
 
     // 自动更新（逻辑在 Updater.cs，这里只做状态机与 UI）
     private bool _checkUpdates;                 // 启动自动检查开关（构造时读 config.CheckUpdates；
@@ -140,6 +142,7 @@ public sealed partial class HostWindow : Window
         _ratio2 = Math.Clamp(config.Ratio2, MinRatio, MaxRatio);
         _panes = new AttachedChild?[_layout.PaneCount];
         _checkUpdates = config.CheckUpdates;
+        _windowAumid = (Application.Current as App)?.NextHostAumid();
         var orphanPids = config.AttachedPids;
         var orphanHwnds = config.AttachedHwnds;
 
@@ -635,6 +638,10 @@ public sealed partial class HostWindow : Window
         TracePoint("OnSourceInitialized enter");
         base.OnSourceInitialized(e);
         _handle = new WindowInteropHelper(this).Handle;
+        // 窗口级 AUMID 必须赶在窗口可见前设置（shell 首次编组任务栏按钮时读取）：
+        // 多扇平级宿主各持唯一 AUMID → 任务栏各自独立按钮
+        if (_windowAumid is not null)
+            TracePoint($"SetWindowAumid hwnd={_handle.ToInt64():X} {Native.SetWindowAppUserModelId(_handle, _windowAumid)}");
         HwndSource.FromHwnd(_handle)!.AddHook(WndProc);
         // 保存几何落位：hwnd 已建，直接写物理像素（绕开 WPF 对 DIP 属性的初始主屏 DPI 解释）。
         // 两步：先移动（触发 WM_DPICHANGED、WPF 收敛到目标屏缩放），再设尺寸——WPF 跨 DPI

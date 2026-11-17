@@ -475,6 +475,107 @@ internal static partial class Native
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
     }
 
+    // ---------- 窗口级 AUMID（SHGetPropertyStoreForWindow + IPropertyStore 裸 vtable） ----------
+    // 多扇平级宿主各写唯一 System.AppUserModel.ID：shell 任务栏按钮按 AUMID 分组，不同
+    // AUMID = 各自独立按钮（不受用户"合并任务栏按钮"设置影响）。必须赶在窗口可见前设置
+    // （OnSourceInitialized 时机）。同一裸 vtable 模式（PKEY/PROPVARIANT 全走 IntPtr，
+    // 无封送风险）；IPropertyStore 槽位：0=QI 1=AddRef 2=Release 3=GetCount 4=GetAt
+    // 5=GetValue 6=SetValue 7=Commit。失败按设计静默（退回进程级 AUMID 的合并表现）。
+
+    private static readonly Guid PropertyStoreIid = new("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF4C"); // IPropertyStore
+    private static readonly Guid AppUserModelFmtid = new("9F4C2855-9FDB-464B-8129-29B3D31E2C5A"); // PKEY_AppUserModel_ID
+    private const ushort VT_LPWSTR = 31;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROPERTYKEY
+    {
+        public Guid fmtid;
+        public uint pid;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROPVARIANT
+    {
+        public ushort vt;
+        public ushort r1;
+        public ushort r2;
+        public ushort r3;
+        public IntPtr pwszVal; // VT_LPWSTR 联合体成员
+    }
+
+    [DllImport("propsys.dll", EntryPoint = "#4")] // 真实实现按 ordinal 4 导出（无名字）——
+    private static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid iid, out IntPtr ppv);
+    // shell32 的同名导出在本机（Win11 26300）是坏 stub：IUnknown 都返回 E_NOINTERFACE，
+    // propsys ordinal 4 才是真身（dumpbin 实锤）。python ctypes 同机同样复现。
+
+    [LibraryImport("ole32")]
+    private static partial int PropVariantClear(IntPtr pvar);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int PropStoreFn3(IntPtr self, IntPtr a, IntPtr b); // SetValue / GetValue
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int PropStoreFn2(IntPtr self, IntPtr a); // GetCount 类（预留）
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int PropStoreFn1(IntPtr self); // Commit / Release
+
+    /// <summary>给窗口设独立 AppUserModel.ID（任务栏独立按钮）。返回诊断串（写入/读回结果，
+    /// HostWindow 侧 WM_TRACE 落盘）；失败静默不抛（退回进程级合并表现）。</summary>
+    public static string SetWindowAppUserModelId(IntPtr hwnd, string aumid)
+    {
+        var iid = PropertyStoreIid;
+        int storeHr = SHGetPropertyStoreForWindow(hwnd, ref iid, out IntPtr store);
+        if (storeHr != 0 || store == IntPtr.Zero)
+            return $"GetStore hr=0x{storeHr:X8} store={store}";
+        IntPtr keyPtr = IntPtr.Zero, propPtr = IntPtr.Zero, strPtr = IntPtr.Zero;
+        try
+        {
+            keyPtr = Marshal.AllocHGlobal(Marshal.SizeOf<PROPERTYKEY>());
+            Marshal.StructureToPtr(new PROPERTYKEY { fmtid = AppUserModelFmtid, pid = 5 }, keyPtr, false);
+            propPtr = Marshal.AllocHGlobal(Marshal.SizeOf<PROPVARIANT>());
+            strPtr = Marshal.StringToCoTaskMemUni(aumid);
+            Marshal.StructureToPtr(new PROPVARIANT { vt = VT_LPWSTR, pwszVal = strPtr }, propPtr, false);
+            strPtr = IntPtr.Zero; // 所有权已随 PROPVARIANT 交给 PropVariantClear
+
+            var vtbl = Marshal.ReadIntPtr(store);
+            var getValue = Marshal.GetDelegateForFunctionPointer<PropStoreFn3>(Marshal.ReadIntPtr(vtbl, 5 * IntPtr.Size));
+            var setValue = Marshal.GetDelegateForFunctionPointer<PropStoreFn3>(Marshal.ReadIntPtr(vtbl, 6 * IntPtr.Size));
+            var commit = Marshal.GetDelegateForFunctionPointer<PropStoreFn1>(Marshal.ReadIntPtr(vtbl, 7 * IntPtr.Size));
+            int setHr = setValue(store, keyPtr, propPtr);
+            int commitHr = setHr == 0 ? commit(store) : -1;
+            // 写入后读回验证（诊断串；失败静默不回滚——退回进程级合并表现）
+            string readBack;
+            if (setHr == 0 && commitHr == 0)
+            {
+                IntPtr outPtr = Marshal.AllocHGlobal(Marshal.SizeOf<PROPVARIANT>());
+                try
+                {
+                    Marshal.StructureToPtr(new PROPVARIANT(), outPtr, false);
+                    int getHr = getValue(store, keyPtr, outPtr);
+                    readBack = getHr == 0
+                        ? Marshal.PtrToStringUni(Marshal.ReadIntPtr(outPtr, 8)) ?? "<null>"
+                        : $"hr=0x{getHr:X8}";
+                    PropVariantClear(outPtr);
+                }
+                finally { Marshal.FreeHGlobal(outPtr); }
+            }
+            else
+            {
+                readBack = "-";
+            }
+            return $"set=0x{setHr:X8} commit=0x{commitHr:X8} readBack={readBack}";
+        }
+        finally
+        {
+            if (propPtr != IntPtr.Zero) PropVariantClear(propPtr); // 释放 VT_LPWSTR 的 pwszVal
+            if (strPtr != IntPtr.Zero) Marshal.FreeCoTaskMem(strPtr);
+            if (keyPtr != IntPtr.Zero) Marshal.FreeHGlobal(keyPtr);
+            if (propPtr != IntPtr.Zero) Marshal.FreeHGlobal(propPtr);
+            Marshal.Release(store);
+        }
+    }
+
     public static uint GetPid(IntPtr hwnd)
     {
         GetWindowThreadProcessId(hwnd, out uint pid);
