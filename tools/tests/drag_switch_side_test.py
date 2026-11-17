@@ -104,15 +104,32 @@ def main() -> int:
     post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
     still_tool = wm.is_attached(th)
     print(f"POST LEFT_HIT={post_l} RIGHT_HIT={post_r} tool={still_tool}")
-    if not (swapped and post_r == "python"):
-        # 失败取证：靶窗实时矩形（对照格子矩形判定窗停哪）、宿主-靶窗 z 序相邻性、
-        # 光标位置——定位"换侧后窗到底在哪"（半路停/吸附未落格/z 序掉层三种形状 rect 一眼可辨）
-        cx, cy = wm.get_cursor_pos()
-        nxt = wm.get_window(hm)  # 宿主正下方第一个窗口（正常应 = 靶窗）
-        nxt_proc = wm.proc_name_of(nxt) if nxt else "?"
-        print(f"DIAG rect={wm.get_window_rect(th)} cursor=({cx},{cy}) "
-              f"host_below={nxt_proc} panes L=({hx},{hy},{hx+pane_w},{hy+hh}) "
-              f"R=({hx+pane_w},{hy},{hx+hw},{hy+hh})")
+    if not (swapped and post_r == "python" and still_tool):
+        # 失败取证（决定性探针 = 状态栏文本：宿主自己认为的格子占用 vs 窗口实际位置）。
+        # 全块容错——取证代码绝不能自己炸掉测试
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+            import wm_uia
+            status = wm_uia.status_text(hm)
+        except Exception as e:
+            status = f"<status err {e}>"
+        try:
+            cx, cy = wm.get_cursor_pos()
+        except Exception:
+            cx = cy = -1
+        try:
+            below = wm.get_window(hm, wm.GW_HWNDNEXT)  # 宿主正下方第一个窗（正常 = 靶窗）
+            below_proc = wm.proc_name_of(below) if below else "?"
+        except Exception as e:
+            below_proc = f"<z err {e}>"
+        try:
+            tr = wm.get_window_rect(th)
+        except Exception as e:
+            tr = f"<rect err {e}>"
+        print(f"DIAG status='{status}' rect={tr} cursor=({cx},{cy}) "
+              f"host_below={below_proc} corner={wm.corner_pref(th)} "
+              f"panes L=({hx},{hy},{hx + pane_w},{hy + hh}) "
+              f"R=({hx + pane_w},{hy},{hx + hw},{hy + hh})")
     wm.set_topmost(hm, False)
 
     wm.graceful_close_by_name("WindowMerger")
