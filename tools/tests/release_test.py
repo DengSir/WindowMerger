@@ -40,11 +40,13 @@ def main() -> int:
         return 1
 
     main_el = wm_uia.element_from_handle(hm)
-    btns = wm_uia.find_all_buttons(main_el)
-    if len(btns) < 4:
+    # 按 AutomationId 定位释放按钮（不能用位置索引：顶条按钮序随多布局重构/图标重排
+    # 变过——btns[3] 曾因此点成布局四钮，切了布局还把 config.Layout 落盘坑掉后续测试）
+    btn = wm_uia.find_by_automation_id(main_el, "_releaseButton")
+    if btn is None:
         print("NO_RELEASE_BTN")
         return 1
-    wm_uia.invoke(btns[3])  # 顶条按钮序：左/右/交换/释放
+    wm_uia.invoke(btn)
     time.sleep(1.2)
 
     states = [(proc, wm.is_attached(h)) for proc, h in wm.main_windows_by_name("Notepad", "mspaint")]

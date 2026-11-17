@@ -84,6 +84,7 @@
 | `divider_seam_test.py` / `divider_seam_diff.py` | 分隔条缝隙测量/像素对照 |
 | `thirds_align_probe.py` | 三分靶窗对齐探针 |
 | `trace_order_check.py` | WM_TRACE=1 时序打点检查（SourceInitialized→Loaded→吸附→图标顺序） |
+| `ci_fail_window.py` | 按时间窗切 run_all CI 日志包（子测试走临时文件重定向，主日志只剩 RESULT 行时用它看失败段落） |
 | `corner_pref_test.py` | 圆角偏好探针（吸附态黑盒判定口径） |
 | `attachable_probe.py` | 吸附资格探针（IsAttachable 判定逐窗核对） |
 | `taskbar_button_probe.py` / `taskbar_hide_probe.py` | 任务栏按钮收录/隐藏探针 |

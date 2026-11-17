@@ -72,11 +72,12 @@ def main() -> int:
             print("NO_HOST")
             continue
         main_el = wm_uia.element_from_handle(hm)
-        btns = wm_uia.find_all_buttons(main_el)
-        if len(btns) < 4:
+        # 按 AutomationId 定位释放按钮（位置索引 btns[3] 在顶条按钮序重排后点错过）
+        btn = wm_uia.find_by_automation_id(main_el, "_releaseButton")
+        if btn is None:
             print("NO_RELEASE_BTN")
             continue
-        wm_uia.invoke(btns[3])  # 释放按钮
+        wm_uia.invoke(btn)
         time.sleep(1.5)
         dump_taskbar_buttons(f"R{rnd}")
         dump_windows(f"R{rnd}")
