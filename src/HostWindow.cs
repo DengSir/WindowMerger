@@ -53,7 +53,7 @@ public sealed partial class HostWindow : Window
 
     // 窗格区动态元素（BuildPaneVisuals 按布局生成，SwitchLayout 重建）
     private Border[] _paneBorders = Array.Empty<Border>();
-    private Button[] _paneHints = Array.Empty<Button>(); // 空格提示（可点击选窗）
+    private Border[] _paneHints = Array.Empty<Border>(); // 空格填充层（含提示文案 + 「选择窗口」按钮，可点击选窗）
     private Border[] _paneGlows = Array.Empty<Border>();
     private Border[] _dividers = Array.Empty<Border>();
     private readonly string? _windowAumid;      // 窗口级 AUMID（OnSourceInitialized 窗口可见前设置，
@@ -874,40 +874,56 @@ public sealed partial class HostWindow : Window
         }
     }
 
-    /// <summary>按当前布局生成窗格区元素（窗格边框 + 空格提示 + 拖放高亮 + 分隔条），
+    /// <summary>按当前布局生成窗格区元素（窗格边框 + 空格填充层/选择按钮 + 拖放高亮 + 分隔条），
     /// 旧元素整体丢弃重建。不碰 _panes（吸附态归属由构造/SwitchLayout 管理）。
     /// 主题刷色全部 SetResourceReference（DynamicResource 跟随 ApplyTheme）；
-    /// 空格提示可点击 = 手动选窗入口（拖入吸附之外的第二条路）。分隔条拖拽事件在此挂接
+    /// 空格「选择窗口」按钮可点击 = 手动选窗入口（拖入吸附之外的第二条路，点选区域
+    /// 2026-11-18 从整格收窄为按钮本体）。分隔条拖拽事件在此挂接
     /// （分隔条随布局增减，不能在 WireUi 一次性挂死）。</summary>
     private void BuildPaneVisuals()
     {
         _paneHost.Children.Clear();
         int n = _layout.PaneCount;
         _paneBorders = new Border[n];
-        _paneHints = new Button[n];
+        _paneHints = new Border[n];
         _paneGlows = new Border[n];
 
         for (int i = 0; i < n; i++)
         {
-            // 空格占位：填充不透明 + 提示文案，点击打开该格选择器（吸附后隐藏恢复透明，
-            // 子窗口要靠透明格子透出、点击穿透下去交互）。用 Button 承载（自定义模板去默认
-            // 外观）→ 有 AutomationPeer，UIA Invoke 可定位（选窗测试入口，与拖入吸附并行）
-            var hint = new Button
+            // 空格占位 = 两层（2026-11-18 点选区域收窄）：填充层铺满整格（不透明 ThemeBar +
+            // 提示文案，无点击处理器——误触不再弹模态选择器）+ 居中紧凑「选择窗口」按钮
+            // （点选入口，尺寸 ≈78×31 DIP 兼容最小 80 DIP 格）。吸附后填充层隐藏恢复透明，
+            // 子窗口要靠透明格子透出、点击穿透下去交互。按钮走 PaneHintStyle（XAML keyed
+            // 样式）→ 有 AutomationPeer，UIA Invoke 可定位（选窗测试入口，与拖入吸附并行）
+            var hintButton = new Button
             {
-                Template = HintTemplate(),
-                Cursor = Cursors.Hand,
-                Visibility = Visibility.Collapsed,
-                Content = "拖窗口到此处吸附\n或点击此处选择窗口",
+                Style = (Style)FindResource("PaneHintStyle"),
+                Content = "选择窗口",
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(hintButton, $"_paneHint{i}");
+            int pane = i; // for 循环变量跨迭代共享，闭包必须落局部副本（否则点击时 i==n 越界）
+            hintButton.Click += (_, _) => Pick(pane);
+
+            var hintText = new TextBlock
+            {
+                Text = "拖窗口到此处吸附",
                 FontSize = 13,
                 FontFamily = SystemFonts.MessageFontFamily,
-                Margin = new Thickness(0),
-                Width = double.NaN, // 显式盖掉隐式按钮样式的 Width=36
+                Margin = new Thickness(0, 0, 0, 12),
             };
-            System.Windows.Automation.AutomationProperties.SetAutomationId(hint, $"_paneHint{i}");
-            hint.SetResourceReference(Button.BackgroundProperty, "ThemeBarBrush");
-            hint.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush");
-            int pane = i; // for 循环变量跨迭代共享，闭包必须落局部副本（否则点击时 i==n 越界）
-            hint.Click += (_, _) => Pick(pane);
+            hintText.SetResourceReference(TextBlock.ForegroundProperty, "ThemeTextBrush");
+
+            var hintStack = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            hintStack.Children.Add(hintText);
+            hintStack.Children.Add(hintButton);
+
+            var hintFill = new Border { Visibility = Visibility.Collapsed };
+            hintFill.SetResourceReference(Border.BackgroundProperty, "ThemeBarBrush");
+            hintFill.Child = hintStack;
 
             // 拖放目标高亮（拖动中亮起，盖在占位上）
             var glow = new Border
@@ -921,7 +937,7 @@ public sealed partial class HostWindow : Window
             };
 
             var inner = new Grid();
-            inner.Children.Add(hint);
+            inner.Children.Add(hintFill);
             inner.Children.Add(glow);
 
             var border = new Border
@@ -934,7 +950,7 @@ public sealed partial class HostWindow : Window
 
             _paneHost.Children.Add(border);
             _paneBorders[i] = border;
-            _paneHints[i] = hint;
+            _paneHints[i] = hintFill;
             _paneGlows[i] = glow;
         }
 
@@ -1029,22 +1045,6 @@ public sealed partial class HostWindow : Window
         menuBorder.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
         menuTemplate.VisualTree = menuBorder;
         return menuTemplate;
-    }
-
-    /// <summary>空格提示按钮模板：Border（背景 TemplateBinding）+ 居中文本，去默认 chrome。
-    /// 用 Button 而非 Border 是为了带 AutomationPeer（UIA Invoke = 测试的选窗入口）。</summary>
-    private static ControlTemplate HintTemplate()
-    {
-        var t = new ControlTemplate(typeof(Button));
-        var border = new FrameworkElementFactory(typeof(Border));
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
-        var pres = new FrameworkElementFactory(typeof(ContentPresenter));
-        pres.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        pres.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-        pres.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
-        border.AppendChild(pres);
-        t.VisualTree = border;
-        return t;
     }
 
     /// <summary>
@@ -1621,7 +1621,7 @@ public sealed partial class HostWindow : Window
             _notice = null;
             if (_panes.All(c => c is null))
             {
-                _status.Text = "把任意窗口拖进来吸附，或点击空格选择窗口";
+                _status.Text = "把任意窗口拖进来吸附，或点击「选择窗口」按钮";
             }
             else
             {

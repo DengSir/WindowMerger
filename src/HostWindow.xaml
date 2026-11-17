@@ -101,6 +101,40 @@
             </Style.Triggers>
         </Style>
 
+        <!-- 空格提示按钮（紧凑 chip，2026-11-18）：点选区域从整格收窄为按钮本体——整格可点
+             会在误触时弹模态选择器。铺格填充层（ThemeBar + 提示文案，不可点）由 code-behind
+             生成，本样式只管按钮本体。FontFamily 必须盖掉隐式按钮样式的 CaptionIcons 图标
+             字体（中文文案会渲染成缺字形）；悬停刷色走 Trigger（深 #3C3C3C/浅 #DCDCDC 两套
+             调色板均与 ThemeTextBrush 对比可读） -->
+        <Style x:Key="PaneHintStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ThemeBarBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+            <Setter Property="FontFamily" Value="{x:Static SystemFonts.MessageFontFamily}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeButtonHoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- 分隔条宽度：布局尺寸单一来源仍是 XAML（窗格/分隔条元素由 code-behind 按
              PaneLayoutDef 生成，WireUi 读入此常量） -->
         <sys:Double x:Key="DividerW">6</sys:Double>
