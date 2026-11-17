@@ -5,8 +5,10 @@
 警告: 强杀所有 WindowMerger/Notepad/mspaint + 删 config.json。
 """
 import argparse
+import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -54,6 +56,9 @@ def main() -> int:
     # trampoline：target.kill() 只杀 stub，持窗真实解释器残留 → 同名旧窗污染本测）
     time.sleep(0.8)
     wm.remove_config()
+    # 宿主内部时序 trace（DIAG 用）：清掉旧 trace 保证本测日志纯净
+    trace_log = Path(tempfile.gettempdir(), "wm_trace.log")
+    trace_log.unlink(missing_ok=True)
     # 自写靶窗（tkinter，标题 WM_DRAG_TARGET）：零 Ribbon/零 PMv2，标题几何已知
     target = subprocess.Popen([sys.executable,
                                str(Path(__file__).resolve().parents[1] / "targets" / "drag_target.py")])
@@ -67,7 +72,8 @@ def main() -> int:
         print("FAIL_NO_TARGET")
         target.kill()
         return 1
-    subprocess.Popen([a.exe, "merge", "--left", str(target.pid)])
+    host_env = dict(os.environ, WM_TRACE="1")
+    subprocess.Popen([a.exe, "merge", "--left", str(target.pid)], env=host_env)
     time.sleep(4)
     hm = wm.host_hwnd()
     if not hm:
@@ -161,6 +167,15 @@ def main() -> int:
               f"cfg_hwnds={cfg_hwds} peers={peers} "
               f"panes L=({hx},{hy},{hx + pane_w},{hy + hh}) "
               f"R=({hx + pane_w},{hy},{hx + hw},{hy + hh})")
+        # 宿主内部时序 trace 尾部（MOVESIZE/END 到达、HitTestSlot 判定、TryAttach 分支、
+        # Maintain 清格——run_all 子测试输出进主日志，一次 run 直接定位）
+        try:
+            lines = trace_log.read_text(encoding="utf-8", errors="replace").splitlines()
+            print("TRACE_TAIL >>>")
+            for ln in lines[-40:]:
+                print(f"TRACE| {ln}")
+        except Exception as e:
+            print(f"TRACE read err {e}")
     wm.set_topmost(hm, False)
 
     wm.graceful_close_by_name("WindowMerger")

@@ -268,11 +268,13 @@ public sealed partial class HostWindow : Window
 
         if (hwnd == cur)
         {
+            TracePoint($"TryAttach pane={pane} hwnd={hwnd.ToInt64():X} 归位（拖回原格）");
             ApplyLayoutTo(child, pane); // 拖走又拖回来：吸附回原格
             return;
         }
         if (cur != IntPtr.Zero && !IsCtrlHeld())
         {
+            TracePoint($"TryAttach pane={pane} hwnd={hwnd.ToInt64():X} 占用格拒绝");
             // 占用格默认不替换；按住 Ctrl 才允许新窗口顶掉旧的
             ShowNotice("该格已吸附窗口：按住 Ctrl 拖入可替换");
             return;
@@ -283,9 +285,11 @@ public sealed partial class HostWindow : Window
             // 拖到其他格 = 换格（吸附态整体搬家）：把被拖子窗口挂到目标格、原格清空。
             // （2026-11 旧两格版曾因赋值方向反了丢引用 → 孤儿停在松手位置，泛化时保持
             // "先清原格再挂目标格"的顺序）
+            TracePoint($"TryAttach pane={pane} hwnd={hwnd.ToInt64():X} 换格 from={from}");
             _panes[from] = null;
             _panes[pane] = child;
-            ApplyLayoutTo(child, pane);
+            bool placed = ApplyLayoutTo(child, pane);
+            TracePoint($"TryAttach 换格 placed={placed}");
             UpdateStatus();
             return;
         }
@@ -297,6 +301,7 @@ public sealed partial class HostWindow : Window
         if (!ApplyLayoutTo(attached, pane))
         {
             // SetWindowPos 被拒：最常见是目标窗口以更高权限运行（UIPI 拦截跨完整性级别操作）
+            TracePoint($"TryAttach pane={pane} hwnd={hwnd.ToInt64():X} 新吸附 PlaceInPane 失败（UIPI?）");
             DetachStateOnly(pane, attached);
             ShowNotice("无法吸附：该窗口权限更高（以管理员身份运行 WindowMerger 可解决）");
             return;

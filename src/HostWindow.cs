@@ -614,8 +614,9 @@ public sealed partial class HostWindow : Window
     // ---------- 生命周期 ----------
 
     /// <summary>时序打点（WM_TRACE=1 才写 %TEMP%\wm_trace.log）：验证 SourceInitialized →
-    /// Loaded → 吸附 → 拼图 的真实顺序用，模态 MessageBox 会泵 dispatcher 扭曲时序不能用。</summary>
-    private static void TracePoint(string msg)
+    /// Loaded → 吸附 → 拼图 的真实顺序用，模态 MessageBox 会泵 dispatcher 扭曲时序不能用。
+    /// internal：DragAttach 的 WinEvent 时序也经此落盘。</summary>
+    internal static void TracePoint(string msg)
     {
         if (Environment.GetEnvironmentVariable("WM_TRACE") != "1") return;
         try
@@ -1117,6 +1118,7 @@ public sealed partial class HostWindow : Window
         {
             if (_panes[i] is { } child && !child.IsAlive)
             {
+                TracePoint($"Maintain childLost pane={i} hwnd={child.Hwnd}");
                 _panes[i] = null;
                 childLost = true;
             }
@@ -1669,6 +1671,7 @@ public sealed partial class HostWindow : Window
     /// 关闭，强拉回的窗不响应不重绘）。</summary>
     private void ReleaseHiddenSide(int pane)
     {
+        TracePoint($"ReleaseHiddenSide pane={pane}");
         ChildAt(pane)?.RestoreHidden();
         if (pane >= 0 && pane < _panes.Length) _panes[pane] = null;
         ShowNotice($"{PaneName(pane)}: 窗口已自行隐藏（可能已关闭到托盘），已自动释放");

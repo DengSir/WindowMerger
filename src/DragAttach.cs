@@ -53,20 +53,28 @@ internal sealed class DragAttach : IDisposable
         }
         if (@event == Native.EVENT_SYSTEM_MOVESIZE)
         {
+            HostWindow.TracePoint($"MOVESIZE hwnd={hwnd.ToInt64():X}");
             _dragHwnd = hwnd;
             UpdateHighlight();
             _poll.Start();
         }
         else if (@event == Native.EVENT_SYSTEM_MOVESIZEEND && _dragHwnd == hwnd)
         {
+            HostWindow.TracePoint($"MOVESIZEEND hwnd={hwnd.ToInt64():X}");
             _poll.Stop();
             _dragHwnd = IntPtr.Zero;
             var pane = HitTestSlot(hwnd);
+            HostWindow.TracePoint($"MOVESIZEEND hitTest={pane?.ToString() ?? "null"}");
             _host.SetDragHighlight(null);
             if (pane is not null)
             {
                 _host.TryAttach(pane.Value, hwnd);
             }
+        }
+        else if (@event == Native.EVENT_SYSTEM_MOVESIZEEND)
+        {
+            // 与 _dragHwnd 不一致的 MOVESIZEEND（迟到/交叉事件）：记下防误判事件丢失
+            HostWindow.TracePoint($"MOVESIZEEND mismatch hwnd={hwnd.ToInt64():X} dragHwnd={_dragHwnd.ToInt64():X}");
         }
     }
 
