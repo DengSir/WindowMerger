@@ -229,10 +229,13 @@ public sealed partial class HostWindow : Window
         CleanupUpdateLeftoversWithRetry();
 
         // 启动自动检查更新：延迟 4 秒避开启动高峰，失败静默（离线/代理未就绪不打扰）。
+        // 进程级一次性（App.TryBeginUpdateCheck 哨兵）：多宿主下只有第一扇发起检查——
+        // 每扇都查会反复弹确认框；发现新版本经 App.BroadcastUpdate 同步其他扇顶条。
         // WM_UPDATE_OFF=1（wm.py 导入即注入 + run_all/CI）：测试宿主与真实 GitHub API
         // 彻底断网——发现新版本会自动弹模态确认框（抢焦点 + 禁用宿主 UI），测试环境
         // 必须不检查；update_e2e 剥掉本变量测真实流程，用 WM_UPDATE_API 指本地假服务
-        if (Environment.GetEnvironmentVariable("WM_UPDATE_OFF") != "1")
+        if (Environment.GetEnvironmentVariable("WM_UPDATE_OFF") != "1"
+            && (Application.Current as App)?.TryBeginUpdateCheck() != false)
         {
             var updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
             updateCheckTimer.Tick += (_, _) =>
@@ -1469,10 +1472,21 @@ public sealed partial class HostWindow : Window
         }
     }
 
+    /// <summary>接收进程内首扇广播的可用更新（多宿主：自动检查只由第一扇发起，其他扇经此
+    /// 同步顶条 ⬇；不弹确认框——点 ⬇ 直接下载，与"取消后随时可点"同语义）。仅 Idle 态
+    /// 接收：广播总发生在其他扇 Idle 时，防御性守卫防未来时序变化下覆盖进行中的状态。</summary>
+    internal void AdoptUpdate(Updater.UpdateInfo info)
+    {
+        if (_updatePhase != UpdatePhase.Idle) return;
+        _update = info;
+        SetUpdatePhase(UpdatePhase.Available);
+    }
+
     /// <summary>启动唯一一次检查 GitHub 最新 Release：发现新版本 → Available（顶条现身
     /// 「发现新版本 ⬇」）并直接弹确认框——一次性宣告，确认或点 ⬇ 都直接下载安装，
     /// 取消后顶条按钮随时可再点。无更新/失败静默——更新组保持隐藏（离线、代理未就绪
-    /// 不打扰）。检查异常由 AutoCheckUpdate 吞掉。</summary>
+    /// 不打扰）。检查异常由 AutoCheckUpdate 吞掉。发现新版本经 App.BroadcastUpdate
+    /// 同步进程内其他存活宿主顶条（它们不检查、也不弹框）。</summary>
     private async Task CheckUpdateAsync()
     {
         SetUpdatePhase(UpdatePhase.Checking);
@@ -1481,6 +1495,7 @@ public sealed partial class HostWindow : Window
         {
             _update = info;
             SetUpdatePhase(UpdatePhase.Available);
+            (Application.Current as App)?.BroadcastUpdate(this, info);
             await PromptUpdateAsync();
         }
         else

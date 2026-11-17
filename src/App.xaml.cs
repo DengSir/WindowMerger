@@ -14,6 +14,7 @@ public partial class App : Application
 
     private TrayController? _tray;                  // 组合模式（无参启动）持有的托盘；merge/纯 tray/测试屏蔽下为 null
     private readonly List<HostWindow> _hosts = new(); // 本进程全部存活宿主（平级无主次；关窗常驻/唤起开新扇/换装清理用）
+    private bool _updateCheckStarted;               // 进程级一次性哨兵：更新检查只由第一扇宿主发起
 
     /// <summary>组合模式的托盘（null = 本进程无托盘：merge 模式、纯 tray 模式或测试屏蔽）。</summary>
     internal TrayController? Tray => _tray;
@@ -153,6 +154,26 @@ public partial class App : Application
         foreach (var h in _hosts.Where(h => h != except && h.IsLoaded).ToList())
         {
             h.Close();
+        }
+    }
+
+    /// <summary>进程级更新检查哨兵：返回 true = 本扇获得检查权（进程内第一扇构造的宿主）。
+    /// 多宿主下每次开新扇都检查会反复弹确认框打扰（检查权收归进程一次）。</summary>
+    internal bool TryBeginUpdateCheck()
+    {
+        if (_updateCheckStarted) return false;
+        _updateCheckStarted = true;
+        return true;
+    }
+
+    /// <summary>首扇自动检查发现新版本后同步到其他存活宿主顶条：只同步 Available 态与
+    /// UpdateInfo——其他扇不重复弹确认框（一次性宣告只属于发起扇），点 ⬇ 直接下载与
+    /// "取消后随时可点"同语义；下载/安装状态由发起扇独自推进，换装前 CloseOtherHosts 收尾。</summary>
+    internal void BroadcastUpdate(HostWindow source, Updater.UpdateInfo info)
+    {
+        foreach (var h in _hosts.Where(h => h != source && h.IsLoaded))
+        {
+            h.AdoptUpdate(info);
         }
     }
 
