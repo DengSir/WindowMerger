@@ -162,8 +162,17 @@ def main() -> int:
             cfg_hwds = wm.load_config().get("AttachedHwnds")  # 宿主记录的吸附句柄（对照 th）
         except Exception as e:
             cfg_hwds = f"<cfg err {e}>"
+        # th 的 z 序正上方窗口（子窗永远插在其宿主正下方）——若 != hm，说明 hm 不是
+        # th 的宿主（第二个 WindowMerger 进程/宿主错位实锤）
+        try:
+            prev_of_th = wm.get_window(th, wm.GW_HWNDPREV)
+            prev_desc = f"{prev_of_th}({'hm' if prev_of_th == hm else wm.proc_name_of(prev_of_th)})"
+        except Exception as e:
+            prev_desc = f"<prev err {e}>"
+        merger_pids = wm.pids_by_name("WindowMerger")
         print(f"DIAG status='{status}' rect={tr} cursor=({cx},{cy}) "
-              f"host_below={below_proc} corner={wm.corner_pref(th)} th={th} "
+              f"host_below={below_proc} corner={wm.corner_pref(th)} th={th} th_prev={prev_desc} "
+              f"hm={hm} merger_pids={merger_pids} "
               f"cfg_hwnds={cfg_hwds} peers={peers} "
               f"panes L=({hx},{hy},{hx + pane_w},{hy + hh}) "
               f"R=({hx + pane_w},{hy},{hx + hw},{hy + hh})")
