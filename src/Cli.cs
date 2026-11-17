@@ -34,9 +34,12 @@ public sealed record StartupOptions
     public string? RightExe { get; set; }
     public long? LeftHwnd { get; set; }
     public long? RightHwnd { get; set; }
+    // snap 接管 pane 序句柄（2~4 个，顺序无关——形状匹配器自行归位格序）：与
+    // --left-hwnd/--right-hwnd 互斥（两套句柄通路各自派生 snap 落位，混用语义不明）
+    public List<long>? PaneHwnds { get; set; }
     public string? Profile { get; set; }
-    // snap 接管落位（两窗口可见边界并集，物理 px + 左右比例）：由 merge 的句柄参数派生
-    public ((double X, double Y, double W, double H) Rect, double Ratio)? Snap { get; set; }
+    // snap 接管落位计划（并集矩形物理 px + 布局 + 双比例）：由 merge 的句柄参数派生
+    public SnapPlan? Snap { get; set; }
     // 单实例唤起开新扇的级联偏移（DIP，按存活宿主扇数阶梯）：仅无参唤起路径由 App 填写，
     // CLI 解析不产生该值——多扇平级宿主同几何会完全重叠，偏移让新扇可见
     public double CascadeDip { get; set; }
@@ -66,13 +69,16 @@ public static class Cli
         merge 选项:
           --left <名|PID> / --right <名|PID>    前 2 格吸附目标（别名 -l / -r）
           --left-exe / --right-exe <完整路径>   前 2 格目标 exe 不存在时按路径拉起
-          --left-hwnd / --right-hwnd <句柄>     snap 接管直连（十进制或 0x 十六进制）
+          --left-hwnd / --right-hwnd <句柄>     snap 接管直连（十进制或 0x 十六进制，旧两窗 LR 语义）
+          --pane-hwnds <句柄,句柄[,句柄…]>      snap 接管直连：pane 序句柄 2~4 个（detect 输出
+                                                的 panes 顺序，形状匹配四种布局）
           --profile <名>                        实例隔离（config-<名>.json）
 
         示例:
           WindowMerger merge notepad mspaint
           WindowMerger merge --left Code --right ZCode
           WindowMerger merge --left-hwnd 123456 --right-hwnd 123458 --profile snap-0
+          WindowMerger merge --pane-hwnds 111,222,333 --profile snap-0
         """;
 
     public static CliParseResult Parse(string[] args)
@@ -85,6 +91,11 @@ public static class Cli
         var rightExeOption = new Option<string?>("--right-exe") { Description = "右侧目标 exe 完整路径（不存在时拉起）" };
         var leftHwndOption = new Option<string?>("--left-hwnd") { Description = "snap 接管直连：左侧顶层窗口句柄" };
         var rightHwndOption = new Option<string?>("--right-hwnd") { Description = "snap 接管直连：右侧顶层窗口句柄" };
+        var paneHwndsOption = new Option<List<long>?>("--pane-hwnds")
+        {
+            Description = "snap 接管直连：pane 序句柄（逗号分隔 2~4 个）",
+            CustomParser = ParsePaneHwndTokens,
+        };
         var profileOption = new Option<string?>("--profile") { Description = "实例隔离 profile（config-<名>.json）" };
 
         // 位置参数必须有默认值才是可选（无默认 = required），arity 显式 ZeroOrOne 兜底；
@@ -132,6 +143,7 @@ public static class Cli
         mergeCmd.Options.Add(rightExeOption);
         mergeCmd.Options.Add(leftHwndOption);
         mergeCmd.Options.Add(rightHwndOption);
+        mergeCmd.Options.Add(paneHwndsOption);
         mergeCmd.Options.Add(profileOption);
         mergeCmd.Arguments.Add(leftArg);
         mergeCmd.Arguments.Add(rightArg);
@@ -148,6 +160,7 @@ public static class Cli
             opts.RightExe = parseResult.GetValue(rightExeOption);
             opts.LeftHwnd = ParseHwnd(parseResult.GetValue(leftHwndOption));
             opts.RightHwnd = ParseHwnd(parseResult.GetValue(rightHwndOption));
+            opts.PaneHwnds = parseResult.GetValue(paneHwndsOption);
             opts.Profile = parseResult.GetValue(profileOption);
             return 0;
         });
@@ -164,6 +177,12 @@ public static class Cli
             return new CliParseResult(null, parseErrors.Select(e => e.Message).ToArray(), Help: false);
         }
         parseResult.Invoke();
+        // 跨参数校验（--pane-hwnds 数量与互斥）：lib 不做业务校验，错误走同一 ShowError 弹框路径
+        string[] invalid = ValidatePaneHwnds(opts);
+        if (invalid.Length > 0)
+        {
+            return new CliParseResult(null, invalid, Help: false);
+        }
         // lib 内建 help（--help/-h）命中时不执行任何动作：控制台输出在 GUI 下不可见，
         // 报给调用方弹用法框（退出码 0）
         if (opts.Mode == LaunchMode.None)
@@ -219,6 +238,37 @@ public static class Cli
         if (open < 0) return "";
         int close = message.IndexOf('\'', open + 1);
         return close > open ? message[(open + 1)..close] : "";
+    }
+
+    /// <summary>跨参数校验：--pane-hwnds 需 2~4 个句柄，且与 --left-hwnd/--right-hwnd 互斥
+    /// （两套句柄通路各自派生 snap 落位，混用语义不明 → 早报因）。**未提供 ≠ 空集合**：
+    /// System.CommandLine 对集合类型选项未提供时也物化空 List（不是 null），必须按 Count
+    /// 判空——按 null 判会让无参启动也报"实际 0 个"（2026-11-18 全量弹框事故实锤）。</summary>
+    private static string[] ValidatePaneHwnds(StartupOptions opts)
+    {
+        if (opts.PaneHwnds is not { Count: > 0 }) return Array.Empty<string>();
+        if (opts.LeftHwnd is not null || opts.RightHwnd is not null)
+            return ["--pane-hwnds 与 --left-hwnd/--right-hwnd 不能混用"];
+        if (opts.PaneHwnds.Count < 2 || opts.PaneHwnds.Count > 4)
+            return [$"--pane-hwnds 需要 2~4 个句柄（实际 {opts.PaneHwnds.Count} 个）"];
+        return Array.Empty<string>();
+    }
+
+    /// <summary>--pane-hwnds 自定义解析：逗号分隔，逐 token ParseHwnd；空段跳过，非法 token =
+    /// 解析错误（比旧双句柄严格——tray 派生链恒合法，手工误传早报因早收场）。数量与互斥
+    /// 校验在 ValidatePaneHwnds（要跨参数比较）。</summary>
+    private static List<long>? ParsePaneHwndTokens(ArgumentResult result)
+    {
+        if (result.Tokens.Count == 0) return null;
+        var hwnds = new List<long>();
+        foreach (string token in result.Tokens[0].Value.Split(','))
+        {
+            string t = token.Trim();
+            if (t.Length == 0) continue;
+            if (ParseHwnd(t) is { } h) hwnds.Add(h);
+            else result.AddError($"--pane-hwnds 含无效句柄 “{t}”");
+        }
+        return hwnds;
     }
 
     /// <summary>句柄字面量：十进制或 0x 十六进制；解析失败返回 null（宿主状态栏报因路径，

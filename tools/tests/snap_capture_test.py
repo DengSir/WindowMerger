@@ -268,7 +268,10 @@ def main() -> int:
         if d.get("ok"):
             check("S1_HWNDS", d.get("left") == ha and d.get("right") == hb,
                   f"left={d.get('left')}/{ha} right={d.get('right')}/{hb}")
+            check("S1_LAYOUT_LR", d.get("layout") == "LR" and d.get("panes") == [ha, hb],
+                  f"layout={d.get('layout')} panes={d.get('panes')}")
             check("S1_RATIO", abs(float(d.get("ratio", 0)) - 0.5) < 0.02, f"ratio={d.get('ratio')}")
+            check("S1_RATIO2", abs(float(d.get("ratio2", 0)) - 0.5) < 0.02, f"ratio2={d.get('ratio2')}")
             check("S1_MONITOR", d.get("monitor") == mon_index,
                   f"got={d.get('monitor')} expect={mon_index}")
 
@@ -330,6 +333,110 @@ def main() -> int:
 
         rig.kill_all()
 
+        # ---------- S2m 多布局接管 e2e（--pane-hwnds，LCR 三窗） ----------
+        w13 = (wa.Right - wa.Left) // 3
+        h1 = rig.spawn_target("WM_SNAP_C")
+        h2 = rig.spawn_target("WM_SNAP_D")
+        h3 = rig.spawn_target("WM_SNAP_E")
+        check("S2M_ALIGN_L", efb_align(h1, (wa.Left, wa.Top, wa.Left + w13, wa.Bottom)))
+        check("S2M_ALIGN_M", efb_align(h2, (wa.Left + w13, wa.Top, wa.Left + w13 * 2, wa.Bottom)))
+        check("S2M_ALIGN_R", efb_align(h3, (wa.Left + w13 * 2, wa.Top, wa.Right, wa.Bottom)))
+        # 吸附前矩形基线在最后一次对齐之后记录（释放应回这里，与 S1b 同款约定）
+        pres = [wm.get_window_rect(h) for h in (h1, h2, h3)]
+        mhost = rig.start_host(["merge", "--pane-hwnds", f"{h1},{h2},{h3}",
+                                "--profile", "snap-test"])
+        check("S2M_HOST_ALIVE", bool(mhost))
+        if mhost:
+            matt = wm.wait_until(lambda: wm.is_attached(h1) and wm.is_attached(h2)
+                                 and wm.is_attached(h3), 10000, 200)
+            check("S2M_ATTACHED", matt,
+                  f"corners={[wm.corner_pref(h) for h in (h1, h2, h3)]}")
+            mico = host_icon_size(mhost) if matt else None
+            sm = (wm.get_system_metrics(11), wm.get_system_metrics(12))
+            check("S2M_ICON_COMPOSITE", mico == sm, f"icon={mico} expect={sm}")
+            mr = wm.get_window_rect(mhost)
+            mrect_ok = bool(mr) and all(abs(x - y) <= 2 for x, y in
+                                        zip((mr.Left, mr.Top, mr.Right, mr.Bottom),
+                                            (wa.Left, wa.Top, wa.Right, wa.Bottom)))
+            check("S2M_HOST_RECT", mrect_ok,
+                  f"host=({mr.Left},{mr.Top},{mr.Right},{mr.Bottom})")
+            mpcfg = read_json_file(profile_config_path("snap-test"))
+            mhwnds = set(mpcfg.get("AttachedHwnds") or []) if mpcfg else set()
+            check("S2M_PROFILE_ORPHAN_RECORD", {h1, h2, h3} <= mhwnds, f"pcfg={mpcfg}")
+            mdcfg = read_json_file(wm.config_path())
+            mdhwnds = set(mdcfg.get("AttachedHwnds") or []) if mdcfg else set()
+            check("S2M_DEFAULT_CONFIG_UNTOUCHED", not (mdhwnds & {h1, h2, h3}),
+                  f"dcfg_hwnds={mdhwnds}")
+
+            wm.post_close(mhost)
+            check("S2M_HOST_CLOSED",
+                  wm.wait_until(lambda: not wm.pids_by_name("WindowMerger"), 8000, 200))
+            time.sleep(0.5)
+            for tag, h, pre in (("C", h1, pres[0]), ("D", h2, pres[1]), ("E", h3, pres[2])):
+                now = wm.get_window_rect(h)
+                back = bool(now) and all(abs(x - y) <= 2 for x, y in
+                                         zip((now.Left, now.Top, now.Right, now.Bottom),
+                                             (pre.Left, pre.Top, pre.Right, pre.Bottom)))
+                check(f"S2M_RESTORE_{tag}", back,
+                      f"now=({now.Left},{now.Top},{now.Right},{now.Bottom}) "
+                      f"pre=({pre.Left},{pre.Top},{pre.Right},{pre.Bottom})")
+            check("S2M_CORNERS_BACK", all(wm.corner_pref(h) == 0 for h in (h1, h2, h3)),
+                  f"corners={[wm.corner_pref(h) for h in (h1, h2, h3)]}")
+            mpcfg2 = read_json_file(profile_config_path("snap-test"))
+            check("S2M_PROFILE_RECORD_CLEARED",
+                  bool(mpcfg2) and not (mpcfg2.get("AttachedHwnds") or []), f"pcfg2={mpcfg2}")
+
+        rig.kill_all()
+
+        # ---------- S1c/S1d/S1e 多布局检测（LCR/LTR/Quad，skip_detect 时整体跳过） ----------
+        if skip_detect:
+            print("S1CDE_SKIP_FOREIGN_WINDOW: 检测场景跳过")
+        else:
+            # LCR 三竖列（三等分）：r1=1/3，r2=中格占余宽=0.5
+            h1 = rig.spawn_target("WM_SNAP_C")
+            h2 = rig.spawn_target("WM_SNAP_D")
+            h3 = rig.spawn_target("WM_SNAP_E")
+            efb_align(h1, (wa.Left, wa.Top, wa.Left + w13, wa.Bottom))
+            efb_align(h2, (wa.Left + w13, wa.Top, wa.Left + w13 * 2, wa.Bottom))
+            efb_align(h3, (wa.Left + w13 * 2, wa.Top, wa.Right, wa.Bottom))
+            d = rig.detect()
+            check("S1C_LCR", bool(d.get("ok")) and d.get("layout") == "LCR"
+                  and d.get("panes") == [h1, h2, h3]
+                  and abs(float(d.get("ratio", 0)) - 1 / 3) < 0.02
+                  and abs(float(d.get("ratio2", 0)) - 0.5) < 0.02, f"d={d}")
+            rig.kill_all()
+
+            # LTR 左全高 + 右列上下（右列对半）
+            mid_y = (wa.Top + wa.Bottom) // 2
+            h1 = rig.spawn_target("WM_SNAP_C")
+            h2 = rig.spawn_target("WM_SNAP_D")
+            h3 = rig.spawn_target("WM_SNAP_E")
+            efb_align(h1, (wa.Left, wa.Top, mid_x, wa.Bottom))
+            efb_align(h2, (mid_x, wa.Top, wa.Right, mid_y))
+            efb_align(h3, (mid_x, mid_y, wa.Right, wa.Bottom))
+            d = rig.detect()
+            check("S1D_LTR", bool(d.get("ok")) and d.get("layout") == "LTR"
+                  and d.get("panes") == [h1, h2, h3]
+                  and abs(float(d.get("ratio", 0)) - 0.5) < 0.02
+                  and abs(float(d.get("ratio2", 0)) - 0.5) < 0.02, f"d={d}")
+            rig.kill_all()
+
+            # Quad 四象限（十字居中）
+            h1 = rig.spawn_target("WM_SNAP_A")
+            h2 = rig.spawn_target("WM_SNAP_B")
+            h3 = rig.spawn_target("WM_SNAP_C")
+            h4 = rig.spawn_target("WM_SNAP_D")
+            efb_align(h1, (wa.Left, wa.Top, mid_x, mid_y))
+            efb_align(h2, (mid_x, wa.Top, wa.Right, mid_y))
+            efb_align(h3, (wa.Left, mid_y, mid_x, wa.Bottom))
+            efb_align(h4, (mid_x, mid_y, wa.Right, wa.Bottom))
+            d = rig.detect()
+            check("S1E_QUAD", bool(d.get("ok")) and d.get("layout") == "Quad"
+                  and d.get("panes") == [h1, h2, h3, h4]
+                  and abs(float(d.get("ratio", 0)) - 0.5) < 0.02
+                  and abs(float(d.get("ratio2", 0)) - 0.5) < 0.02, f"d={d}")
+            rig.kill_all()
+
         # ---------- S4 报因场景（检测依赖测试屏无大外来窗，否则标 SKIP） ----------
         if skip_detect:
             check("S4_SKIP_FOREIGN_WINDOW", True, "SKIP_FOREIGN_WINDOW")
@@ -360,16 +467,34 @@ def main() -> int:
             check("S4_STACKED", not d.get("ok") and d.get("reason") == "STACKED", f"d={d}")
             rig.kill_all()
 
-            # 三窗三等分
-            w13 = (wa.Right - wa.Left) // 3
+            # T 形（上大半 + 下二四分之一）：拼满工作区但形状不在支持清单 → UNSUPPORTED
+            # （子集 {上,左下} 等两窗组合 bbox=工作区且共享横边会点亮 stacked——按屏聚合
+            # unsupported 优先于 stacked，报因取更具体的 UNSUPPORTED）
+            mid_y = (wa.Top + wa.Bottom) // 2
             h1 = rig.spawn_target("WM_SNAP_C")
             h2 = rig.spawn_target("WM_SNAP_D")
             h3 = rig.spawn_target("WM_SNAP_E")
-            check("S4_ALIGN_C", efb_align(h1, (wa.Left, wa.Top, wa.Left + w13, wa.Bottom)))
-            check("S4_ALIGN_D", efb_align(h2, (wa.Left + w13, wa.Top, wa.Left + w13 * 2, wa.Bottom)))
-            check("S4_ALIGN_E", efb_align(h3, (wa.Left + w13 * 2, wa.Top, wa.Right, wa.Bottom)))
+            check("S4_ALIGN_T", efb_align(h1, (wa.Left, wa.Top, wa.Right, mid_y)))
+            check("S4_ALIGN_TBL", efb_align(h2, (wa.Left, mid_y, mid_x, wa.Bottom)))
+            check("S4_ALIGN_TBR", efb_align(h3, (mid_x, mid_y, wa.Right, wa.Bottom)))
             d = rig.detect()
-            check("S4_THIRDS_TOO_MANY", not d.get("ok") and d.get("reason") == "TOO_MANY:3", f"d={d}")
+            check("S4_TSHAPE_UNSUPPORTED",
+                  not d.get("ok") and d.get("reason") == "UNSUPPORTED", f"d={d}")
+            rig.kill_all()
+
+            # 五窗五等分竖列：超出支持格数（5 列里任意跨列子集也会点亮 unsupported，
+            # 按屏聚合 many 优先于 unsupported → 报 TOO_MANY:5）
+            w15 = (wa.Right - wa.Left) // 5
+            hs = []
+            for k, title in enumerate(("WM_SNAP_A", "WM_SNAP_B", "WM_SNAP_C",
+                                       "WM_SNAP_D", "WM_SNAP_E")):
+                h = rig.spawn_target(title)
+                right = wa.Left + w15 * (k + 1) if k < 4 else wa.Right
+                efb_align(h, (wa.Left + w15 * k, wa.Top, right, wa.Bottom))
+                hs.append(h)
+            d = rig.detect()
+            check("S4_FIVE_TOO_MANY",
+                  not d.get("ok") and d.get("reason") == "TOO_MANY:5", f"d={d}")
             rig.kill_all()
 
         # ---------- S5 无效句柄 ----------

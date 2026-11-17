@@ -12,6 +12,9 @@
   C9 --help → 用法 MessageBox + 退出码 0（GUI 无控制台，lib 帮助输出不可见，改弹框）
   C10 多余位置参数 `exe merge a b c d e`（>4 个）→ MessageBox + 退出码 1
   C11 4 位置参数合法 `exe merge a b c d`（格序填入，多格布局支持）→ 宿主正常出现
+  C12 --pane-hwnds 句柄数越界（1 个 / 5 个）→ MessageBox + 退出码 1
+  C13 --pane-hwnds 无效 token（非数字）→ MessageBox + 退出码 1
+  C14 --pane-hwnds 与 --left-hwnd 混用 → MessageBox + 退出码 1
 通知 3 秒 TTL：宿主窗口出现后 ~1.5s 内读状态栏（attach/notice 在 Loaded 即发生）。
 用法: uv run tools\\tests\\cli_args_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad/mspaint。
@@ -221,6 +224,32 @@ def main() -> int:
     if hm:
         wm.post_close(hm)
         time.sleep(1.5)
+
+    # ---------- C12 --pane-hwnds 句柄数越界（snap 多布局接管：2~4 个） ----------
+    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds", "123456",
+                                 "--profile", "snap-test")
+    check("C12_ONE_PANE_HWND_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
+          f"rc={p.returncode} dialog={shown}")
+    ensure_closed(p)
+    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds",
+                                 "1,2,3,4,5", "--profile", "snap-test")
+    check("C12B_FIVE_PANE_HWND_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
+          f"rc={p.returncode} dialog={shown}")
+    ensure_closed(p)
+
+    # ---------- C13 --pane-hwnds 无效 token（自定义解析器报错，lib 错误路径） ----------
+    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds", "abc,def",
+                                 "--profile", "snap-test")
+    check("C13_BAD_TOKEN_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
+          f"rc={p.returncode} dialog={shown}")
+    ensure_closed(p)
+
+    # ---------- C14 --pane-hwnds 与 --left-hwnd 混用（两套句柄通路互斥） ----------
+    p, shown = start_dialog_case(a.exe, "merge", "--pane-hwnds", "111,222",
+                                 "--left-hwnd", "333", "--profile", "snap-test")
+    check("C14_MIXED_HWND_PATHS_RC1", shown and p.returncode == 1 and not wm.host_hwnd(),
+          f"rc={p.returncode} dialog={shown}")
+    ensure_closed(p)
 
     wm.remove_config()
     print(f"FAILURES {'; '.join(failures) if failures else 'NONE'}")

@@ -137,7 +137,8 @@ public sealed partial class HostWindow : Window
     public HostWindow(AppConfig config, StartupOptions? opts = null)
     {
         if (Enum.TryParse<AppThemeMode>(config.Theme, true, out var mode)) AppTheme.Mode = mode;
-        _layout = PaneLayoutDef.FromConfig(config.Layout) ?? PaneLayoutDef.LeftRight;
+        // snap 接管计划优先：布局/双比例 = 检测形状匹配产物（接管 profile 持久化值只作回退）
+        _layout = opts?.Snap?.Layout ?? PaneLayoutDef.FromConfig(config.Layout) ?? PaneLayoutDef.LeftRight;
         _ratio = Math.Clamp(config.Ratio, MinRatio, MaxRatio);
         _ratio2 = Math.Clamp(config.Ratio2, MinRatio, MaxRatio);
         _panes = new AttachedChild?[_layout.PaneCount];
@@ -151,11 +152,11 @@ public sealed partial class HostWindow : Window
         if (opts?.Snap is { } snap)
         {
             // snap 接管：宿主直接最大化（用户确认的最终行为），最大化矩形 = 布局所在屏
-            // 工作区（两窗拼满工作区，接管必须罩住它们）。正常态几何**不取布局并集**——
+            // 工作区（各窗拼满工作区，接管必须罩住它们）。正常态几何**不取布局并集**——
             // 并集 ≈ 工作区会让"取消最大化"落回同样大的矩形（还原像没生效，用户实测
             // 质疑）；改取 profile 上次几何的宽高（还原后用户调过的大小），无/垃圾值
-            // → 960×600 默认，居中于布局所在屏。比例仍 = 左窗宽占比（分隔条随布局），
-            // 与宿主大小无关。
+            // → 960×600 默认，居中于布局所在屏。布局与双比例 = 检测形状匹配产物
+            // （legacy 双句柄路径布局恒 LR、ratio = 左窗宽占比），与宿主大小无关。
             nint hMon = Native.MonitorFromPoint(
                 new Native.POINT { X = (int)(snap.Rect.X + snap.Rect.W / 2), Y = (int)(snap.Rect.Y + snap.Rect.H / 2) },
                 Native.MONITOR_DEFAULTTONEAREST);
@@ -178,6 +179,7 @@ public sealed partial class HostWindow : Window
             int y = wa.Top + Math.Max(0, ((wa.Bottom - wa.Top) - (int)h) / 2);
             _pendingPlacement = (x, y, w, h, true);
             _ratio = Math.Clamp(snap.Ratio, MinRatio, MaxRatio);
+            _ratio2 = Math.Clamp(snap.Ratio2, MinRatio, MaxRatio);
         }
         else
         {

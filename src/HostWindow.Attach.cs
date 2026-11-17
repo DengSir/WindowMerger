@@ -26,7 +26,8 @@ public sealed partial class HostWindow : Window
             || (string.IsNullOrWhiteSpace(opts.Left) && string.IsNullOrWhiteSpace(opts.Right)
                 && string.IsNullOrWhiteSpace(opts.Pane2) && string.IsNullOrWhiteSpace(opts.Pane3)
                 && string.IsNullOrWhiteSpace(opts.LeftExe) && string.IsNullOrWhiteSpace(opts.RightExe)
-                && opts.LeftHwnd is null && opts.RightHwnd is null))
+                && opts.LeftHwnd is null && opts.RightHwnd is null
+                && (opts.PaneHwnds is null || opts.PaneHwnds.Count == 0)))
         {
             return;
         }
@@ -36,6 +37,14 @@ public sealed partial class HostWindow : Window
             // 直连句柄先吸（无效句柄报因跳过，不做名字解析回退）
             if (opts.LeftHwnd is long lh) AttachHwndTarget(0, lh);
             if (opts.RightHwnd is long rh) AttachHwndTarget(1, rh);
+
+            // pane 序句柄（--pane-hwnds，snap 多布局接管）：句柄 i → 格 i（检测输出的
+            // 布局格序）；句柄数与格数不符由 TryAttach 的"超出当前布局"守卫逐格报因跳过
+            if (opts.PaneHwnds is { Count: > 0 } paneHwnds)
+            {
+                for (int i = 0; i < paneHwnds.Count; i++)
+                    AttachHwndTarget(i, paneHwnds[i]);
+            }
 
             // 目标按布局格序填入（--left/--right = 前 2 格的命名别名；第 3/4 格仅位置参数）
             var targets = new[]

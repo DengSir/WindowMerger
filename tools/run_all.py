@@ -43,7 +43,7 @@ TESTS = [
     ("exclude_self_test",   TOOLS / "tests" / "exclude_self_test.py",         90),
     ("shortcut_create_test", TOOLS / "tests" / "shortcut_create_test.py",     90),
     ("launch_attach_test",  TOOLS / "tests" / "launch_attach_test.py",        90),
-    ("snap_capture_test",   TOOLS / "tests" / "snap_capture_test.py",        180),
+    ("snap_capture_test",   TOOLS / "tests" / "snap_capture_test.py",        300),
     ("noargs_tray_test",    TOOLS / "tests" / "noargs_tray_test.py",         150),
     ("orphan_e2e_test",     TOOLS / "tests" / "orphan_e2e_test.py",           90),
     ("update_e2e_test",     TOOLS / "tests" / "update_e2e_test.py",          120),

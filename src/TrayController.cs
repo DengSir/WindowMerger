@@ -132,16 +132,16 @@ internal sealed class TrayController
             Balloon("未捕捉 snap 布局", "无法定位程序路径");
             return;
         }
-        string args = $"merge --left-hwnd {group.Windows[0].Hwnd.ToInt64()} " +
-                      $"--right-hwnd {group.Windows[1].Hwnd.ToInt64()} " +
-                      $"--profile snap-{group.MonitorIndex}";
+        string args = "merge --pane-hwnds " +
+                      string.Join(",", group.Windows.Select(w => w.Hwnd.ToInt64())) +
+                      $" --profile snap-{group.MonitorIndex}";
         try
         {
             var proc = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false })
                 ?? throw new InvalidOperationException("Process.Start 返回 null");
             _captures[group.MonitorIndex] = proc;
             Balloon("已接管 snap 布局",
-                $"屏 {group.MonitorIndex + 1}：2 个窗口已合并（关闭合并窗口即释放回原位）");
+                $"屏 {group.MonitorIndex + 1}：{group.Windows.Count} 个窗口已合并（关闭合并窗口即释放回原位）");
         }
         catch (Exception ex)
         {

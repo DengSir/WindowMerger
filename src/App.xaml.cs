@@ -76,15 +76,22 @@ public partial class App : Application
         ConfigStore.Configure(opts.Profile);
         var config = ConfigStore.Load();
 
-        // snap 接管：直连句柄有效 → 宿主落位 = 并集矩形、比例 = 左窗宽占比（现场实测，
-        // 不读 config 几何——那是常规实例的持久化值，接管几何由当前布局决定）
-        if (opts.LeftHwnd is long lh && opts.RightHwnd is long rh
+        // snap 接管：直连句柄有效 → 宿主落位 = 并集矩形、布局/双比例现场实测（不读 config
+        // 几何——那是常规实例的持久化值，接管几何由当前布局决定）。--pane-hwnds =
+        // pane 序句柄走严格形状匹配（四种布局）；--left-hwnd/--right-hwnd = 旧两窗 LR 语义
+        if (opts.PaneHwnds is { Count: >= 2 } paneHwnds
+            && paneHwnds.All(h => Native.IsWindow(new IntPtr(h))))
+        {
+            opts.Snap = SnapLayoutDetector.SnapPlanFor(paneHwnds);
+        }
+        else if (opts.LeftHwnd is long lh && opts.RightHwnd is long rh
             && Native.IsWindow(new IntPtr(lh)) && Native.IsWindow(new IntPtr(rh)))
         {
             opts.Snap = SnapLayoutDetector.SnapRectFor(new IntPtr(lh), new IntPtr(rh));
         }
         // 接管实例不检查更新：多实例并发换装会互抢 .old，更新走用户手动启动的主实例
-        if (opts.LeftHwnd is not null || opts.RightHwnd is not null) config.CheckUpdates = false;
+        if (opts.PaneHwnds is not null || opts.LeftHwnd is not null || opts.RightHwnd is not null)
+            config.CheckUpdates = false;
 
         // merge 显式吸附：窗口模式（OnMainWindowClose，关窗即退出——旧默认宿主语义）
         if (opts.Mode == LaunchMode.Merge)
@@ -227,9 +234,12 @@ public partial class App : Application
             {
                 ok = true,
                 monitor = g.MonitorIndex,
+                layout = g.Layout.ConfigName,
                 left = g.Windows[0].Hwnd.ToInt64(),
                 right = g.Windows[1].Hwnd.ToInt64(),
-                ratio = Math.Round(g.LeftFraction, 4),
+                panes = g.Windows.Select(w => w.Hwnd.ToInt64()).ToArray(),
+                ratio = Math.Round(g.Ratio, 4),
+                ratio2 = Math.Round(g.Ratio2, 4),
             }
             : new { ok = false, reason = r.ReasonCode, detail = r.Reason };
         Console.WriteLine(JsonSerializer.Serialize(payload));
