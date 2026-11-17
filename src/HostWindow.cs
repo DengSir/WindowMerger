@@ -651,7 +651,7 @@ public sealed partial class HostWindow : Window
         _lastOrigin = PointToScreen(new Point(0, 0));
         _drag = new DragAttach(this);
         _timer.Start();
-        UpdateHostIcon(); // 初始即走统一图标管线（此刻 _panes 必空 → 内部落 SetFallbackIcon）
+        UpdateHostIcon("OnSourceInitialized"); // 初始即走统一图标管线（此刻 _panes 必空 → 内部落 SetFallbackIcon）
         UpdateStatus(); // 首帧就显示空格占位提示（不等 250ms 维护定时器）
         TracePoint("OnSourceInitialized exit");
     }
@@ -1005,7 +1005,7 @@ public sealed partial class HostWindow : Window
         UpdatePaneVisuals();
         ApplyLayout();
         UpdateStatus();
-        UpdateHostIcon();
+        UpdateHostIcon("SwitchLayout");
         SaveConfig();
     }
 
@@ -1124,7 +1124,7 @@ public sealed partial class HostWindow : Window
             }
         }
         UpdateStatus();
-        if (childLost) { UpdateHostIcon(); }
+        if (childLost) { UpdateHostIcon("childLost"); }
 
         if (WindowState == WindowState.Minimized) return; // 最小化时不布局；最大化也要自愈
         bool dragging = _drag is { IsBusy: true };
@@ -1364,7 +1364,8 @@ public sealed partial class HostWindow : Window
         return rtb;
     }
 
-    private void UpdateHostIcon()
+    /// <summary>宿主图标 = 子窗口图标按布局象限槽位合成（caller 供 trace 定位调用方）。</summary>
+    private void UpdateHostIcon(string caller = "?")
     {
         // 各格图标素材（取不到的格用应用图标占位——一眼能看出哪格空着）
         var sources = new BitmapSource?[_panes.Length];
@@ -1372,7 +1373,7 @@ public sealed partial class HostWindow : Window
         {
             sources[i] = TryGetIconSource(_panes[i]?.Hwnd ?? IntPtr.Zero);
         }
-        TracePoint($"UpdateHostIcon: panes={_panes.Length} 素材={sources.Count(s => s != null)} " +
+        TracePoint($"UpdateHostIcon[{caller}]: panes={_panes.Length} 素材={sources.Count(s => s != null)} " +
                    $"hwnds={string.Join("/", _panes.Select(c => c?.Hwnd.ToInt64() ?? 0))}");
         if (sources.All(s => s == null))
         {
@@ -1675,7 +1676,7 @@ public sealed partial class HostWindow : Window
         ChildAt(pane)?.RestoreHidden();
         if (pane >= 0 && pane < _panes.Length) _panes[pane] = null;
         ShowNotice($"{PaneName(pane)}: 窗口已自行隐藏（可能已关闭到托盘），已自动释放");
-        UpdateHostIcon();
+        UpdateHostIcon("ReleaseHiddenSide");
     }
 
     private static string PaneTitle(IntPtr hwnd)

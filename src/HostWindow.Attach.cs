@@ -95,7 +95,8 @@ public sealed partial class HostWindow : Window
             // 任务栏按钮图标加固：按钮由 shell 在窗口可见后才异步创建，Loaded 帧内连续三次
             // WM_SETICON（fallback→占位拼图→多窗拼图）可能撞上按钮创建竞态被吞——
             // 空闲优先级再断言一次最终态（幂等重设；运行中路径的 UpdateHostIcon 不走这里）
-            _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(UpdateHostIcon));
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
+                new Action(() => UpdateHostIcon("IdleReassert")));
         }
         catch (Exception ex)
         {
@@ -282,14 +283,23 @@ public sealed partial class HostWindow : Window
         int from = IndexOfChildHwnd(hwnd); // ≠ pane（hwnd != cur 已排除），-1 = 新窗口
         if (from >= 0)
         {
-            // 拖到其他格 = 换格（吸附态整体搬家）：把被拖子窗口挂到目标格、原格清空。
-            // （2026-11 旧两格版曾因赋值方向反了丢引用 → 孤儿停在松手位置，泛化时保持
-            // "先清原格再挂目标格"的顺序）
+            // 拖到其他格 = 换格（吸附态整体搬家）：把**被拖窗口的吸附态**挂到目标格、原格
+            // 清空。（2026-11 旧两格版曾因赋值方向反了丢引用 → 孤儿停在松手位置；多布局
+            // 泛化时又取错变量——child 是目标格原占用者（空格=null），挂它 = 被拖窗对象
+            // 丢失、窗孤儿式停在松手位置。必须从原格取被拖窗自己的吸附态）
+            var dragged = _panes[from];
             TracePoint($"TryAttach pane={pane} hwnd={hwnd.ToInt64():X} 换格 from={from}");
             _panes[from] = null;
-            _panes[pane] = child;
-            bool placed = ApplyLayoutTo(child, pane);
-            TracePoint($"TryAttach 换格 placed={placed}");
+            _panes[pane] = dragged;
+            if (!ApplyLayoutTo(dragged, pane))
+            {
+                // MOVESIZEEND hook 回调期窗口移动循环尚在收尾，SetWindowPos 瞬态被拒
+                // （本地实测 100% 复现）：延迟一拍重试一次；250ms 维护定时器的 ApplyLayout
+                // 仍按 _panes 持续对账兜底
+                TracePoint("TryAttach 换格 placed=False，延迟重试");
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+                    () => { if (ChildAt(pane) == dragged) ApplyLayoutTo(dragged, pane); });
+            }
             UpdateStatus();
             return;
         }
@@ -308,7 +318,7 @@ public sealed partial class HostWindow : Window
         }
         RaiseChildrenBelow();
         UpdateStatus();
-        UpdateHostIcon();
+        UpdateHostIcon("TryAttach");
         SaveConfig(); // 吸附即落盘：宿主被强杀时孤儿清理才有 HWND 可循
     }
 
@@ -321,7 +331,7 @@ public sealed partial class HostWindow : Window
         }
         child.Undock();
         UpdateStatus();
-        UpdateHostIcon();
+        UpdateHostIcon("DetachStateOnly");
     }
 
     private void ReleaseAll()
@@ -332,7 +342,7 @@ public sealed partial class HostWindow : Window
         }
         Array.Clear(_panes);
         UpdateStatus();
-        UpdateHostIcon();
+        UpdateHostIcon("ReleaseAll");
     }
 
     private void Pick(int pane)

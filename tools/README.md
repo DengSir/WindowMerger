@@ -52,7 +52,7 @@
 | `double_click_max_test.py` | 双击顶条最大化/再双击还原（新增 2026-11；最大化后顶条坐标须按当前矩形重算） |
 | `divider_resize_test.py` | 拖分隔条调比例（子窗口矩形跟随）+ 双击复位 0.5 + 关闭后 config Ratio 校验（新增 2026-11） |
 | `minimize_linkage_test.py` | 最小化联动：宿主最小化子窗口移出屏外 -32000、还原拉回格子（新增 2026-11） |
-| `drag_switch_side_test.py` | 拖到另一侧换侧（新增 2026-11；**挖出并修复 src 换侧分支引用反向 + TryAttach 拒收 toolwindow 两个真 bug**） |
+| `drag_switch_side_test.py` | 拖到另一侧换侧（新增 2026-11；**挖出并修复 src 换侧分支引用反向 + TryAttach 拒收 toolwindow 两个真 bug**；2026-11-17 多布局泛化取错变量再挖出换格丢引用真 bug——`_panes[pane]=ChildAt(pane)` 挂 null 丢被拖窗对象，DIAG/WM_TRACE 取证定位后修复） |
 | `ghost_cycle_test.py` | 吸附/释放循环的幽灵任务栏按钮检查（UIA + 窗口枚举，含死应用陈旧按钮判定）（GhostCycleTest） |
 | `alt_tab_z_repro.py` | Alt+Tab 切回宿主后子窗口 z 序自愈回归（z 链探针，真实 Alt+Tab 注入）（AltTabZRepro） |
 | `topbar_state_test.py` | 顶条状态回归：最大化矩形=工作区（WM_GETMINMAXINFO）、最大化顶条原地单击不还原、空吸附快捷方式通知、吸附后布局按钮存在+左格提示折叠（IsOffscreen）+逐格状态栏（TopbarStateTest） |
