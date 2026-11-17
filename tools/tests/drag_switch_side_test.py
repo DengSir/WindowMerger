@@ -104,6 +104,15 @@ def main() -> int:
     post_r = wm.proc_name_of(wm.window_from_point(right_cx, mid_y)).lower()
     still_tool = wm.is_attached(th)
     print(f"POST LEFT_HIT={post_l} RIGHT_HIT={post_r} tool={still_tool}")
+    if not (swapped and post_r == "python"):
+        # 失败取证：靶窗实时矩形（对照格子矩形判定窗停哪）、宿主-靶窗 z 序相邻性、
+        # 光标位置——定位"换侧后窗到底在哪"（半路停/吸附未落格/z 序掉层三种形状 rect 一眼可辨）
+        cx, cy = wm.get_cursor_pos()
+        nxt = wm.get_window(hm)  # 宿主正下方第一个窗口（正常应 = 靶窗）
+        nxt_proc = wm.proc_name_of(nxt) if nxt else "?"
+        print(f"DIAG rect={wm.get_window_rect(th)} cursor=({cx},{cy}) "
+              f"host_below={nxt_proc} panes L=({hx},{hy},{hx+pane_w},{hy+hh}) "
+              f"R=({hx+pane_w},{hy},{hx+hw},{hy+hh})")
     wm.set_topmost(hm, False)
 
     wm.graceful_close_by_name("WindowMerger")
