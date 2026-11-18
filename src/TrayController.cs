@@ -78,6 +78,7 @@ internal sealed class TrayController
         };
         _icon.ContextMenuStrip = BuildMenu();
         _icon.MouseDoubleClick += (_, _) => Capture();
+        EnsureToastIdentity();
 
         bool hotkeyOk = Native.RegisterHotKey(_messageWindow.Handle, HotkeyId, HotkeyModifiers, HotkeyVirtualKey);
         Balloon("WindowMerger 托盘已启动",
@@ -283,9 +284,44 @@ internal sealed class TrayController
     private void Balloon(string title, string text)
     {
         if (_icon is null) return;
+        // 默认 ToolTipIcon.None = 通知内容区无图标（用户实测缺失）；Info = ⓘ 信息图
+        _icon.BalloonTipIcon = WF.ToolTipIcon.Info;
         _icon.BalloonTipTitle = title;
         _icon.BalloonTipText = text;
         _icon.ShowBalloonTip(4000);
+    }
+
+    /// <summary>通知身份（2026-11-19）：便携 exe 无安装快捷方式，Win11 把 balloon 转 toast 后
+    /// 按 AUMID 解析应用名/头像——解析不到 = toast 头像空、应用名显示裸 AUMID（用户实测）。
+    /// 写 HKCU\Software\Classes\AppUserModelId\&lt;AUMID&gt; 的 DisplayName + IconUri（WinRT toast
+    /// 库对非打包应用的同款注册机制）；IconUri 指向内嵌 ico 落盘的缓存文件，每次启动重写，
+    /// exe 移动/升级后自愈。失败只影响 toast 观感，按设计降级。</summary>
+    private static void EnsureToastIdentity()
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WindowMerger");
+            Directory.CreateDirectory(dir);
+            var icoPath = Path.Combine(dir, "WindowMerger.ico");
+            var rs = System.Windows.Application.GetResourceStream(
+                new Uri("pack://application:,,,/assets/WindowMerger.ico"));
+            if (rs != null)
+            {
+                using var src = rs.Stream;
+                using var file = File.Create(icoPath);
+                src.CopyTo(file);
+            }
+            using var key = Registry.CurrentUser.CreateSubKey(
+                $@"Software\Classes\AppUserModelId\{App.AppUserModelId}");
+            key.SetValue("DisplayName", "WindowMerger");
+            if (File.Exists(icoPath))
+                key.SetValue("IconUri", new Uri(icoPath).AbsoluteUri);
+        }
+        catch
+        {
+            // 通知身份缺失只影响 toast 观感，按设计降级
+        }
     }
 
     private static Icon? LoadTrayIcon()

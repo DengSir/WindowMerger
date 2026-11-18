@@ -10,7 +10,7 @@ public partial class App : Application
     /// 本程序与生成的快捷方式都不写 System.AppUserModel.ID，AUMID 唯一来源就是这里，
     /// 快捷方式从此只按目标路径参与 pin/跳转列表，不再接管任务栏图标。
     /// </summary>
-    private const string AppUserModelId = "DengSir.WindowMerger";
+    internal const string AppUserModelId = "DengSir.WindowMerger";
 
     private TrayController? _tray;                  // 组合模式（无参启动）持有的托盘；merge/纯 tray/测试屏蔽下为 null
     private readonly List<HostWindow> _hosts = new(); // 本进程全部存活宿主（平级无主次；关窗常驻/唤起开新扇/换装清理用）
