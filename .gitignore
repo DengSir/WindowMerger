@@ -14,6 +14,9 @@ obj/
 # 运行期杂项
 *.log
 
+# WER 崩溃转储（CI test.yml 配置 LocalDumps 落 workspace dumps/）
+dumps/
+
 # Python 工具脚本
 __pycache__/
 .venv/

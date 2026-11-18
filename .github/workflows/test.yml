@@ -58,9 +58,44 @@ jobs:
         shell: bash
         run: dotnet build -c Release
 
+      - name: Configure WER crash dumps for WindowMerger.exe
+        # 宿主进程未处理异常崩溃时 WER 落全量 dump 到 workspace dumps/（失败时上传产物，
+        # 配同次构建的 exe+pdb 才能离线分析——reveal-timer 关窗竞态崩溃那类问题的 CI 取证
+        # 手段）。runner 有管理员权限，HKLM 可写；LocalDumps 在崩溃瞬间读取，无需重启服务。
+        # DumpType=2 全量 dump：.NET 崩溃 mini dump（1）常缺堆、SOS 看不了状态。
+        shell: pwsh
+        run: |
+          $dumpDir = "$env:GITHUB_WORKSPACE\dumps"
+          New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+          $wer = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\WindowMerger"
+          New-Item -Force -Path $wer | Out-Null
+          Set-ItemProperty -Path $wer -Name DumpFolder -Value $dumpDir -Type ExpandString
+          Set-ItemProperty -Path $wer -Name DumpType -Value 2 -Type DWord
+          Set-ItemProperty -Path $wer -Name DumpCount -Value 5 -Type DWord
+
       - name: Run full regression suite
         shell: bash
         run: uv run --frozen tools/run_all.py
+
+      - name: Upload test build (exe + pdb + runtime pieces) and crash dumps
+        # 失败才上传（成功轮没人下载 exe/pdb）：五件套 + dumps/*.dmp 同包同 run——
+        # dump 分析的符号/二进制与 dump 天然同 run 精确匹配。
+        # exe 单独跑不起来（框架依赖 apphost 要 dll/deps/runtimeconfig 成套）；
+        # **托管代码在 WindowMerger.dll**（exe 只是 apphost 引导器），pdb 与本 run 构建
+        # 精确匹配；release.yml publish 的 single-file exe 是另一份二进制、与此无配对关系。
+        # dumps/*.dmp 只在宿主真实崩溃（未处理异常）时存在，无崩溃的失败轮为空不占体积
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-build
+          path: |
+            bin/Release/net10.0-windows/WindowMerger.exe
+            bin/Release/net10.0-windows/WindowMerger.dll
+            bin/Release/net10.0-windows/WindowMerger.pdb
+            bin/Release/net10.0-windows/WindowMerger.deps.json
+            bin/Release/net10.0-windows/WindowMerger.runtimeconfig.json
+            dumps/*.dmp
+          if-no-files-found: ignore
 
       - name: Upload failure screenshots (tests save wm_*.png to user temp)
         if: always()
