@@ -837,10 +837,12 @@ public sealed partial class HostWindow : Window
 
             var border = new Border
             {
-                BorderThickness = new Thickness(2),
+                BorderThickness = new Thickness(1),
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(border, $"_paneBorder{i}");
-            border.SetResourceReference(Border.BorderBrushProperty, "ThemeBorderBrush");
+            // 窗格包边 = ThemeBar 同色隐形 1px：盖住子窗自带透明边列（Electron 类 EFB 边列
+            // 不渲染，ZCode 实测）与窗格矩形四缘——吸附区观感无边（用户定），画对比色会勾出格子框
+            border.SetResourceReference(Border.BorderBrushProperty, "ThemeBarBrush");
             border.Child = inner;
 
             _paneHost.Children.Add(border);
@@ -1090,11 +1092,11 @@ public sealed partial class HostWindow : Window
     {
         bool overlay = BarOverlayMode;
         _content.Margin = overlay ? default : new Thickness(0, _topBarH, 0, 0);
-        // 浮层态画四边 2 DIP 全框（=正常态外框的同色同宽翻版，观感一致：框跟着顶条浮起来）；
-        // 正常态不画——外框已经包着顶条，再画会叠双线。框画在 _topBarFrame（_topBar 外面），
-        // _topBar.Height 恒 28 不动：底色带视觉高度与正常态一致，边框不侵占顶条本体
-        const double barFrame = 2;
-        _topBarFrame.BorderThickness = overlay ? new Thickness(barFrame) : default;
+        // 浮层态画上/左/右 1 DIP 框（底边由 _topBar 自带底线提供，常驻；正常态无框——顶条
+        // 底边线即标题栏底边）。框画在 _topBarFrame（_topBar 外面），_topBar.Height 恒 29
+        // 不动：底色带视觉高度与正常态一致，边框不侵占顶条本体
+        const double barFrame = 1;
+        _topBarFrame.BorderThickness = overlay ? new Thickness(barFrame, barFrame, barFrame, 0) : default;
         if (overlay)
         {
             // 点最大化按钮时鼠标就在带内 → 先显示。此刻 _barHidden 恒 false

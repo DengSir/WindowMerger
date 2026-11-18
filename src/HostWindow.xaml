@@ -15,8 +15,8 @@
          边缘列半透明，隔着子窗隐形边透出后面的窗口 = 分隔条左右各一条"透明缝"；
          250ms 维护定时器不触发 WPF 重绘无法自愈，拖分隔条强制重布局才恢复（用户实测）。
          吸附取整后与子窗放置公式 Round(PointToScreen) 同一舍入，缝隙类整体消除。
-         另修复同类旧账：1 DIP 边框在 150%=1.5px 的 AA 发丝线（AGENTS 已记录，边框因此
-         加宽到 2 DIP，但位置分数时 2 DIP 仍会出半列）。 -->
+         旧账：1 DIP 边框在 150%=1.5px 的 AA 发丝线（AGENTS 已记录）——现按用户定稿回归
+         1 DIP（96 DPI 精确整像素；150% 屏发丝线风险仍在 AGENTS）。 -->
 
 
     <Window.Resources>
@@ -238,7 +238,9 @@
     </WindowChrome.WindowChrome>
 
     <!-- 主题刷色由 ApplyTheme 换上面的资源完成（XAML 值仅深色主题初值） -->
-    <Border x:Name="_outer" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="2">
+    <!-- 外框 1px 保留（用户定），吸附区内部无边：窗格包边 = ThemeBar 同色隐形 1px
+         （BuildPaneVisuals），只负责盖住子窗自带透明边列，不勾格子框 -->
+    <Border x:Name="_outer" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
         <!-- 单格叠层：_content 铺满整窗，_topBar 浮在其上（树序后者渲染在上）。
              非最大化由 code-behind 给 _content 上边距=_topBarH（顶条占位，视觉同旧 DockPanel）；
              最大化走自动隐藏浮层：TopInset=0 子窗占满全高，顶条移入显示时盖在子窗上方 -->
@@ -251,16 +253,18 @@
             </Grid>
             <!-- 顶条浮层：树序在 _content 之后 = 渲染在其上。最大化自动隐藏（移入显示，
                  _barSlide 滑入滑出，子窗口内容从顶条下面透出）；非最大化恒显示。
-                 外框 Border 常驻包裹、厚度由 ApplyTopBarMode 切换：正常态 0（外观由宿主
-                 _outer 外框负责）；浮层态 2 DIP 四边框——框画在 _topBar 外面，
-                 _topBar.Height 恒 28，底色带视觉高度与正常态一致 -->
+                 _topBarFrame 厚度由 ApplyTopBarMode 切换：正常态 0；浮层态 1 DIP 上/左/右
+                 三边框（底边由 _topBar 自带底线提供，常驻）——框画在 _topBar 外面，
+                 _topBar.Height 恒 29（28 底色带 + 1px 底边线），几何从 Height 自动跟随 -->
             <Border x:Name="_topBarFrame" VerticalAlignment="Top"
                     BorderBrush="{DynamicResource ThemeBorderBrush}">
                 <Border.RenderTransform>
                     <TranslateTransform x:Name="_barSlide" Y="0" />
                 </Border.RenderTransform>
-                <Border x:Name="_topBar" Height="28"
-                        Background="{DynamicResource ThemeBarBrush}">
+                <Border x:Name="_topBar" Height="29"
+                        Background="{DynamicResource ThemeBarBrush}"
+                        BorderThickness="0,0,0,1"
+                        BorderBrush="{DynamicResource ThemeBorderBrush}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />

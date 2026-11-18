@@ -138,7 +138,7 @@ internal sealed class AttachedChild
 
     /// <summary>
     /// 放进格子：外扩自身隐形边后插入宿主正下方（NOACTIVATE）。
-    /// 已就位（±1px）时跳过 SetWindowPos。返回是否就位。
+    /// 已就位（精确相等）时跳过 SetWindowPos。返回是否就位。
     /// </summary>
     public bool PlaceInPane(int x, int y, int w, int h)
     {
@@ -152,9 +152,14 @@ internal sealed class AttachedChild
         y -= m.Top;
         w += m.Left + m.Right;
         h += m.Top + m.Bottom;
+        // 就位判定必须精确相等（曾用 ±1px 容差）：1px 边框下容差会把子窗留在偏离格子 1px
+        // 的位置——拖分隔条收尾目标常只动 ≤1px，子窗停在旧位；自带透明边列的子窗（Electron
+        // 类 EFB 最左列不渲染，ZCode 实测）该列落在外框边线外侧 1px，分隔条右侧露出 1px
+        // 桌面（漏底）。2px 边框时代边线带恰好盖住这 1px 漂移，收窄 1px 后暴露。精确放置后
+        // 透明边列与边线同列、被边线盖住。OS 钳制类（窗格小于应用最小宽）会每维护周期重发
+        // 一次 SetWindowPos，OS 再次钳制无视觉变化，可接受。
         if (Native.GetWindowRect(Hwnd, out var r)
-            && Math.Abs(r.Left - x) <= 1 && Math.Abs(r.Top - y) <= 1
-            && Math.Abs(r.Width - w) <= 1 && Math.Abs(r.Height - h) <= 1)
+            && r.Left == x && r.Top == y && r.Width == w && r.Height == h)
         {
             return true; // 已就位，避免无谓的 SetWindowPos
         }
