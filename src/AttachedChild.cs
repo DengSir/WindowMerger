@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 
 namespace WindowMerger;
@@ -31,15 +30,14 @@ internal sealed class AttachedChild
     /// 隐形边不在此捕获——见 PlaceInPane，每次放置现场实测。</summary>
     public static AttachedChild Attach(IntPtr host, IntPtr hwnd)
     {
-        Native.GetWindowThreadProcessId(hwnd, out var pid);
+        var pid = Native.GetPid(hwnd);
         var child = new AttachedChild(host, hwnd, pid);
         if (Native.IsIconic(hwnd))
         {
-            var pl = new Native.WINDOWPLACEMENT { length = Marshal.SizeOf<Native.WINDOWPLACEMENT>() };
-            if (Native.GetWindowPlacement(hwnd, ref pl)) child.PreAttachRect = pl.rcNormalPosition;
-            else if (Native.GetWindowRect(hwnd, out var r)) child.PreAttachRect = r;
+            if (Native.TryGetRestoreRect(hwnd, out var restoreRect)) child.PreAttachRect = restoreRect;
+            else if (Native.TryGetWindowRect(hwnd, out var r)) child.PreAttachRect = r;
         }
-        else if (Native.GetWindowRect(hwnd, out var r2))
+        else if (Native.TryGetWindowRect(hwnd, out var r2))
         {
             child.PreAttachRect = r2;
         }
@@ -52,18 +50,21 @@ internal sealed class AttachedChild
     /// <summary>存活且处于可放置状态（非最小化/非最大化）。</summary>
     public bool CanPlace => IsAlive && !Native.IsIconic(Hwnd) && !Native.IsZoomed(Hwnd);
 
-    /// <summary>吸附前置：直角化 + iconic 还原 + 任务栏/Alt+Tab 隐藏（DeleteTab，不改窗口样式）。</summary>
+    /// <summary>吸附前置：直角化 + 摘可缩放边框（禁用户拖边改大小，格子尺寸由宿主管理）+
+    /// iconic 还原 + 任务栏/Alt+Tab 隐藏（DeleteTab）。</summary>
     public void PrepareForDock()
     {
         Native.SetSquareCorners(Hwnd, square: true);
-        if (Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
+        Native.SetResizable(Hwnd, resizable: false);
+        Native.RestoreIfMinimized(Hwnd);
         Native.SetTaskbarTab(Hwnd, show: false);
     }
 
-    /// <summary>解除吸附外观：圆角还原 + 任务栏收录回来（不动几何）。</summary>
+    /// <summary>解除吸附外观：圆角还原 + 可缩放边框还原 + 任务栏收录回来（不动几何）。</summary>
     public void Undock()
     {
         Native.SetSquareCorners(Hwnd, square: false);
+        Native.SetResizable(Hwnd, resizable: true);
         Native.SetTaskbarTab(Hwnd, show: true);
     }
 
@@ -87,21 +88,15 @@ internal sealed class AttachedChild
         Undock();
         if (!Native.IsWindow(Hwnd)) return;
         var r = PreAttachRect;
-        if (allowShow && Native.IsIconic(Hwnd)) Native.ShowWindow(Hwnd, Native.SW_RESTORE);
+        if (allowShow) Native.RestoreIfMinimized(Hwnd);
         // 摘除可能被外部污染的置顶标记，窗口回到普通层
-        Native.SetWindowPos(Hwnd, Native.HwndNotTopmost, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
-            | Native.SWP_NOOWNERZORDER);
+        Native.SetZOrder(Hwnd, Native.ZOrderPosition.NotTopmost);
         // 跨 DPI 还原两步走（与宿主 OnSourceInitialized 落位同配方）：吸附在异 DPI 屏
         // 宿主里的窗口释放回原屏时，一步到位会先落位再收 WM_DPICHANGED，其"建议矩形"
         // = 原物理尺寸 × DPI 比，应用照单全收就把还原尺寸按比例改写（实测 ×1.5，
         // H7_RECT_RESTORED 抓出，CI 单屏测不到）。先移动触发 DPI 收敛、再设尺寸
-        Native.SetWindowPos(Hwnd, IntPtr.Zero, r.Left, r.Top, 0, 0,
-            Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE
-            | Native.SWP_NOOWNERZORDER);
-        Native.SetWindowPos(Hwnd, IntPtr.Zero, 0, 0, r.Width, r.Height,
-            Native.SWP_NOMOVE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE
-            | Native.SWP_NOOWNERZORDER);
+        Native.MoveWindowTo(Hwnd, r.Left, r.Top);
+        Native.SizeWindowTo(Hwnd, r.Width, r.Height);
     }
 
     /// <summary>
@@ -113,10 +108,12 @@ internal sealed class AttachedChild
     {
         if (!IsAlive) return false;
         // DeleteTab 是 shell 侧运行时状态且无查询接口（explorer 重启会重建 task list、
-        // 个别 shell 事件可能重新收录按钮）——每 ~2s 低频重断言，替代旧的样式位检查
+        // 个别 shell 事件可能重新收录按钮）——每 ~2s 低频重断言；顺带重摘可缩放边框样式位
+        // （应用可能自改样式，无变化时是 no-op）
         if (--_tabReassertCountdown <= 0)
         {
             Native.SetTaskbarTab(Hwnd, show: false);
+            Native.SetResizable(Hwnd, resizable: false);
             _tabReassertCountdown = 8; // 250ms 维护周期 × 8 ≈ 2s
         }
         // 隐藏检查放在 iconic 之前：应用"最小化到托盘"会先最小化再隐藏，此时不能被
@@ -131,7 +128,7 @@ internal sealed class AttachedChild
         _hiddenTicks = 0;
         if (Native.IsIconic(Hwnd) || Native.IsZoomed(Hwnd))
         {
-            Native.ShowWindow(Hwnd, Native.SW_RESTORE);
+            Native.RestoreWindow(Hwnd); // 无任务栏按钮，拉回是唯一恢复途径
         }
         return false;
     }
@@ -158,7 +155,7 @@ internal sealed class AttachedChild
         // 桌面（漏底）。2px 边框时代边线带恰好盖住这 1px 漂移，收窄 1px 后暴露。精确放置后
         // 透明边列与边线同列、被边线盖住。OS 钳制类（窗格小于应用最小宽）会每维护周期重发
         // 一次 SetWindowPos，OS 再次钳制无视觉变化，可接受。
-        if (Native.GetWindowRect(Hwnd, out var r)
+        if (Native.TryGetWindowRect(Hwnd, out var r)
             && r.Left == x && r.Top == y && r.Width == w && r.Height == h)
         {
             return true; // 已就位，避免无谓的 SetWindowPos
@@ -169,33 +166,28 @@ internal sealed class AttachedChild
         // SWP_NOOWNERZORDER 必带：缺了它，移动子窗口会联动重排 owner 链——实测 VS Code
         // 的隐藏终端窗口（PseudoConsoleWindow，owner=code）被系统拖进宿主正下方槽位，
         // 与 250ms 自愈形成永久互搏 = 中线闪烁（2026-11 日志实锤）
-        return Native.SetWindowPos(Hwnd, _host, x, y, w, h,
-            Native.SWP_NOACTIVATE | Native.SWP_NOOWNERZORDER);
+        return Native.PlaceWindowBelow(Hwnd, x, y, w, h, _host);
     }
 
     /// <summary>随宿主整体移动（dx,dy 设备像素；最小化中的子窗口不动）。</summary>
     public void MoveBy(int dx, int dy)
     {
         if (!IsAlive || Native.IsIconic(Hwnd)) return;
-        if (!Native.GetWindowRect(Hwnd, out var r)) return;
-        Native.SetWindowPos(Hwnd, IntPtr.Zero, r.Left + dx, r.Top + dy, 0, 0,
-            Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
+        if (!Native.TryGetWindowRect(Hwnd, out var r)) return;
+        Native.MoveWindowTo(Hwnd, r.Left + dx, r.Top + dy);
     }
 
     /// <summary>移出屏幕外（最小化联动；保持可见位，还原由 PlaceInPane 拉回）。</summary>
     public void MoveOffscreen()
     {
         if (!IsAlive) return;
-        Native.SetWindowPos(Hwnd, IntPtr.Zero, -32000, -32000, 0, 0,
-            Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
+        Native.MoveWindowTo(Hwnd, -32000, -32000);
     }
 
     /// <summary>插到宿主正下方（z 序自愈；最小化中的子窗口不动）。</summary>
     public void PlaceBelowHost()
     {
         if (!IsAlive || Native.IsIconic(Hwnd)) return;
-        Native.SetWindowPos(Hwnd, _host, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
-            | Native.SWP_NOOWNERZORDER);
+        Native.SetZOrderBelow(Hwnd, _host);
     }
 }

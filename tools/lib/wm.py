@@ -218,6 +218,22 @@ def set_toolwindow(h: int, tool: bool) -> None:
     set_window_long(h, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW) if tool else (ex & ~WS_EX_TOOLWINDOW))
 
 
+WS_THICKFRAME = 0x00040000
+SWP_FRAMECHANGED = 0x0020
+
+
+def set_resizable(h: int, resizable: bool) -> None:
+    """摘/还 WS_THICKFRAME（子窗吸附期间禁用户拖边改大小；孤儿救援还原用）。
+    样式变更带 SWP_FRAMECHANGED 触发非客户区重算；无变化时是 no-op。"""
+    style = get_window_long(h, GWL_STYLE)
+    has = (style & WS_THICKFRAME) != 0
+    if resizable == has:
+        return
+    style = (style | WS_THICKFRAME) if resizable else (style & ~WS_THICKFRAME)
+    set_window_long(h, GWL_STYLE, style)
+    set_window_pos(h, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED)
+
+
 # ---------- 任务栏 tab / 圆角偏好（DeleteTab 吸附方案的探针与救援） ----------
 
 _ole32 = ctypes.WinDLL("ole32")

@@ -60,8 +60,7 @@ public sealed partial class HostWindow : Window
         var curDev = PointToScreen(p);
         int nx = (int)Math.Round(curDev.X - _maxDragOffX);
         int ny = (int)Math.Round(curDev.Y - _maxDragOffY);
-        Native.SetWindowPos(_handle, IntPtr.Zero, nx, ny, 0, 0,
-            Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+        Native.MoveWindowTo(_handle, nx, ny);
     }
 
     private void TopBarOnMouseUp(object sender, MouseButtonEventArgs e)
@@ -91,8 +90,7 @@ public sealed partial class HostWindow : Window
         _maxDragOffY = ratioY * rb.Height * scaleY;
         int nx = (int)Math.Round(cursorDev.X - _maxDragOffX);
         int ny = (int)Math.Round(cursorDev.Y - _maxDragOffY);
-        Native.SetWindowPos(_handle, IntPtr.Zero, nx, ny, 0, 0,
-            Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+        Native.MoveWindowTo(_handle, nx, ny);
         _maxDragActive = true;
         if (!_topBar.IsMouseCaptured) _topBar.CaptureMouse(); // 状态变化可能丢捕获，重新拿住以继续收 MouseMove
     }
@@ -174,16 +172,16 @@ public sealed partial class HostWindow : Window
     internal bool IsCoveredAtCursor(IntPtr draggedHwnd)
     {
         if (_handle == IntPtr.Zero || !IsLoaded) return false;
-        if (!Native.GetCursorPos(out var p)) return false;
+        if (!Native.TryGetCursorPos(out var p)) return false;
         for (IntPtr h = Native.GetTopWindow(IntPtr.Zero); h != IntPtr.Zero && h != _handle;
-             h = Native.GetWindow(h, Native.GW_HWNDNEXT))
+             h = Native.GetRelatedWindow(h, Native.GetWindowRelation.HwndNext))
         {
             if (h == draggedHwnd) continue;
             // 自家子窗口属于本单元（点击激活的瞬态会升到宿主上方），不算遮挡
             if (IsAttachedChild(h)) continue;
             if (!Native.IsWindowVisible(h) || Native.IsCloaked(h)) continue;
-            if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TRANSPARENT) != 0) continue;
-            if (!Native.GetWindowRect(h, out var r)) continue;
+            if (Native.HasExStyle(h, Native.WindowExStyles.Transparent)) continue;
+            if (!Native.TryGetWindowRect(h, out var r)) continue;
             if (p.X >= r.Left && p.X < r.Right && p.Y >= r.Top && p.Y < r.Bottom) return true;
         }
         return false;

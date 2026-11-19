@@ -99,9 +99,8 @@ public sealed partial class HostWindow : Window
         }
 
         var center = new Native.POINT { X = (int)((l + r) / 2), Y = (int)((t + b) / 2) };
-        nint hMon = Native.MonitorFromPoint(center, Native.MONITOR_DEFAULTTONEAREST);
-        var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
-        if (!Native.GetMonitorInfo(hMon, ref mi)) return null;
+        nint hMon = Native.MonitorNearestFromPoint(center);
+        if (!Native.TryGetMonitorInfo(hMon, out var mi)) return null;
         var wa = mi.rcWork; // 物理 px
 
         // 尺寸钳制：小于最小尺寸（按目标屏 DPI 换算）/ 大于工作区都修正
@@ -120,11 +119,9 @@ public sealed partial class HostWindow : Window
     private static (double X, double Y, double W, double H, bool Maximized) CascadePlacement(
         (double X, double Y, double W, double H, bool Maximized) pl, double dip)
     {
-        nint hMon = Native.MonitorFromPoint(
-            new Native.POINT { X = (int)(pl.X + pl.W / 2), Y = (int)(pl.Y + pl.H / 2) },
-            Native.MONITOR_DEFAULTTONEAREST);
-        var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
-        if (!Native.GetMonitorInfo(hMon, ref mi)) return pl;
+        nint hMon = Native.MonitorNearestFromPoint(
+            new Native.POINT { X = (int)(pl.X + pl.W / 2), Y = (int)(pl.Y + pl.H / 2) });
+        if (!Native.TryGetMonitorInfo(hMon, out var mi)) return pl;
         double delta = dip * Native.MonitorDpiScale(hMon);
         var wa = mi.rcWork; // 物理 px
         double x = Math.Clamp(pl.X + delta, wa.Left, Math.Max(wa.Left, wa.Right - pl.W));
@@ -155,11 +152,9 @@ public sealed partial class HostWindow : Window
             // 质疑）；改取 profile 上次几何的宽高（还原后用户调过的大小），无/垃圾值
             // → 960×600 默认，居中于布局所在屏。布局与双比例 = 检测形状匹配产物
             // （legacy 双句柄路径布局恒 LR、ratio = 左窗宽占比），与宿主大小无关。
-            nint hMon = Native.MonitorFromPoint(
-                new Native.POINT { X = (int)(snap.Rect.X + snap.Rect.W / 2), Y = (int)(snap.Rect.Y + snap.Rect.H / 2) },
-                Native.MONITOR_DEFAULTTONEAREST);
-            var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
-            if (!Native.GetMonitorInfo(hMon, ref mi))
+            nint hMon = Native.MonitorNearestFromPoint(
+                new Native.POINT { X = (int)(snap.Rect.X + snap.Rect.W / 2), Y = (int)(snap.Rect.Y + snap.Rect.H / 2) });
+            if (!Native.TryGetMonitorInfo(hMon, out var mi))
                 throw new InvalidOperationException("snap 接管：布局所在屏工作区获取失败");
             var wa = mi.rcWork;
             double scale = Native.MonitorDpiScale(hMon);
@@ -490,10 +485,9 @@ public sealed partial class HostWindow : Window
     private static bool KeepOrphanRecord(IntPtr hwnd, long pid)
     {
         if (!Native.IsWindow(hwnd)) return false;
-        Native.GetWindowThreadProcessId(hwnd, out uint actualPid);
+        uint actualPid = Native.GetPid(hwnd);
         if (actualPid != (uint)pid) return false;
-        return Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, out int pref, sizeof(int)) == 0
-            && pref == Native.DWMWCP_DONOTROUND;
+        return Native.HasSquareCorners(hwnd);
     }
 
     // （SetCheckUpdates/SetStartToTray 已随"单一写者"机制退役：SaveConfig 改合并写后，
@@ -544,10 +538,8 @@ public sealed partial class HostWindow : Window
         if (_pendingPlacement is { } p)
         {
             _pendingPlacement = null;
-            Native.SetWindowPos(_handle, IntPtr.Zero, (int)p.X, (int)p.Y, 0, 0,
-                Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-            Native.SetWindowPos(_handle, IntPtr.Zero, 0, 0, (int)p.W, (int)p.H,
-                Native.SWP_NOMOVE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            Native.MoveWindowTo(_handle, (int)p.X, (int)p.Y);
+            Native.SizeWindowTo(_handle, (int)p.W, (int)p.H);
             if (p.Maximized) WindowState = WindowState.Maximized;
         }
         _lastOrigin = PointToScreen(new Point(0, 0));
@@ -613,11 +605,10 @@ public sealed partial class HostWindow : Window
         {
             // 无边框窗口最大化越过任务栏的修正：钳制到工作区
             var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
-            IntPtr monitor = Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST);
+            IntPtr monitor = Native.MonitorNearestFromWindow(hwnd);
             if (monitor != IntPtr.Zero)
             {
-                var info = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
-                if (Native.GetMonitorInfo(monitor, ref info))
+                if (Native.TryGetMonitorInfo(monitor, out var info))
                 {
                     mmi.ptMaxPosition.X = Math.Abs(info.rcWork.Left - info.rcMonitor.Left);
                     mmi.ptMaxPosition.Y = Math.Abs(info.rcWork.Top - info.rcMonitor.Top);
@@ -831,9 +822,27 @@ public sealed partial class HostWindow : Window
                 Visibility = Visibility.Collapsed,
             };
 
+            // 缘条（2026-11-19 用户定：禁子窗拖边改大小）：alpha≈1 的隐形捕获条覆盖四缘 ~6 DIP
+            // 缩放命中带——OS 层点击命中按 per-pixel alpha 判定（≥1 即命中宿主），Chromium 类
+            // 自绘 WM_NCHITTEST 的缩放与标准窗 WS_THICKFRAME 摘除后的残余一并挡住（SetResizable
+            // 的样式摘除只对标准窗有效，Chrome_WidgetWin 类不认）。占位格时被不透明填充层盖住
+            // 无影响；吸附后填充层折叠，缘条接管四缘鼠标命中。代价：子窗四缘 6 DIP 内的交互
+            // （贴边滚动条外缘等）由宿主接管，点击会激活宿主。
+            var stripBrush = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
+            stripBrush.Freeze();
+            const double StripDip = 6;
+            var stripL = new Border { Width = StripDip, HorizontalAlignment = HorizontalAlignment.Left, Background = stripBrush };
+            var stripR = new Border { Width = StripDip, HorizontalAlignment = HorizontalAlignment.Right, Background = stripBrush };
+            var stripT = new Border { Height = StripDip, VerticalAlignment = VerticalAlignment.Top, Background = stripBrush };
+            var stripB = new Border { Height = StripDip, VerticalAlignment = VerticalAlignment.Bottom, Background = stripBrush };
+
             var inner = new Grid();
             inner.Children.Add(hintFill);
             inner.Children.Add(glow);
+            inner.Children.Add(stripL);
+            inner.Children.Add(stripR);
+            inner.Children.Add(stripT);
+            inner.Children.Add(stripB);
 
             var border = new Border
             {
@@ -957,12 +966,8 @@ public sealed partial class HostWindow : Window
         if (_handle == IntPtr.Zero || !IsLoaded || WindowState == WindowState.Minimized) return;
         if (_drag is { IsBusy: true }) return;
         // topmost-toggle：第二步只在第一步成功后执行（NOTOPMOST 落普通带顶端）
-        if (Native.SetWindowPos(_handle, Native.HwndTopmost, 0, 0, 0, 0,
-                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
-                | Native.SWP_NOOWNERZORDER))
-            Native.SetWindowPos(_handle, Native.HwndNotTopmost, 0, 0, 0, 0,
-                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
-                | Native.SWP_NOOWNERZORDER);
+        if (Native.SetZOrder(_handle, Native.ZOrderPosition.Topmost))
+            Native.SetZOrder(_handle, Native.ZOrderPosition.NotTopmost);
         RaiseChildrenBelow();
     }
 
@@ -987,12 +992,12 @@ public sealed partial class HostWindow : Window
         var children = _panes.Where(c => c is not null).ToArray();
         if (children.Length == 0) return;
         var matched = new bool[children.Length];
-        IntPtr below = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetWindow(_handle, Native.GW_HWNDNEXT);
+        IntPtr below = _handle == IntPtr.Zero ? IntPtr.Zero : Native.GetRelatedWindow(_handle, Native.GetWindowRelation.HwndNext);
         for (int seen = 0, hops = 0; seen < children.Length && below != IntPtr.Zero && hops < 32; hops++)
         {
             if (!Native.IsWindowVisible(below) || Native.IsCloaked(below))
             {
-                below = Native.GetWindow(below, Native.GW_HWNDNEXT);
+                below = Native.GetRelatedWindow(below, Native.GetWindowRelation.HwndNext);
                 continue;
             }
             for (int i = 0; i < children.Length; i++)
@@ -1000,7 +1005,7 @@ public sealed partial class HostWindow : Window
                 if (below == children[i]!.Hwnd) matched[i] = true;
             }
             seen++;
-            below = Native.GetWindow(below, Native.GW_HWNDNEXT);
+            below = Native.GetRelatedWindow(below, Native.GetWindowRelation.HwndNext);
         }
         bool needRaise = false;
         for (int i = 0; i < children.Length; i++)
@@ -1118,7 +1123,7 @@ public sealed partial class HostWindow : Window
 
     private bool CursorInTopStrip()
     {
-        if (!Native.GetCursorPos(out var p)) return false;
+        if (!Native.TryGetCursorPos(out var p)) return false;
         var w = PointFromScreen(new Point(p.X, p.Y)); // 物理像素 → 窗口 DIP
         // 触顶唤出、移出隐藏（issue #1，Windows 自动隐藏任务栏语义）：隐藏态只在
         // 触顶阈值带内才滑入；已显示时停留区 = 顶条全高 + 迟滞带——光标停在底边
@@ -1166,14 +1171,15 @@ public sealed partial class HostWindow : Window
         {
             var h = new IntPtr(raw);
             if (!Native.IsWindow(h)) continue;
-            Native.GetWindowThreadProcessId(h, out uint pid);
+            uint pid = Native.GetPid(h);
             if (!pidSet.Contains(pid)) continue; // 句柄已被复用给其他进程，跳过
             Native.SetTaskbarTab(h, show: true); // 任务栏重新收录（已收录时是幂等 no-op）
             Native.SetSquareCorners(h, square: false); // 圆角还原（强杀时 Undock 没跑）
-            if (Native.GetWindowRect(h, out var r) && (r.Left <= -30000 || r.Top <= -30000))
+            Native.SetResizable(h, true); // 可缩放边框还原（同上）
+            if (Native.TryGetWindowRect(h, out var r) && (r.Left <= -30000 || r.Top <= -30000))
             {
                 // 宿主最小化联动时被强杀：窗口还停在移出屏幕外的位置，拉回工作区
-                Native.SetWindowPos(h, IntPtr.Zero, 60, 60, 1200, 800, Native.SWP_NOZORDER);
+                Native.PlaceWindowIn(h, 60, 60, 1200, 800, activate: true);
             }
         }
     }
@@ -1188,13 +1194,14 @@ public sealed partial class HostWindow : Window
     private BitmapSource? TryGetIconSource(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return null;
-        IntPtr hIcon = Native.SendMessage(hwnd, Native.WM_GETICON, (IntPtr)Native.ICON_BIG, IntPtr.Zero);
+        // 图标回退链：WM_GETICON 大图标 → 类图标大 → WM_GETICON 小变体 → 类图标小，
+        // 全 miss 再走 exe 兜底（GetShellIconForWindow）。拿到的都是窗口自有句柄，禁 DestroyIcon
+        if (!Native.TryGetWindowIcon(hwnd, Native.IconKind.Big, out IntPtr hIcon))
+            Native.TryGetClassIcon(hwnd, Native.IconKind.Big, out hIcon);
         if (hIcon == IntPtr.Zero)
-            hIcon = (IntPtr)Native.GetClassLong(hwnd, Native.GCLP_HICON);
+            Native.TryGetWindowIcon(hwnd, Native.IconKind.Small2, out hIcon);
         if (hIcon == IntPtr.Zero)
-            hIcon = Native.SendMessage(hwnd, Native.WM_GETICON, (IntPtr)Native.ICON_SMALL2, IntPtr.Zero);
-        if (hIcon == IntPtr.Zero)
-            hIcon = (IntPtr)Native.GetClassLong(hwnd, Native.GCLP_HICONSM);
+            Native.TryGetClassIcon(hwnd, Native.IconKind.Small2, out hIcon);
         bool shellCopy = false;
         if (hIcon == IntPtr.Zero)
         {
@@ -1221,36 +1228,27 @@ public sealed partial class HostWindow : Window
     /// 返回的 HICON 是 shell 分配的副本，调用方必须 DestroyIcon。</summary>
     private IntPtr GetShellIconForWindow(IntPtr hwnd)
     {
-        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        uint pid = Native.GetPid(hwnd);
         string path = Native.GetProcessImagePath(pid) ?? "";
         if (Native.GetClassNameOf(hwnd) == "ApplicationFrameWindow")
         {
             IntPtr core = Native.FindWindowEx(hwnd, IntPtr.Zero, "Windows.UI.Core.CoreWindow", null);
             if (core != IntPtr.Zero)
             {
-                Native.GetWindowThreadProcessId(core, out uint corePid);
+                uint corePid = Native.GetPid(core);
                 string corePath = Native.GetProcessImagePath(corePid) ?? "";
                 if (corePath.Length > 0) path = corePath;
             }
         }
         if (path.Length == 0) return IntPtr.Zero;
-        var shfi = new Native.SHFILEINFOW();
-        if (Native.SHGetFileInfoW(path, Native.FILE_ATTRIBUTE_NORMAL, ref shfi,
-                (uint)Marshal.SizeOf<Native.SHFILEINFOW>(), Native.SHGFI_ICON | Native.SHGFI_LARGEICON)
-            != IntPtr.Zero)
-        {
-            return shfi.hIcon;
-        }
-        return IntPtr.Zero;
+        return Native.TryGetExeIcon(path, out IntPtr hIcon) ? hIcon : IntPtr.Zero;
     }
 
     /// <summary>任务栏大图标目标尺寸：PMv2 进程下随 DPI 缩放（32px@100% ↔ 48px@150%）。
     /// 固定 32px 画布在高 DPI 上比 shell 要的小一圈——HICON 按本征尺寸绘制、不放大。</summary>
     private (int W, int H) TaskbarIconSize()
     {
-        int w = Native.GetSystemMetrics(Native.SM_CXICON);
-        int h = Native.GetSystemMetrics(Native.SM_CYICON);
-        return (w > 0 ? w : 32, h > 0 ? h : 32);
+        return Native.IconCanvasSize();
     }
 
     /// <summary>把图标源拉伸绘制到任务栏尺寸画布（小源放大保持可见面积，shell 不再缩水）。</summary>
@@ -1554,9 +1552,7 @@ public sealed partial class HostWindow : Window
     private static void RaiseReleasedWindow(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return;
-        Native.SetWindowPos(hwnd, Native.HwndTop, 0, 0, 0, 0,
-            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE
-            | Native.SWP_NOOWNERZORDER);
+        Native.SetZOrder(hwnd, Native.ZOrderPosition.Top);
     }
 
     /// <summary>全部占用格的吸附态自愈入口：应用自行隐藏（连续两个维护周期不可见）→ 走释放；

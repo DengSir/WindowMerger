@@ -47,6 +47,7 @@ def main() -> int:
             else:
                 wm.taskbar_tab(h, True)   # 任务栏/Alt+Tab 重新收录
                 wm.set_corner_pref(h, 0)  # 圆角还原 DEFAULT
+                wm.set_resizable(h, True)  # 可缩放边框还原（强杀时 Undock 没跑）
                 if off:
                     x = 60 + (cascade % 5) * 40
                     y = 60 + (cascade % 5) * 40

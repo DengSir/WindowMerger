@@ -34,7 +34,8 @@ bin\Release\net10.0-windows\WindowMerger.exe merge --left-hwnd 123456 --right-hw
 ## 本仓库踩过的真坑（违反必炸，全部实测）
 
 ### P/Invoke（LibraryImport 源生成器）
-- **不会自动补 W 后缀**：自定义方法名必须显式 `EntryPoint` 指向真实导出名。已为此崩过三次：`GetMonitorInfoW`、`GetWindowTextLengthW`、`DwmSetWindowAttributePointer→DwmSetWindowAttribute`。新增 P/Invoke 时先确认真实导出名
+- **Native.cs 两层结构（2026-11-20 重构）：公开封装层 + 私有 raw 导入区**——外部禁止直调 raw API，新 Win32 需求一律加公开封装（语义化方法 + 枚举 + `Try*` 读取器，旗标组合/cbSize 仪式/图标所有权语义内藏；SetWindowPos 封装族 `NOOWNERZORDER` 恒带，孤儿救援例外走 `PlaceWindowIn(activate: true)` 保裸 `SWP_NOZORDER` 语义）
+- **改方法名 = 换了一个不存在的导出名**：改名导入（如加 `Raw` 后缀）**即使导出名不含 W 也必须显式 `EntryPoint`**（`MonitorFromPointRaw` 启动即崩 `EntryPointNotFoundException`，事件日志实锤）——"不会自动补 W 后缀"是同一坑的特例。已为此崩过三次：`GetMonitorInfoW`、`GetWindowTextLengthW`、`DwmSetWindowAttributePointer→DwmSetWindowAttribute`。新增/改名 P/Invoke 时先确认真实导出名
 - **不支持 `StringBuilder` 参数**：字符串出入参走经典 `DllImport`（CharSet.Unicode）——**漏写 CharSet 按 ANSI 反序列化**：原生端写 WCHAR、size 返回字符数，ANSI marshaller 遇伪空字节提前截断 → `sb.Length < size` → `ToString(0, size)` 越界崩宿主（实测 QueryFullProcessImageNameW 三连崩，2026-11）
 - `dwmapi` 属性 `DWMWA_FORCE_ICONIC_REPRESENTATION` **只写不可读**（Get 返回 E_INVALIDARG）——不要用读回验证它
 - ~~**快捷方式 .lnk 的 WScript.Shell 保存走系统 ANSI 代码页**~~（快捷方式功能已随 merge 子命令退役，2026-11-18，教训留档）：中文文件名前缀"窗口合并"在 en-US（CP1252）被转成字面 `????`（非法文件名字符）→ `Unable to save shortcut` 必败（CI 实测，zh-CN GBK 可编码故开发机从未暴露）。**别走 IShellLinkW 内建 COM interop**：PS5.1/.NET 10 双环境实测 Set* 字符串方法一律 ArgumentException（原因未明），浪费两轮 CI——将来任何 COM 字符串 interop 都优先反射/后期绑定

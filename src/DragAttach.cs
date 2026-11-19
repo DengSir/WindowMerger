@@ -23,14 +23,8 @@ internal sealed class DragAttach : IDisposable
     {
         _host = host;
         _proc = OnWinEvent;
-        _hook = Native.SetWinEventHook(
-            Native.EVENT_SYSTEM_MOVESIZE, Native.EVENT_SYSTEM_MOVESIZEEND,
-            IntPtr.Zero, _proc, 0, 0,
-            Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
-        _hookFg = Native.SetWinEventHook(
-            Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND,
-            IntPtr.Zero, _proc, 0, 0,
-            Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
+        _hook = Native.HookWindowEvents(Native.SystemEvent.MoveSize, Native.SystemEvent.MoveSizeEnd, _proc);
+        _hookFg = Native.HookWindowEvents(Native.SystemEvent.Foreground, Native.SystemEvent.Foreground, _proc);
         _poll = new DispatcherTimer(DispatcherPriority.Input)
         {
             Interval = TimeSpan.FromMilliseconds(50),
@@ -44,21 +38,21 @@ internal sealed class DragAttach : IDisposable
     {
         if (idObject != Native.OBJID_WINDOW || hwnd == IntPtr.Zero) return;
 
-        if (@event == Native.EVENT_SYSTEM_FOREGROUND)
+        if ((Native.SystemEvent)@event == Native.SystemEvent.Foreground)
         {
             // 子窗口成为前台（用户点格子穿透激活/程序自激活）：整个合并单元随之升到
             // 普通窗口之上，对齐普通窗口"点哪整窗到前"的行为
             if (_host.IsAttachedChild(hwnd)) _host.OnChildActivated(hwnd);
             return;
         }
-        if (@event == Native.EVENT_SYSTEM_MOVESIZE)
+        if ((Native.SystemEvent)@event == Native.SystemEvent.MoveSize)
         {
             HostWindow.TracePoint($"MOVESIZE hwnd={hwnd.ToInt64():X}");
             _dragHwnd = hwnd;
             UpdateHighlight();
             _poll.Start();
         }
-        else if (@event == Native.EVENT_SYSTEM_MOVESIZEEND && _dragHwnd == hwnd)
+        else if ((Native.SystemEvent)@event == Native.SystemEvent.MoveSizeEnd && _dragHwnd == hwnd)
         {
             HostWindow.TracePoint($"MOVESIZEEND hwnd={hwnd.ToInt64():X}");
             _poll.Stop();
@@ -71,7 +65,7 @@ internal sealed class DragAttach : IDisposable
                 _host.TryAttach(pane.Value, hwnd);
             }
         }
-        else if (@event == Native.EVENT_SYSTEM_MOVESIZEEND)
+        else if ((Native.SystemEvent)@event == Native.SystemEvent.MoveSizeEnd)
         {
             // 与 _dragHwnd 不一致的 MOVESIZEEND（迟到/交叉事件）：记下防误判事件丢失
             HostWindow.TracePoint($"MOVESIZEEND mismatch hwnd={hwnd.ToInt64():X} dragHwnd={_dragHwnd.ToInt64():X}");
@@ -93,7 +87,7 @@ internal sealed class DragAttach : IDisposable
         // 已吸附子窗口拖动也亮框（归位语义），其余窗口走常规吸附判定
         if (!_host.IsAttachable(hwnd) && !_host.IsAttachedChild(hwnd)) return null;
         // 光标位置为准（MOVESIZEEND 时即松手点），物理设备像素与窗口矩形同坐标系
-        if (!Native.GetCursorPos(out var p)) return null;
+        if (!Native.TryGetCursorPos(out var p)) return null;
         var pane = _host.HitTestPaneAt(p.X, p.Y);
         if (pane is null) return null;
         // 光标处宿主上层有别的窗口（如另一实例的宿主）：用户看到的不是我们的格子，
@@ -107,12 +101,12 @@ internal sealed class DragAttach : IDisposable
         _poll.Stop();
         if (_hook != IntPtr.Zero)
         {
-            Native.UnhookWinEvent(_hook);
+            Native.UnhookWindowEvents(_hook);
             _hook = IntPtr.Zero;
         }
         if (_hookFg != IntPtr.Zero)
         {
-            Native.UnhookWinEvent(_hookFg);
+            Native.UnhookWindowEvents(_hookFg);
             _hookFg = IntPtr.Zero;
         }
     }

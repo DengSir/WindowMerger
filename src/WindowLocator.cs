@@ -46,8 +46,8 @@ public static class WindowLocator
 
             string title = Native.GetTitle(h);
             if (title.Length == 0) return true;
-            if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TOOLWINDOW) != 0) return true;
-            if (Native.GetWindow(h, Native.GW_OWNER) != IntPtr.Zero) return true;
+            if (Native.HasExStyle(h, Native.WindowExStyles.ToolWindow)) return true;
+            if (Native.GetRelatedWindow(h, Native.GetWindowRelation.Owner) != IntPtr.Zero) return true;
             if (ExcludedClasses.Contains(Native.GetClassNameOf(h))) return true;
 
             uint pid = Native.GetPid(h);

@@ -24,7 +24,7 @@ public sealed class PickerWindow : Window
         Height = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
-        ResizeMode = ResizeMode.CanResize;
+        ResizeMode = ResizeMode.NoResize;
 
         var grid = new Grid { Margin = new Thickness(10) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

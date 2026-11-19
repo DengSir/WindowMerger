@@ -31,7 +31,7 @@ internal sealed class TrayController
     private static readonly IntPtr HwndMessage = new(-3); // message-only 父窗口：不进 z 序、不显示
 
     /// <summary>v1 固定 Ctrl+Alt+M（配置化留待有设置 UI 时再做）。</summary>
-    public const uint HotkeyModifiers = Native.MOD_CONTROL | Native.MOD_ALT;
+    public const Native.HotkeyModifiers HotkeyModifiers = Native.HotkeyModifiers.Control | Native.HotkeyModifiers.Alt;
     public const uint HotkeyVirtualKey = 'M'; // VK_M 与 ASCII 同值
 
     public const string SingleInstanceMutexName = "Local\\WindowMerger.Tray.Instance";
@@ -101,8 +101,7 @@ internal sealed class TrayController
             var hwnd = Native.FindWindowEx(HwndMessage, IntPtr.Zero, null, MessageWindowTitle);
             if (hwnd != IntPtr.Zero)
             {
-                Native.GetWindowThreadProcessId(hwnd, out uint pid);
-                Native.AllowSetForegroundWindow(pid);
+                Native.AllowSetForegroundWindow(Native.GetPid(hwnd));
                 return Native.PostMessage(hwnd, WM_OPEN_HOST, IntPtr.Zero, IntPtr.Zero);
             }
             Thread.Sleep(100);

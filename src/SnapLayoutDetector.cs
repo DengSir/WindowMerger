@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace WindowMerger;
 
 /// <summary>接管落位计划：宿主落位矩形（物理 px）+ 布局与双比例覆盖（宿主 ctor 据此
@@ -55,7 +53,7 @@ internal static class SnapLayoutDetector
         var buckets = new Dictionary<IntPtr, List<SnapWindow>>();
         foreach (var w in EnumSnapCandidates())
         {
-            IntPtr mon = Native.MonitorFromWindow(w.Hwnd, Native.MONITOR_DEFAULTTONEAREST);
+            IntPtr mon = Native.MonitorNearestFromWindow(w.Hwnd);
             if (!buckets.TryGetValue(mon, out var list)) buckets[mon] = list = new List<SnapWindow>();
             list.Add(w);
         }
@@ -123,13 +121,13 @@ internal static class SnapLayoutDetector
     {
         IntPtr fg = Native.GetForegroundWindow();
         if (fg == IntPtr.Zero) return null;
-        return IndexOfMonitor(monitors, Native.MonitorFromWindow(fg, Native.MONITOR_DEFAULTTONEAREST));
+        return IndexOfMonitor(monitors, Native.MonitorNearestFromWindow(fg));
     }
 
     private static int? CursorMonitorIndex(List<(IntPtr HMon, Native.RECT Work)> monitors)
     {
-        if (!Native.GetCursorPos(out var pt)) return null;
-        return IndexOfMonitor(monitors, Native.MonitorFromPoint(pt, Native.MONITOR_DEFAULTTONEAREST));
+        if (!Native.TryGetCursorPos(out var pt)) return null;
+        return IndexOfMonitor(monitors, Native.MonitorNearestFromPoint(pt));
     }
 
     private static int? IndexOfMonitor(List<(IntPtr HMon, Native.RECT Work)> monitors, IntPtr hMon)
@@ -353,8 +351,7 @@ internal static class SnapLayoutDetector
         var list = new List<(IntPtr, Native.RECT)>();
         Native.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (hMon, _, ref _, _) =>
         {
-            var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf<Native.MONITORINFO>() };
-            if (Native.GetMonitorInfo(hMon, ref mi)) list.Add((hMon, mi.rcWork));
+            if (Native.TryGetMonitorInfo(hMon, out var mi)) list.Add((hMon, mi.rcWork));
             return true;
         }, IntPtr.Zero);
         return list;
@@ -369,10 +366,10 @@ internal static class SnapLayoutDetector
         Native.EnumWindows((h, _) =>
         {
             if (!Native.IsWindowVisible(h) || Native.IsCloaked(h) || Native.IsIconic(h) || Native.IsZoomed(h)) return true;
-            if ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TOOLWINDOW) != 0) return true;
-            if (Native.GetWindow(h, Native.GW_OWNER) != IntPtr.Zero) return true;
+            if (Native.HasExStyle(h, Native.WindowExStyles.ToolWindow)) return true;
+            if (Native.GetRelatedWindow(h, Native.GetWindowRelation.Owner) != IntPtr.Zero) return true;
             if (WindowLocator.ExcludedClasses.Contains(Native.GetClassNameOf(h))) return true;
-            Native.GetWindowThreadProcessId(h, out uint pid);
+            uint pid = Native.GetPid(h);
             if (pid == selfPid || WindowLocator.IsOtherSelf(pid, selfPid)) return true;
             if (Native.GetTitle(h).Length == 0) return true;
             if (EfbOf(h) is not { } efb) return true;
@@ -383,6 +380,5 @@ internal static class SnapLayoutDetector
     }
 
     private static Native.RECT? EfbOf(IntPtr hwnd)
-        => Native.DwmGetWindowAttributeRect(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS,
-               out var rect, Marshal.SizeOf<Native.RECT>()) == 0 ? rect : null;
+        => Native.TryGetExtendedFrameBounds(hwnd, out var rect) ? rect : null;
 }
