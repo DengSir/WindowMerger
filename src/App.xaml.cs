@@ -28,6 +28,27 @@ public partial class App : Application
     /// <summary>本进程存活宿主快照（多扇平级；换装清理用）。</summary>
     internal IReadOnlyList<HostWindow> Hosts => _hosts;
 
+    /// <summary>hwnd 是否已被本进程任意宿主吸附（跨宿主抢窗防线：检测器排除自有子窗、
+    /// TryAttach 卡点共用）。静态入口——检测器/托盘路径没有 App 实例引用。</summary>
+    internal static bool OwnsAttachedChild(IntPtr hwnd)
+        => (Application.Current as App)?._hosts
+            .Any(h => h.IsLoaded && h.IsAttachedChild(hwnd)) == true;
+
+    /// <summary>hwnd 是否已被**另一扇**宿主吸附（except 自己）：拖入高亮/选择器候选排除与
+    /// TryAttach 拒绝用——本宿主自己的子窗要走归位/换格，不能误拒。</summary>
+    internal static bool OwnsAttachedChildByOther(IntPtr hwnd, HostWindow except)
+        => (Application.Current as App)?._hosts
+            .Any(h => h != except && h.IsLoaded && h.IsAttachedChild(hwnd)) == true;
+
+    /// <summary>指定屏（HMONITOR 比对）上是否有本进程存活宿主（普通 + 接管全覆盖）。
+    /// 比屏序号字典更准：宿主拖去别的屏后判定跟随实际几何，不漂移。</summary>
+    internal static bool HasHostOnMonitor(IntPtr hMonitor)
+        => (Application.Current as App)?._hosts
+            .Any(h => h.IsLoaded
+                && new System.Windows.Interop.WindowInteropHelper(h).Handle is { } handle
+                && handle != IntPtr.Zero
+                && Native.MonitorNearestFromWindow(handle) == hMonitor) == true;
+
     /// <summary>测试屏蔽：WM_NO_TRAY=1 时无参启动退回旧语义（仅主窗、关窗即退出），不起托盘
     /// 不占 mutex 不注册热键。复用 WM_UPDATE_OFF 的三层注入模式（wm.py 导入 / run_all / test.yml），
     /// 现存全部无参启动宿主的测试零改动；noargs_tray_test 自行剥掉该变量验证新语义。</summary>
@@ -217,7 +238,7 @@ public partial class App : Application
     private static void RunDetectSnap()
     {
         try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* 无控制台句柄时忽略 */ }
-        var r = SnapLayoutDetector.DetectAndPick();
+        var r = SnapLayoutDetector.DetectAndPick(OwnsAttachedChild); // 自有吸附子窗不算外部布局
         object payload = r.Group is { } g
             ? new
             {

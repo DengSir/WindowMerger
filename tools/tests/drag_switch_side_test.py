@@ -114,8 +114,18 @@ def main() -> int:
     t_r = wm.get_window_rect(th)
     grab_x, grab_y = wm.title_grab_point(th)
     if wm.proc_name_of(wm.window_from_point(grab_x, grab_y)).lower() != "python":
+        # 抓点被盖（宿主空格区/外来窗）：合法跳过。必须照常清场——此前 return 1 直退
+        # 跳过 graceful_close + target.kill()，宿主与拖靶进程全部残留（2026-11-20 实锤：
+        # 残留宿主吸着已死靶窗的孤儿格，用户看到"关不掉的窗口"）；run_all 对 rc!=0
+        # 判 FAIL，SKIP 约定 exit 0（与 SKIP_FOREIGN_WINDOW 同口径）
         print("SKIP_COVERED_GRAB")
-        return 1
+        wm.set_topmost(hm, False)
+        wm.graceful_close_by_name("WindowMerger")
+        time.sleep(1.2)
+        target.kill()
+        print("DRAG_SWITCH_SIDE_TEST_DONE")
+        print("RESULT SKIP")
+        return 0
     swapped = False
     for attempt in range(3):
         wm.keybd_event(0x12, 0, 0)

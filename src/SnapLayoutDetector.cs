@@ -41,8 +41,11 @@ internal static class SnapLayoutDetector
     /// CI cp1252 控制台安全），Reason 是中文报因（托盘 balloon 用）。</summary>
     public sealed record DetectResult(SnapGroup? Group, string ReasonCode, string Reason);
 
-    /// <summary>检测全部显示器并按"前台窗口所在屏 → 光标所在屏 → 任意"挑一组。</summary>
-    public static DetectResult DetectAndPick()
+    /// <summary>检测全部显示器并按"前台窗口所在屏 → 光标所在屏 → 任意"挑一组。
+    /// ownedFilter：调用方注入的"已被本进程宿主吸附"判定（App.OwnsAttachedChild）——
+    /// 宿主（尤其最大化时）的吸附子窗拼满工作区会被几何判据误识别成 snap 组，
+    /// 开新接管宿主去吸它们 = 新旧两只维护定时器互搏（抢窗），必须在候选阶段排除。</summary>
+    public static DetectResult DetectAndPick(Func<IntPtr, bool>? ownedFilter = null)
     {
         var monitors = EnumMonitors(); // 顺序与索引 = EnumDisplayMonitors 顺序（测试同款口径）
         var groups = new List<SnapGroup>();
@@ -51,7 +54,7 @@ internal static class SnapLayoutDetector
         var many = new List<(int Index, int Count)>(); // 5+ 窗拼满（超出支持格数）
 
         var buckets = new Dictionary<IntPtr, List<SnapWindow>>();
-        foreach (var w in EnumSnapCandidates())
+        foreach (var w in EnumSnapCandidates(ownedFilter))
         {
             IntPtr mon = Native.MonitorNearestFromWindow(w.Hwnd);
             if (!buckets.TryGetValue(mon, out var list)) buckets[mon] = list = new List<SnapWindow>();
@@ -358,8 +361,9 @@ internal static class SnapLayoutDetector
     }
 
     /// <summary>候选窗枚举：可见、未 cloak、非最小化/最大化、非工具窗、无 owner、非 shell 杂窗、
-    /// 非自己（含其他 WindowMerger 实例——口径与 WindowLocator.GetCandidates 一致）。</summary>
-    private static List<SnapWindow> EnumSnapCandidates()
+    /// 非自己（含其他 WindowMerger 实例——口径与 WindowLocator.GetCandidates 一致）、
+    /// 非本进程宿主的吸附子窗（ownedFilter，外部进程窗口须按占有关系排除）。</summary>
+    private static List<SnapWindow> EnumSnapCandidates(Func<IntPtr, bool>? ownedFilter = null)
     {
         uint selfPid = (uint)Environment.ProcessId;
         var found = new List<SnapWindow>();
@@ -368,6 +372,7 @@ internal static class SnapLayoutDetector
             if (!Native.IsWindowVisible(h) || Native.IsCloaked(h) || Native.IsIconic(h) || Native.IsZoomed(h)) return true;
             if (Native.HasExStyle(h, Native.WindowExStyles.ToolWindow)) return true;
             if (Native.GetRelatedWindow(h, Native.GetWindowRelation.Owner) != IntPtr.Zero) return true;
+            if (ownedFilter?.Invoke(h) == true) return true; // 已被本进程宿主吸附：不是外部 snap 布局
             if (WindowLocator.ExcludedClasses.Contains(Native.GetClassNameOf(h))) return true;
             uint pid = Native.GetPid(h);
             if (pid == selfPid || WindowLocator.IsOtherSelf(pid, selfPid)) return true;

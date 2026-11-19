@@ -8,7 +8,9 @@
   S2m 多布局接管 e2e：LCR 三窗同入口吸附 + 拼图图标 + 默认 config Layout=LCR 持久化
   S1c/d/e 多布局检测：LCR 三等分 / LTR 左全高+右列上下 / Quad 四象限
   S4 报因：T 形 UNSUPPORTED / 五列 TOO_MANY:5 / 上下排列 STACKED / 两窗留缝 NO_LAYOUT / 单窗半屏
-  S6 单实例语义：第二无参实例（真托盘环境）秒退 rc0
+   S6 单实例语义：第二无参实例（真托盘环境）秒退 rc0
+   S7 抢窗回归：组合模式宿主已吸附双窗时 post WM_CAPTURE_SNAP → 检测排除自有子窗，
+      不开第二扇宿主、子窗矩形/吸附态不变（旧行为 = 抢走子窗两只宿主互搏）
 （旧 S5 无效句柄随 merge 子命令退役——CLI 句柄注入通道已不存在）
 用法: uv run tools/tests/snap_capture_test.py [--exe 路径]
 警告: 会强杀所有 WindowMerger/Notepad；结束自己拉起的 snap 靶窗。
@@ -526,10 +528,62 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             tray_proc.kill()
         check("S6_TRAY_STOPPED", tray_proc.poll() is not None)
+
+        # ---------- S7 抢窗回归：宿主已吸附子窗时捕捉 → 拒绝，不开第二扇 ----------
+        # （托盘进程已被 S6 终止释放 mutex。组合模式单进程 = 托盘与宿主同进程：检测器
+        # 排除本进程吸附子窗 → 不再把自己的格子拼图当外部 snap 布局开新接管宿主——
+        # 旧行为会抢走子窗，两只宿主的 250ms 维护定时器互搏）
+        cfg7 = wm.load_config_safe()
+        cfg7["StartToTray"] = False  # S2 曾写 True 落盘：宿主必须弹出来
+        wm.save_config(cfg7)
+        combo_env = wm.host_env()
+        combo_env.pop("WM_NO_TRAY", None)  # 托盘必须起（捕捉入口 = 同进程 message 窗）
+        s7 = subprocess.Popen([rig.exe], env=combo_env)
+        host7_up = wm.wait_until(lambda: bool(wm.main_windows_of_pid(s7.pid)), 10000, 200)
+        hosts7 = wm.main_windows_of_pid(s7.pid)
+        check("S7_HOST_UP", host7_up and len(hosts7) == 1, f"hosts={hosts7}")
+        if hosts7:
+            hm7 = hosts7[0]
+            wm.set_window_pos(hm7, None, wa.Left + 30, wa.Top + 30,
+                              min(960, (wa.Right - wa.Left) - 60), min(600, (wa.Bottom - wa.Top) - 60),
+                              SWP_FLAGS)
+            ha = rig.spawn_target("WM_SNAP_A")
+            hb = rig.spawn_target("WM_SNAP_B")
+            done = wm_uia.attach_via_panes(hm7, [(0, "WM_SNAP_A"), (1, "WM_SNAP_B")])
+            check("S7_ATTACH", done == [0, 1], f"done={done}")
+            docked = wm.wait_until(lambda: wm.is_attached(ha) and wm.is_attached(hb), 8000, 200)
+            check("S7_DOCKED", docked, f"corner_a={wm.corner_pref(ha)} corner_b={wm.corner_pref(hb)}")
+            dock_a, dock_b = wm.get_window_rect(ha), wm.get_window_rect(hb)
+            check("S7_CAPTURE_POSTED", wm.post_capture_snap(), "WM_CAPTURE_SNAP → 托盘进程")
+            time.sleep(2.5)  # 检测（自有子窗全被排除 → NO_LAYOUT）+ 拒绝 balloon
+            hosts_after = wm.main_windows_of_pid(s7.pid)
+            check("S7_NO_SECOND_HOST", len(hosts_after) == 1, f"hosts={hosts_after}")
+
+            def _same(r, base) -> bool:
+                return bool(r) and all(abs(x - y) <= 2 for x, y in zip(
+                    (base.Left, base.Top, base.Right, base.Bottom),
+                    (r.Left, r.Top, r.Right, r.Bottom)))
+
+            ra, rb = wm.get_window_rect(ha), wm.get_window_rect(hb)
+            check("S7_RECT_STABLE", _same(ra, dock_a) and _same(rb, dock_b), f"a={ra} b={rb}")
+            check("S7_STILL_ATTACHED", wm.is_attached(ha) and wm.is_attached(hb),
+                  f"corner_a={wm.corner_pref(ha)} corner_b={wm.corner_pref(hb)}")
+            wm.post_close(hm7)  # 优雅关宿主（释放双窗回吸附前矩形）
+            wm.wait_until(lambda: not wm.main_windows_of_pid(s7.pid), 8000, 200)
+        time.sleep(1.0)
+        if s7.poll() is None:
+            s7.terminate()  # 组合模式关宿主不退进程（托盘常驻），测试强杀收尾
+            try:
+                s7.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                s7.kill()
+        check("S7_PROC_STOPPED", s7.poll() is not None)
     finally:
         rig.kill_all()
         kill_title_owners()
         wm.graceful_close_by_name("WindowMerger")
+        time.sleep(1.0)
+        wm.force_kill_by_name("WindowMerger")  # 组合模式托盘常驻：优雅关窗后进程残留兜底（S7）
         if tray_proc.poll() is None:
             tray_proc.terminate()
         wm.remove_config()  # 还原干净状态（后续测试约定 config 从零开始自管）

@@ -43,7 +43,8 @@ internal sealed class TrayController
     private HwndSource? _messageWindow;
     private WF.NotifyIcon? _icon;
     private bool _residentHintShown; // 组合模式关窗常驻提醒只发一次
-    private readonly Dictionary<int, HostWindow> _captures = new(); // 显示器序号 → 进程内接管宿主
+    // （_captures 字典已退役：重捕拒绝改走 App.HasHostOnMonitor 的 HMONITOR 比对——
+    // 普通宿主同样纳入判定，宿主拖屏后不漂移）
 
     /// <summary>启动托盘。返回 false = 已有主实例在运行（调用方唤起它开新扇后退出本进程）。</summary>
     public bool Start()
@@ -110,21 +111,23 @@ internal sealed class TrayController
     }
 
     /// <summary>检测 → 进程内直开接管宿主（单进程多宿主，旧 spawn merge 子命令已退役）；
-    /// 未命中按原因 balloon（检测细节见 SnapLayoutDetector）。</summary>
+    /// 未命中按原因 balloon（检测细节见 SnapLayoutDetector）。检测排除本进程吸附子窗，
+    /// 布局屏有本进程宿主（普通+接管）时拒绝——重复抓同一批窗口会两只宿主互搏。</summary>
     private void Capture()
     {
-        var result = SnapLayoutDetector.DetectAndPick();
+        var result = SnapLayoutDetector.DetectAndPick(App.OwnsAttachedChild);
         if (result.Group is not { } group)
         {
             Balloon("未捕捉 snap 布局", result.Reason);
             return;
         }
 
-        // 同屏已有存活接管宿主 → 不重复抓（两个宿主抢同一批窗口会互相拆吸附态）
-        if (_captures.TryGetValue(group.MonitorIndex, out var prev) && prev.IsLoaded)
+        // 布局所在屏已有本进程宿主 → 不重复抓（两个宿主抢同一批窗口会互相拆吸附态；
+        // HMONITOR 比对：宿主拖去别的屏后判定跟随实际几何，不漂移）
+        if (App.HasHostOnMonitor(group.HMonitor))
         {
             Balloon("未捕捉 snap 布局",
-                $"屏 {group.MonitorIndex + 1} 已有接管宿主在运行，先关闭它再重捕");
+                $"屏 {group.MonitorIndex + 1} 已有本应用窗口在运行，先关闭或释放它再重捕");
             return;
         }
 
@@ -134,8 +137,6 @@ internal sealed class TrayController
             Balloon("接管失败", "接管宿主创建失败（布局所在屏信息获取失败）");
             return;
         }
-        _captures[group.MonitorIndex] = host;
-        host.Closed += (_, _) => _captures.Remove(group.MonitorIndex);
         Balloon("已接管 snap 布局",
             $"屏 {group.MonitorIndex + 1}：{group.Windows.Count} 个窗口已合并（关闭合并窗口即释放回原位）");
     }

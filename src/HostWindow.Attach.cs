@@ -51,6 +51,7 @@ public sealed partial class HostWindow : Window
         if (Native.IsCloaked(hwnd)) return false;
         if (Native.HasExStyle(hwnd, Native.WindowExStyles.ToolWindow)) return false;
         if (Native.GetRelatedWindow(hwnd, Native.GetWindowRelation.Owner) != IntPtr.Zero) return false;
+        if (App.OwnsAttachedChildByOther(hwnd, this)) return false; // 另一宿主的吸附子窗：不亮框不进候选
         uint pid = Native.GetPid(hwnd);
         if (pid == (uint)Environment.ProcessId) return false;
         return !WindowLocator.IsOtherSelf(pid, (uint)Environment.ProcessId); // 排除"另一个自己"
@@ -89,6 +90,15 @@ public sealed partial class HostWindow : Window
         // 已吸附子窗口（toolwindow）被 IsAttachable 排除，但"拖走拖回归位/拖到其他格
         // 换格/Ctrl 拖入替换"都以此为入口——豁免之，存活校验在 IsAttachedChild 内
         if (!IsAttachable(hwnd) && !IsAttachedChild(hwnd)) return;
+        // 跨宿主抢窗卡点：已被另一宿主吸附的窗口不收——两只宿主的 250ms 维护定时器会
+        // 互相拉扯同一批窗口（ApplyLayout/FixZOrder/DeleteTab 断言互覆）。本宿主自己的
+        // 子窗（归位/换格）放行——IndexOfChildHwnd >= 0 已区分
+        if (IndexOfChildHwnd(hwnd) < 0 && App.OwnsAttachedChildByOther(hwnd, this))
+        {
+            TracePoint($"TryAttach pane={pane} hwnd={hwnd.ToInt64():X} 已被另一宿主接管，拒绝");
+            ShowNotice("该窗口已被另一宿主接管，先在原宿主释放再吸附");
+            return;
+        }
         var child = ChildAt(pane);
         IntPtr cur = child?.Hwnd ?? IntPtr.Zero;
 
