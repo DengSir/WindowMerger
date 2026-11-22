@@ -846,12 +846,17 @@ public sealed partial class HostWindow : Window
 
             var border = new Border
             {
-                BorderThickness = new Thickness(1),
+                BorderThickness = new Thickness(0),
+                UseLayoutRounding = true,
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(border, $"_paneBorder{i}");
-            // 窗格包边 = ThemeBar 同色隐形 1px：盖住子窗自带透明边列（Electron 类 EFB 边列
-            // 不渲染，ZCode 实测）与窗格矩形四缘——吸附区观感无边（用户定），画对比色会勾出格子框
-            border.SetResourceReference(Border.BorderBrushProperty, "ThemeBarBrush");
+            // 窗格包边 = 吸附格 2px ThemeBorder 可见框（2026-11-22 用户定稿，实测 1px 仍漏
+            // 2px 正好）：混合 DPI（4K@150 主屏 + 2K@100 副屏）下子窗周边仍偶发漏底缝，
+            // 不再深究根因、直接画框遮缝——框线盖住窗格矩形四缘与子窗自带透明边列
+            // （Electron 类 EFB 边列不渲染，ZCode 实测），中间保持透明（子窗透出 + OS 层
+            // 点击穿透）。空格 thickness=0 保持无边观感，占用切换由 UpdatePaneHints 统一做；
+            // 2 DIP 在 150% 缩放下 = 3 物理px 整数，天然无发丝线（细边框一律 ≥2 DIP 的老规矩）
+            border.SetResourceReference(Border.BorderBrushProperty, "ThemeBorderBrush");
             border.Child = inner;
 
             _paneHost.Children.Add(border);
@@ -1528,12 +1533,16 @@ public sealed partial class HostWindow : Window
     }
 
     /// <summary>空格显示填充与提示文案（不再透明穿透）；该格吸附后隐藏占位恢复透明——
-    /// 子窗口要靠透明格子透出、点击穿透下去交互，吸附格必须回到透明。</summary>
+    /// 子窗口要靠透明格子透出、点击穿透下去交互，吸附格必须回到透明。同时切换窗格包边：
+    /// 吸附格画 2px ThemeBorder 框遮缝（2026-11-22 用户实测 1px 仍漏、2px 正好），
+    /// 空格 thickness=0 无边。</summary>
     private void UpdatePaneHints()
     {
         for (int i = 0; i < _paneHints.Length; i++)
         {
-            _paneHints[i].Visibility = _panes[i] is null ? Visibility.Visible : Visibility.Collapsed;
+            bool empty = _panes[i] is null;
+            _paneHints[i].Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            _paneBorders[i].BorderThickness = empty ? new Thickness(0) : new Thickness(2);
         }
     }
 
